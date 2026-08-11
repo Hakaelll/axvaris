@@ -1,6 +1,6 @@
 use crate::{
     AsnInfo, BaselineBook, BaselineObservation, CaptureMode, CaptureStatus, CaptureSummary,
-    Connection, ConnectionKey, ConnectionState, DashboardSnapshot, DashboardStats,
+    Connection, ConnectionKey, ConnectionState, CounterSource, DashboardSnapshot, DashboardStats,
     DestinationSummary, Diagnostics, GeoLocation, NetworkEventKind, NormalizedNetworkEvent,
     ProcessInfo, ProcessSummary, SessionSummary, TrafficCounters, TransferRates,
 };
@@ -100,6 +100,7 @@ impl ConnectionAggregator {
                     geo: event.geo.clone(),
                     asn: event.asn.clone(),
                     traffic: TrafficCounters::default(),
+                    counter_source: event.counter_source,
                     rates: TransferRates::default(),
                     first_seen_ms: event.timestamp_ms,
                     last_seen_ms: event.timestamp_ms,
@@ -121,6 +122,9 @@ impl ConnectionAggregator {
                 .saturating_sub(connection.last_seen_ms)
                 .max(1);
             connection.traffic.add_assign(event.traffic_delta);
+            if event.counter_source != CounterSource::Unavailable {
+                connection.counter_source = event.counter_source;
+            }
             connection.rates = TransferRates {
                 down_bytes_per_second: event.traffic_delta.bytes_received as f64 * 1_000.0
                     / elapsed_ms as f64,
@@ -471,6 +475,7 @@ mod tests {
                 packets_sent: 1,
                 packets_received: 2,
             },
+            counter_source: CounterSource::EtwFlow,
         }
     }
 

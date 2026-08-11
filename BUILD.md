@@ -33,6 +33,8 @@ pnpm build
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
+rustup target add x86_64-unknown-linux-gnu
+cargo check -p sabicheiro-capture --target x86_64-unknown-linux-gnu --locked
 ```
 
 ## Windows 10/11 x86_64
@@ -48,6 +50,8 @@ The output is under `target/release/bundle/nsis/`. Tauri names the setup executa
 from the configured product; the release workflow normalizes it to
 `Sabicheiro-Setup.exe`. MSI is optional and may require the Windows VBSCRIPT feature.
 The NSIS configuration installs per-user and supplies Start-menu/uninstall entries.
+The local `0.2.0` handoff also copies the installer, portable executable, checksums and
+release notes into `release/Sabicheiro-0.2.0-windows-x64/`.
 
 ## Debian/Ubuntu x86_64
 

@@ -25,6 +25,11 @@ Spacing uses a 4 px base (`4, 8, 12, 16, 20, 24, 32, 40`). Panel radii are 12 px
 buttons/inputs 6 px, badges 4 px and status pills fully rounded. Borders are 0.5–1 px;
 surface value, not shadow, expresses depth.
 
+The brand raster keeps the supplied logo's original geometry and changes only its
+colour treatment to `--void`/graphite/fog/mist/acid-lime. The central figure remains
+dark and deliberately has no added outline. `public/sabicheiro-logo.png` is the source
+for the top bar and the declared Windows/Linux Tauri icon sizes.
+
 ## Typography
 
 The UI requests Inter Variable and falls back to Inter/system UI. Weight 400 is normal;

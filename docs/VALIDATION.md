@@ -1,10 +1,10 @@
-# Sabicheiro 0.1.1 validation record
+# Sabicheiro 0.2.0 validation record
 
-Validation date: 2026-08-10. This record separates evidence produced on the available
-Windows host from checks that require a different operating system, elevated packet
-capture or an interactive visual session. `PASS` means the listed command or check
-completed successfully here. `REVIEW` means the implementation exists but that
-specific runtime evidence was not produced.
+Validation date: 2026-08-11. This record separates evidence produced on the available
+Windows host from checks that require Linux, an elevated capture context or an OS
+screen reader. `PASS` means the listed command/check completed successfully here.
+`REVIEW` means the implementation exists but that target-specific runtime evidence was
+not produced; it is never used as a synonym for pass.
 
 ## Environment
 
@@ -12,16 +12,16 @@ specific runtime evidence was not produced.
 | --- | --- |
 | Host | Windows NT 10.0.26200.0, x86_64 |
 | Rust | `rustc 1.97.1 (8bab26f4f 2026-07-14)` |
-| Cargo | `cargo 1.97.1 (c980f4866 2026-06-30)` |
 | Node.js | `v24.14.0` |
 | pnpm | `11.16.0` |
-| Tauri CLI | `2.11.4` (locked application development dependency) |
-| Validation constraints | No installed WSL distribution or container runtime; no hosted workflow was triggered; final GUI launch approval was rejected by the local tool usage limit |
+| Tauri CLI | `2.11.4` (locked development dependency) |
+| Native target | `x86_64-pc-windows-msvc` |
+| Cross-check target | `x86_64-unknown-linux-gnu` |
+| Constraints | No installed WSL/container runtime; no hosted workflow; normal-user ETW/Pktmon access denied |
 
-No paid API, hosted database, cloud backend, analytics service, commercial map,
-commercial capture driver, paid runner or paid plugin was used. All commands ran
-locally with locked dependencies. The checked-in GitHub Actions workflows are
-`workflow_dispatch` only and were not executed during this validation.
+No paid API, hosted database, cloud backend, analytics service, commercial capture
+driver, paid runner or paid plugin was used. Required features remain local-first and
+zero-service-cost. GitHub Actions workflows are manual-only and were not dispatched.
 
 ## Automated gates
 
@@ -29,79 +29,87 @@ locally with locked dependencies. The checked-in GitHub Actions workflows are
 | --- | --- | --- |
 | Rust formatting | PASS | `cargo fmt --all -- --check` |
 | Rust lints | PASS | `cargo clippy --workspace --all-targets --locked -- -D warnings` |
-| Rust tests | PASS | `cargo test --workspace --all-targets --locked`: 41 passed, 0 failed |
-| Frontend type/build check | PASS | `pnpm --dir apps/desktop check`; TypeScript and Vite production build completed for the final frontend source |
-| Windows release executable | PASS | `cargo build --release -p sabicheiro-desktop --locked`; optimized 0.1.1 executable produced offline |
-| Windows NSIS bundle | PASS | Previously generated Tauri NSIS script updated to 0.1.1 and compiled with the cached local `makensis`; no download used |
-| Cargo license declarations | PASS | 493 locked packages inspected; 0 missing declarations |
-| pnpm license declarations | PASS | 43 unique locked packages inspected; 0 missing declarations |
-| SQLite runtime store | PASS | read-only `PRAGMA integrity_check` returned `ok`; two schema migrations recorded |
-| Unicode adapter discovery | PASS | native Windows provider returned interface addresses and no Unicode replacement characters |
-| Established-peer capture | PASS | native provider and full live engine both ingested a real established TCP pair with matching PID/state/endpoints |
-| Listener classification | PASS | wildcard TCP/bound UDP sockets are hidden by default and excluded from remote baselines |
-| Aggregate interface rates | PASS | deterministic delta/rate test plus live `sysinfo` counter integration; totals remain separate from flows |
-| Exact 0.1.1 GUI smoke | REVIEW | launch escalation was requested but rejected by the local tool usage limit; no alternate UI automation was attempted |
+| Rust tests | PASS | `cargo test --workspace --all-targets --locked`: 47 passed, 0 failed, 1 privilege-sensitive ETW proof ignored by default |
+| Frontend type/build | PASS | TypeScript project build plus Vite production build; 63 modules transformed |
+| Linux capture cross-check | PASS | `cargo check -p sabicheiro-capture --target x86_64-unknown-linux-gnu --locked` |
+| Windows native tables | PASS | Real established loopback TCP pair observed with matching PID/state/endpoints |
+| Adapter discovery | PASS | `GetAdaptersAddresses` returns stable name/LUID/GUID, Unicode names and addresses |
+| SQLite schema v3 | PASS | v1→v3 migration plus connection, timeline provenance, retention, recording and baseline round trips |
+| Session comparison | PASS | Deterministic process/port additions and removals plus CSV/JSON generation paths |
+| Support ZIP | PASS | ZIP32 local/central directory consistency, entry count and allow-listed names tested |
+| Windows release build | PASS | `pnpm --dir apps/desktop tauri build --bundles nsis` |
+| Native executable smoke | PASS | Optimized `0.2.0` started, stayed alive for six seconds, accepted `CloseMainWindow` and exited cleanly |
+| Locked Cargo licenses | PASS | 515 packages, zero missing license declarations |
+| Locked pnpm licenses | PASS | 43 unique packages, zero missing declarations; graph unchanged by 0.2 frontend work |
 
-The 41 Rust tests are distributed as follows: capture 10, core 13, desktop library 6,
-geo 4 and storage 8. The desktop binary target contains no separate unit tests.
+Rust tests are distributed as follows: capture 13 passed plus one ignored live-ETW
+proof, core 13, desktop library 8, Geo/DNS 4 and storage 9. The ignored test is run
+explicitly with:
 
-The frontend production output contained 61 transformed modules. The detailed map and
-globe are independently lazy-loaded so their geometry does not increase the initial
-JavaScript payload:
+```text
+cargo test -p sabicheiro-capture live_etw_observes_loopback_flow_counters --locked -- --ignored --nocapture
+```
+
+On this normal-user host it correctly failed at ETW session creation with Windows
+`ERROR_ACCESS_DENIED`; therefore it is not counted as live ETW evidence.
+
+## Frontend and accessibility evidence
+
+The deterministic local preview was exercised through the in-app browser at 1280×720
+and 1920×1080:
+
+- welcome and populated Demo globe/feed;
+- Remote/Local/Listeners tabs and counts;
+- Settings, notification rules, offline MMDB import, support bundle and diagnostics;
+- English/Castellano switching, including new backend/self-test labels;
+- History traffic bars, Time Machine and session-comparison controls;
+- semantic headings, navigation, tablist, forms, table/image alternatives and live
+  regions exposed in the accessibility tree;
+- `Ctrl+K` opened the command palette and `Escape` closed it;
+- browser console warnings/errors: none.
+
+The first compact History capture exposed that the scroll position from Settings was
+being retained across view changes. A `main-stage` ref now resets both axes whenever
+the primary view changes; the repeat check reported `scrollTop: 0` and showed the full
+History heading. No horizontal overflow was measured at 1920 px.
+
+Vite's final production assets were:
 
 | Asset | Minified | gzip |
 | --- | ---: | ---: |
-| CSS | 38.64 kB | 8.47 kB |
+| CSS | 45.23 kB | 9.69 kB |
 | Shared mesh JavaScript | 3.79 kB | 1.61 kB |
-| Base JavaScript | 295.51 kB | 89.97 kB |
-| Lazy `GlobeScene` JavaScript | 662.19 kB | 179.70 kB |
+| Base JavaScript | 330.31 kB | 100.95 kB |
+| Lazy `GlobeScene` JavaScript | 662.19 kB | 179.71 kB |
 | Lazy detailed `MapView` JavaScript | 759.24 kB | 244.56 kB |
 
-Vite emitted a non-fatal warning because the lazy Three.js globe and detailed map
-chunks exceed 500 kB. Both are dynamically imported; the base application payload is
-smaller than before this split, so this is not a failed build gate.
+Vite emits a non-fatal >500 kB warning for the independently lazy-loaded Three.js
+globe and detailed map. Neither chunk is part of the initial base payload.
 
 ## Windows artifacts
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `target/release/Sabicheiro.exe` | 13,628,928 | `D1CAF2B7F9F143A3F5120F5F6094C5CFA90434AB57E37769F8541B21FA5427E0` |
-| `target/release/bundle/nsis/Sabicheiro_0.1.1_x64-setup.exe` | 3,786,610 | `F14D2725ADC1512D3FE509D9156B58FB7C9A7344C9D0C87152CF08219CA905B4` |
-| `target/release/bundle/nsis/Sabicheiro-Setup.exe` | 3,786,610 | `F14D2725ADC1512D3FE509D9156B58FB7C9A7344C9D0C87152CF08219CA905B4` |
+| `target/release/Sabicheiro.exe` | 18,058,240 | `1D4D89426AE3836EB85F4E4E66549DAD861C2B78919FDB0B1C2097D03C3298D8` |
+| `target/release/bundle/nsis/Sabicheiro_0.2.0_x64-setup.exe` | 7,983,832 | `D606E4CF8FC7F28AF63871036227E87869B6A3D695159C3C934AF20492EF47E4` |
 
-The stable installer filename is a byte-identical copy of the versioned NSIS bundle.
-Both executable and installer Windows resources report file/product version `0.1.1`.
-NSIS compilation completed with only its generated unused-function optimization
-warning. The exact 0.1.1 GUI process could not be launched after the approval request
-was rejected by the tool usage limit; the earlier 0.1.0 lifecycle smoke remains valid
-for the unchanged shell/logging path, while new 0.1.1 tests exercise the complete live
-capture pipeline. A full interactive install/uninstall cycle remains pending.
-
-The native run created/opened the local application database at
-`%APPDATA%/io.sabicheiro.desktop/sabicheiro.sqlite3`. A read-only audit found seven
-application tables and an intact database. Empty connection/session tables are
-expected because the smoke run did not enable capture or demo generation.
-
-## Locked dependency audit
-
-The Cargo graph contains 493 packages and no missing license declaration. Resolved
-expressions are free/open-source terms such as MIT, Apache-2.0, ISC, BSD, Zlib,
-Unicode-3.0, MPL-2.0 and CDLA-Permissive-2.0. The pnpm graph contains 43 unique
-packages: 30 MIT, 4 Apache-2.0, 3 ISC, 3 Apache-2.0 OR MIT, 2 MPL-2.0 and 1
-BSD-3-Clause. See `DEPENDENCIES.md` for purpose, cost and redistribution decisions.
+Both Windows resources report file/product version `0.2.0`. A user-facing copy is in
+`release/Sabicheiro-0.2.0-windows-x64/` with portable/installer names, checksums and
+Spanish release notes. The release directory is intentionally ignored by Git because
+it contains generated binaries.
 
 ## Checks still requiring their target environment
 
 | Check | Result | Reason / next evidence |
 | --- | --- | --- |
-| Debian/Ubuntu AppImage and deb | REVIEW | Linux source and bundle configuration exist, but this host has no usable WSL distribution or container runtime. Build, launch and uninstall on Linux before release. |
-| Linux `/proc/net` live provider | REVIEW | Parser/provider tests pass on Windows; exercise PID attribution and permissions on a real Linux host. |
-| Linux dumpcap recording | REVIEW | Requires Linux plus a locally installed/configured dumpcap. Open every generated part in Wireshark. |
-| Windows Pktmon recording | REVIEW | Inbox `PktMon.exe` is present, but `pktmon status` returned access denied as a normal user. No elevated network recording was started. |
-| Visual and accessibility QA | REVIEW | The in-app browser navigation failed before the preview page loaded, and its security policy then prohibited a retry or alternate browser surface. No screenshot was fabricated or labelled as verified. Run target-size, keyboard and screen-reader checks interactively. |
-| Exact 0.1.1 native window lifecycle | REVIEW | GUI launch approval was rejected because the local tool usage limit had been reached. Launch the delivered installer/executable interactively and confirm start/close. |
-| NSIS install/uninstall UX | REVIEW | Bundle generation passed; exercise the per-user Start-menu entry, launch and uninstaller in a disposable Windows account/VM. |
+| Windows ETW network/DNS events | REVIEW | Implementation, bounded queues and fallback compile; this host denies trace creation to the normal user. Run the ignored proof under an approved trace policy/elevation and confirm PID/5-tuple counters. |
+| Windows Pktmon recording | REVIEW | Requires elevation here. A minimal authenticated privileged helper is not yet implemented; open generated parts in Wireshark when tested. |
+| Debian/Ubuntu AppImage and deb | REVIEW | Bundle configuration exists, but native Tauri packages must be built/launched/uninstalled on Linux. |
+| Linux `INET_DIAG` runtime | REVIEW | UAPI tests and cross-compilation pass; exercise IPv4/IPv6, inode→PID permission behavior and performance on Linux. |
+| Linux dumpcap recording | REVIEW | Requires Linux and a locally configured dumpcap capability/group. |
+| OS screen reader | REVIEW | Semantic tree and keyboard shortcuts passed; run NVDA/Narrator and a Linux screen reader before claiming platform screen-reader certification. |
+| NSIS install/uninstall UX | REVIEW | Bundle generation and portable executable smoke passed; exercise Start-menu entry, installed launch and uninstaller in a disposable account/VM. |
 
-These `REVIEW` items are also tracked in `NEXT_TODOS.md`. They are deliberately not
-presented as passes and do not weaken the local/private/zero-cost guarantees of the
-implemented application.
+These `REVIEW` items remain visible in `NEXT_TODOS.md`. The application degrades
+explicitly when optional evidence is unavailable: no fallback invents an endpoint,
+domain, coordinate, process identity, counter or security verdict.

@@ -47,11 +47,14 @@ export function TopBar({
   return (
     <header className="topbar">
       <button className="brand" onClick={() => onView("globe")} type="button">
-        <span aria-hidden="true" className="brand__mark">
-          <i />
-          <i />
-          <i />
-        </span>
+        <img
+          alt=""
+          aria-hidden="true"
+          className="brand__mark"
+          height="32"
+          src="/sabicheiro-logo.png"
+          width="32"
+        />
         <span>SABICHEIRO</span>
       </button>
       <nav aria-label={t("Primary")} className="primary-nav">

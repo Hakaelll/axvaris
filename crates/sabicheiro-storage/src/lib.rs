@@ -1,9 +1,9 @@
 use rusqlite::{Connection as SqliteConnection, OptionalExtension, Transaction, params};
 use sabicheiro_core::{
     AppSettings, BaselineBook, Bookmark, Connection, ConnectionFilter, ConnectionHistoryStats,
-    ExportFormat, ExportRequest, ExportResult, FocusRules, HistoryEntry, HistoryQuery, IgnoreRule,
-    RecordingState, RecordingStatus, RecordingSummary, RetentionPolicy, RuleKind, SessionSummary,
-    TrafficCounters,
+    CounterSource, ExportFormat, ExportRequest, ExportResult, FocusRules, HistoryEntry,
+    HistoryQuery, IgnoreRule, RecordingState, RecordingStatus, RecordingSummary, RetentionPolicy,
+    RuleKind, SessionSummary, TimelineQuery, TrafficCounters, TrafficSample, TransferRates,
 };
 use std::{
     fs, io,
@@ -11,7 +11,7 @@ use std::{
 };
 use thiserror::Error;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const MAX_QUERY_LIMIT: usize = 10_000;
 
 #[derive(Debug, Error)]
@@ -97,9 +97,18 @@ impl Storage {
             )?;
             transaction.commit()?;
         }
-        if current < SCHEMA_VERSION {
+        if current < 2 {
             let transaction = self.connection.transaction()?;
             migration_v2(&transaction)?;
+            transaction.execute(
+                "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
+                params![2, chrono::Utc::now().timestamp_millis()],
+            )?;
+            transaction.commit()?;
+        }
+        if current < 3 {
+            let transaction = self.connection.transaction()?;
+            migration_v3(&transaction)?;
             transaction.execute(
                 "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
                 params![SCHEMA_VERSION, chrono::Utc::now().timestamp_millis()],
@@ -578,6 +587,7 @@ impl Storage {
         };
         if days == 0 {
             let removed = self.connection.execute("DELETE FROM connections", [])?;
+            self.connection.execute("DELETE FROM traffic_samples", [])?;
             self.connection.execute("DELETE FROM recordings", [])?;
             self.connection.execute("DELETE FROM sessions", [])?;
             return Ok(removed);
@@ -595,7 +605,112 @@ impl Storage {
             "DELETE FROM recordings WHERE COALESCE(ended_at_ms, started_at_ms) < ?1",
             params![cutoff],
         )?;
+        self.connection.execute(
+            "DELETE FROM traffic_samples WHERE timestamp_ms < ?1",
+            params![cutoff],
+        )?;
         Ok(removed)
+    }
+
+    pub fn save_traffic_samples(&mut self, samples: &[TrafficSample]) -> Result<(), StorageError> {
+        let transaction = self.connection.transaction()?;
+        {
+            let mut statement = transaction.prepare(
+                "INSERT INTO traffic_samples(
+                   session_id, timestamp_ms, process_key, source,
+                   bytes_sent, bytes_received, packets_sent, packets_received,
+                   down_bytes_per_second, up_bytes_per_second, packets_per_second
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT(session_id, timestamp_ms, process_key, source) DO UPDATE SET
+                   bytes_sent = excluded.bytes_sent,
+                   bytes_received = excluded.bytes_received,
+                   packets_sent = excluded.packets_sent,
+                   packets_received = excluded.packets_received,
+                   down_bytes_per_second = excluded.down_bytes_per_second,
+                   up_bytes_per_second = excluded.up_bytes_per_second,
+                   packets_per_second = excluded.packets_per_second",
+            )?;
+            for sample in samples {
+                statement.execute(params![
+                    sample.session_id,
+                    sample.timestamp_ms,
+                    sample.process_key.as_deref().unwrap_or(""),
+                    sample.source.as_str(),
+                    sample.counters.bytes_sent.min(i64::MAX as u64) as i64,
+                    sample.counters.bytes_received.min(i64::MAX as u64) as i64,
+                    sample.counters.packets_sent.min(i64::MAX as u64) as i64,
+                    sample.counters.packets_received.min(i64::MAX as u64) as i64,
+                    sample.rates.down_bytes_per_second,
+                    sample.rates.up_bytes_per_second,
+                    sample.rates.packets_per_second,
+                ])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn query_timeline(
+        &self,
+        query: &TimelineQuery,
+    ) -> Result<Vec<TrafficSample>, StorageError> {
+        if query.to_ms < query.from_ms {
+            return Err(StorageError::InvalidFilter(
+                "timeline end precedes its start".into(),
+            ));
+        }
+        let bucket = query.resolution.bucket_ms();
+        let mut statement = self.connection.prepare(
+            "SELECT (timestamp_ms / ?1) * ?1 AS bucket_ms,
+                    session_id, NULLIF(process_key, ''), source,
+                    SUM(bytes_sent), SUM(bytes_received),
+                    SUM(packets_sent), SUM(packets_received),
+                    AVG(down_bytes_per_second), AVG(up_bytes_per_second),
+                    AVG(packets_per_second)
+             FROM traffic_samples
+             WHERE timestamp_ms BETWEEN ?2 AND ?3
+               AND (?4 IS NULL OR session_id = ?4)
+               AND (?5 IS NULL OR process_key = ?5)
+               AND ((?5 IS NULL AND process_key = '') OR ?5 IS NOT NULL)
+             GROUP BY bucket_ms, session_id, process_key, source
+             ORDER BY bucket_ms ASC
+             LIMIT 10000",
+        )?;
+        let rows = statement.query_map(
+            params![
+                bucket,
+                query.from_ms,
+                query.to_ms,
+                query.session_id,
+                query.process_key,
+            ],
+            |row| {
+                let source: String = row.get(3)?;
+                Ok(TrafficSample {
+                    timestamp_ms: row.get(0)?,
+                    session_id: row.get(1)?,
+                    process_key: row.get(2)?,
+                    source: match source.as_str() {
+                        "interface_aggregate" => CounterSource::InterfaceAggregate,
+                        "etw_flow" => CounterSource::EtwFlow,
+                        "demo" => CounterSource::Demo,
+                        _ => CounterSource::Unavailable,
+                    },
+                    counters: TrafficCounters {
+                        bytes_sent: row.get::<_, i64>(4)?.max(0) as u64,
+                        bytes_received: row.get::<_, i64>(5)?.max(0) as u64,
+                        packets_sent: row.get::<_, i64>(6)?.max(0) as u64,
+                        packets_received: row.get::<_, i64>(7)?.max(0) as u64,
+                    },
+                    rates: TransferRates {
+                        down_bytes_per_second: row.get(8)?,
+                        up_bytes_per_second: row.get(9)?,
+                        packets_per_second: row.get(10)?,
+                    },
+                })
+            },
+        )?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
     pub fn export(&self, request: &ExportRequest) -> Result<ExportResult, StorageError> {
@@ -710,6 +825,29 @@ fn migration_v2(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
            status TEXT NOT NULL
          );
          CREATE INDEX idx_recordings_session_time ON recordings(session_id, started_at_ms DESC);",
+    )
+}
+
+fn migration_v3(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
+    transaction.execute_batch(
+        "CREATE TABLE traffic_samples (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+           timestamp_ms INTEGER NOT NULL,
+           process_key TEXT NOT NULL DEFAULT '',
+           source TEXT NOT NULL,
+           bytes_sent INTEGER NOT NULL DEFAULT 0,
+           bytes_received INTEGER NOT NULL DEFAULT 0,
+           packets_sent INTEGER NOT NULL DEFAULT 0,
+           packets_received INTEGER NOT NULL DEFAULT 0,
+           down_bytes_per_second REAL NOT NULL DEFAULT 0,
+           up_bytes_per_second REAL NOT NULL DEFAULT 0,
+           packets_per_second REAL NOT NULL DEFAULT 0,
+           UNIQUE(session_id, timestamp_ms, process_key, source)
+         );
+         CREATE INDEX idx_traffic_samples_time ON traffic_samples(timestamp_ms);
+         CREATE INDEX idx_traffic_samples_session_process
+           ON traffic_samples(session_id, process_key, timestamp_ms);",
     )
 }
 
@@ -869,7 +1007,7 @@ fn recording_status_from_name(value: &str) -> RecordingStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sabicheiro_core::{ConnectionState, Direction, NetworkProtocol};
+    use sabicheiro_core::{ConnectionState, Direction, NetworkProtocol, TimelineResolution};
 
     fn sample_connection() -> Connection {
         let mut connection = Connection::placeholder(1_000);
@@ -907,6 +1045,97 @@ mod tests {
             })
             .expect("overlapping history");
         assert_eq!(overlapping.len(), 1);
+    }
+
+    #[test]
+    fn traffic_timeline_roundtrips_resolution_and_counter_provenance() {
+        let mut storage = Storage::in_memory().expect("storage");
+        storage.start_session("s1", 1_000).expect("session");
+        storage
+            .save_traffic_samples(&[
+                TrafficSample {
+                    timestamp_ms: 1_100,
+                    session_id: Some("s1".into()),
+                    process_key: None,
+                    counters: TrafficCounters {
+                        bytes_sent: 100,
+                        bytes_received: 200,
+                        packets_sent: 1,
+                        packets_received: 2,
+                    },
+                    rates: TransferRates {
+                        down_bytes_per_second: 200.0,
+                        up_bytes_per_second: 100.0,
+                        packets_per_second: 3.0,
+                    },
+                    source: CounterSource::InterfaceAggregate,
+                },
+                TrafficSample {
+                    timestamp_ms: 1_600,
+                    session_id: Some("s1".into()),
+                    process_key: None,
+                    counters: TrafficCounters {
+                        bytes_sent: 300,
+                        bytes_received: 400,
+                        packets_sent: 3,
+                        packets_received: 4,
+                    },
+                    rates: TransferRates {
+                        down_bytes_per_second: 400.0,
+                        up_bytes_per_second: 300.0,
+                        packets_per_second: 7.0,
+                    },
+                    source: CounterSource::InterfaceAggregate,
+                },
+                TrafficSample {
+                    timestamp_ms: 1_600,
+                    session_id: Some("s1".into()),
+                    process_key: Some("browser:7".into()),
+                    counters: TrafficCounters {
+                        bytes_sent: 25,
+                        bytes_received: 50,
+                        packets_sent: 1,
+                        packets_received: 1,
+                    },
+                    rates: TransferRates {
+                        down_bytes_per_second: 50.0,
+                        up_bytes_per_second: 25.0,
+                        packets_per_second: 2.0,
+                    },
+                    source: CounterSource::EtwFlow,
+                },
+            ])
+            .expect("save samples");
+
+        let global = storage
+            .query_timeline(&TimelineQuery {
+                from_ms: 1_000,
+                to_ms: 2_000,
+                session_id: Some("s1".into()),
+                process_key: None,
+                resolution: TimelineResolution::OneSecond,
+            })
+            .expect("global timeline");
+        assert_eq!(global.len(), 1);
+        assert_eq!(global[0].timestamp_ms, 1_000);
+        assert_eq!(global[0].counters.bytes_sent, 400);
+        assert_eq!(global[0].counters.bytes_received, 600);
+        assert_eq!(global[0].rates.down_bytes_per_second, 300.0);
+        assert_eq!(global[0].source, CounterSource::InterfaceAggregate);
+
+        let process = storage
+            .query_timeline(&TimelineQuery {
+                from_ms: 1_000,
+                to_ms: 2_000,
+                session_id: Some("s1".into()),
+                process_key: Some("browser:7".into()),
+                resolution: TimelineResolution::OneMinute,
+            })
+            .expect("process timeline");
+        assert_eq!(process.len(), 1);
+        assert_eq!(process[0].process_key.as_deref(), Some("browser:7"));
+        assert_eq!(process[0].counters.bytes_received, 50);
+        assert_eq!(process[0].source, CounterSource::EtwFlow);
     }
 
     #[test]

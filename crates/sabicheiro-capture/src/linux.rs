@@ -1,59 +1,45 @@
 use crate::{
-    CaptureError, NetworkCaptureProvider, ObservedSocket, SocketIdentity, infer_direction,
-    interface_model, interfaces_from_sysinfo, process::ProcessResolver,
+    CaptureError, NetworkCaptureProvider, ObservedSocket, SocketIdentity,
+    inet_diag_wire::{DiagSocketRow, parse_datagram, request_bytes},
+    infer_direction, interface_model, interfaces_from_sysinfo,
+    process::ProcessResolver,
 };
-use sabicheiro_core::{ConnectionState, Endpoint, NetworkInterface, NetworkProtocol};
+use sabicheiro_core::{ConnectionState, NetworkInterface, NetworkProtocol};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    path::Path,
+    net::IpAddr,
     process::Command,
 };
 
 pub(crate) struct LinuxCaptureProvider {
     processes: ProcessResolver,
+    sequence: u32,
 }
 
 impl LinuxCaptureProvider {
     pub(crate) fn new() -> Self {
         Self {
             processes: ProcessResolver::new(),
+            sequence: 1,
         }
     }
 }
 
 impl NetworkCaptureProvider for LinuxCaptureProvider {
     fn name(&self) -> &'static str {
-        "linux-proc-sockets"
+        "linux-inet-diag"
     }
 
     fn snapshot(&mut self) -> Result<Vec<ObservedSocket>, CaptureError> {
         let mut rows = Vec::new();
-        read_table(
-            Path::new("/proc/net/tcp"),
-            NetworkProtocol::Tcp,
-            false,
-            &mut rows,
-        )?;
-        read_table(
-            Path::new("/proc/net/tcp6"),
-            NetworkProtocol::Tcp,
-            true,
-            &mut rows,
-        )?;
-        read_table(
-            Path::new("/proc/net/udp"),
-            NetworkProtocol::Udp,
-            false,
-            &mut rows,
-        )?;
-        read_table(
-            Path::new("/proc/net/udp6"),
-            NetworkProtocol::Udp,
-            true,
-            &mut rows,
-        )?;
+        let socket = InetDiagSocket::open()?;
+        for family in [libc::AF_INET as u8, libc::AF_INET6 as u8] {
+            for protocol in [NetworkProtocol::Tcp, NetworkProtocol::Udp] {
+                self.sequence = self.sequence.wrapping_add(1).max(1);
+                rows.extend(socket.dump(family, protocol, self.sequence)?);
+            }
+        }
         let wanted = rows.iter().map(|row| row.inode).collect::<HashSet<_>>();
         let owners = socket_owners(&wanted);
         self.processes.refresh(owners.values().copied());
@@ -61,7 +47,8 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
             .into_iter()
             .map(|row| {
                 let pid = owners.get(&row.inode).copied();
-                let direction = infer_direction(&row.local, row.remote.as_ref(), row.state);
+                let state = linux_state(row.state, row.protocol);
+                let direction = infer_direction(&row.local, row.remote.as_ref(), state);
                 ObservedSocket {
                     identity: SocketIdentity {
                         pid,
@@ -71,7 +58,7 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
                     },
                     process: self.processes.resolve(pid),
                     direction,
-                    state: row.state,
+                    state,
                     interface: None,
                 }
             })
@@ -80,6 +67,128 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
 
     fn interfaces(&mut self) -> Result<Vec<NetworkInterface>, CaptureError> {
         Ok(linux_interfaces().unwrap_or_else(interfaces_from_sysinfo))
+    }
+}
+
+struct InetDiagSocket(std::os::fd::RawFd);
+
+impl InetDiagSocket {
+    fn open() -> Result<Self, CaptureError> {
+        let descriptor = unsafe {
+            libc::socket(
+                libc::AF_NETLINK,
+                libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+                libc::NETLINK_INET_DIAG,
+            )
+        };
+        if descriptor < 0 {
+            return Err(os_error("opening INET_DIAG socket"));
+        }
+        let socket = Self(descriptor);
+        let mut local: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
+        local.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+        let bind_result = unsafe {
+            libc::bind(
+                descriptor,
+                (&raw const local).cast::<libc::sockaddr>(),
+                size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+            )
+        };
+        if bind_result != 0 {
+            return Err(os_error("binding INET_DIAG socket"));
+        }
+        let mut kernel: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
+        kernel.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+        let connect_result = unsafe {
+            libc::connect(
+                descriptor,
+                (&raw const kernel).cast::<libc::sockaddr>(),
+                size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+            )
+        };
+        if connect_result != 0 {
+            return Err(os_error("connecting INET_DIAG socket"));
+        }
+        Ok(socket)
+    }
+
+    fn dump(
+        &self,
+        family: u8,
+        protocol: NetworkProtocol,
+        sequence: u32,
+    ) -> Result<Vec<DiagSocketRow>, CaptureError> {
+        let request = request_bytes(family, protocol, sequence);
+        let sent = unsafe {
+            libc::send(
+                self.0,
+                request.as_ptr().cast(),
+                request.len(),
+                libc::MSG_NOSIGNAL,
+            )
+        };
+        if sent < 0 || sent as usize != request.len() {
+            return Err(os_error("sending INET_DIAG request"));
+        }
+        let mut rows = Vec::new();
+        let mut buffer = vec![0_u8; 4 * 1024 * 1024];
+        for _ in 0..1_024 {
+            let received = loop {
+                let result =
+                    unsafe { libc::recv(self.0, buffer.as_mut_ptr().cast(), buffer.len(), 0) };
+                if result < 0
+                    && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+                {
+                    continue;
+                }
+                break result;
+            };
+            if received < 0 {
+                return Err(os_error("reading INET_DIAG response"));
+            }
+            if received == 0 {
+                return Err(CaptureError::InvalidData(
+                    "INET_DIAG closed before completing its dump".into(),
+                ));
+            }
+            if received as usize == buffer.len() {
+                return Err(CaptureError::InvalidData(
+                    "INET_DIAG datagram exceeded the 4 MiB safety buffer".into(),
+                ));
+            }
+            let (mut batch, done) =
+                parse_datagram(&buffer[..received as usize], sequence, protocol)
+                    .map_err(CaptureError::InvalidData)?;
+            rows.append(&mut batch);
+            if rows.len() > 250_000 {
+                return Err(CaptureError::InvalidData(
+                    "INET_DIAG returned more than 250000 sockets".into(),
+                ));
+            }
+            if done {
+                return Ok(rows);
+            }
+        }
+        Err(CaptureError::InvalidData(
+            "INET_DIAG dump did not terminate after 1024 datagrams".into(),
+        ))
+    }
+}
+
+impl Drop for InetDiagSocket {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.0);
+        }
+    }
+}
+
+fn os_error(operation: &str) -> CaptureError {
+    let error = std::io::Error::last_os_error();
+    if matches!(error.raw_os_error(), Some(libc::EACCES) | Some(libc::EPERM)) {
+        CaptureError::PermissionDenied(format!("{operation}: {error}"))
+    } else {
+        CaptureError::OperatingSystem(format!("{operation}: {error}"))
     }
 }
 
@@ -115,102 +224,6 @@ fn parse_linux_interfaces(contents: &str) -> Option<Vec<NetworkInterface>> {
         .map(|(name, addresses)| interface_model(name, addresses, true))
         .collect::<Vec<_>>();
     (!interfaces.is_empty()).then_some(interfaces)
-}
-
-#[derive(Debug)]
-struct ProcSocketRow {
-    local: Endpoint,
-    remote: Option<Endpoint>,
-    protocol: NetworkProtocol,
-    state: ConnectionState,
-    inode: u64,
-}
-
-fn read_table(
-    path: &Path,
-    protocol: NetworkProtocol,
-    ipv6: bool,
-    rows: &mut Vec<ProcSocketRow>,
-) -> Result<(), CaptureError> {
-    let contents = match fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            return Err(CaptureError::PermissionDenied(path.display().to_string()));
-        }
-        Err(error) => return Err(error.into()),
-    };
-    for (line_number, line) in contents.lines().enumerate().skip(1) {
-        match parse_proc_line(line, protocol, ipv6) {
-            Ok(row) => rows.push(row),
-            Err(error) => tracing::debug!(
-                path = %path.display(),
-                line = line_number + 1,
-                %error,
-                "skipping malformed proc socket row"
-            ),
-        }
-    }
-    Ok(())
-}
-
-fn parse_proc_line(
-    line: &str,
-    protocol: NetworkProtocol,
-    ipv6: bool,
-) -> Result<ProcSocketRow, CaptureError> {
-    let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
-    if fields.len() < 10 {
-        return Err(CaptureError::InvalidData(
-            "proc row has fewer than ten fields".into(),
-        ));
-    }
-    let local = parse_proc_endpoint(fields[1], ipv6)?;
-    let parsed_remote = parse_proc_endpoint(fields[2], ipv6)?;
-    let state_value = u8::from_str_radix(fields[3], 16)
-        .map_err(|_| CaptureError::InvalidData("invalid proc socket state".into()))?;
-    let state = linux_state(state_value, protocol);
-    let remote = (!parsed_remote.address.is_unspecified() || parsed_remote.port != 0)
-        .then_some(parsed_remote);
-    let inode = fields[9]
-        .parse::<u64>()
-        .map_err(|_| CaptureError::InvalidData("invalid socket inode".into()))?;
-    Ok(ProcSocketRow {
-        local,
-        remote,
-        protocol,
-        state,
-        inode,
-    })
-}
-
-fn parse_proc_endpoint(value: &str, ipv6: bool) -> Result<Endpoint, CaptureError> {
-    let (address, port) = value
-        .split_once(':')
-        .ok_or_else(|| CaptureError::InvalidData("endpoint lacks port separator".into()))?;
-    let port = u16::from_str_radix(port, 16)
-        .map_err(|_| CaptureError::InvalidData("invalid hexadecimal port".into()))?;
-    let address = if ipv6 {
-        if address.len() != 32 {
-            return Err(CaptureError::InvalidData(
-                "invalid IPv6 field length".into(),
-            ));
-        }
-        let mut bytes = [0_u8; 16];
-        for (index, chunk) in address.as_bytes().chunks_exact(8).enumerate() {
-            let chunk = std::str::from_utf8(chunk)
-                .map_err(|_| CaptureError::InvalidData("non-UTF8 IPv6 field".into()))?;
-            let word = u32::from_str_radix(chunk, 16)
-                .map_err(|_| CaptureError::InvalidData("invalid IPv6 field".into()))?;
-            bytes[index * 4..index * 4 + 4].copy_from_slice(&word.to_le_bytes());
-        }
-        IpAddr::V6(Ipv6Addr::from(bytes))
-    } else {
-        let numeric = u32::from_str_radix(address, 16)
-            .map_err(|_| CaptureError::InvalidData("invalid IPv4 field".into()))?;
-        IpAddr::V4(Ipv4Addr::from(numeric.to_le_bytes()))
-    };
-    Ok(Endpoint::new(address, port))
 }
 
 fn linux_state(value: u8, protocol: NetworkProtocol) -> ConnectionState {
@@ -272,24 +285,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_ipv4_proc_row() {
-        let row = parse_proc_line(
-            "0: 0100007F:C350 01010101:01BB 01 00000000:00000000 00:00000000 00000000 1000 0 12345",
-            NetworkProtocol::Tcp,
-            false,
-        )
-        .expect("row");
-        assert_eq!(row.local.address.to_string(), "127.0.0.1");
-        assert_eq!(row.local.port, 50_000);
-        assert_eq!(row.remote.expect("remote").port, 443);
-        assert_eq!(row.inode, 12_345);
-    }
-
-    #[test]
-    fn provider_reads_proc_tables() {
+    fn provider_reads_inet_diag_tables() {
         let mut provider = LinuxCaptureProvider::new();
         let result = provider.snapshot();
-        assert!(result.is_ok(), "proc table read failed: {result:?}");
+        assert!(result.is_ok(), "INET_DIAG read failed: {result:?}");
     }
 
     #[test]

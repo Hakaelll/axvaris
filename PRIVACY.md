@@ -17,9 +17,10 @@ dataset download and system reverse DNS—are described below.
 
 ## What is stored
 
-By default Sabicheiro retains aggregated connection metadata and session summaries for
-seven days in a local SQLite database. Retention can be Off, 1, 7, 30, 90 days or
-Unlimited. Bookmarks, ignore rules and settings are also local. The database lives in
+By default Sabicheiro retains aggregated connection metadata, one-second traffic
+samples and session summaries for seven days in a local SQLite database. Retention can
+be Off, 1, 7, 30, 90 days or Unlimited. Bookmarks, ignore/notification rules and
+settings are also local. The database lives in
 the platform application-data directory:
 
 - Windows: `%APPDATA%\io.sabicheiro.desktop\` (resolved by Tauri).
@@ -53,6 +54,10 @@ remote IPs. Depending on the machine's DNS configuration, those IPs may be visib
 a router, ISP or chosen DNS provider. Results and negative results are cached locally;
 private/loopback/multicast addresses are never submitted by this worker.
 
+When Windows permits the optional DNS Client ETW session, already-observed local DNS
+answers can be correlated without making any new lookup. ETW queues are bounded and do
+not retain packet payloads.
+
 ## Explicit non-features
 
 There is no telemetry, crash-upload service, analytics SDK, advertising identifier,
@@ -62,7 +67,10 @@ locally.
 
 ## Exports
 
-CSV, JSON and PCAPNG exports occur only after an explicit action at a validated path.
+CSV, JSON, redacted support ZIP and PCAPNG exports occur only after an explicit action
+at a validated path.
 Metadata export can target the active query, time range or session. Sabicheiro does not
 open or upload the result automatically and refuses to overwrite an existing packet
-recording. Rotated packet captures are bounded to four files.
+recording. The support bundle uses an explicit allow-list and excludes connection/raw
+IP history, packet payloads, recordings and secrets. Rotated packet captures are
+bounded to four files.

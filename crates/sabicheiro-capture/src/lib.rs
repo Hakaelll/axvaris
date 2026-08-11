@@ -1,4 +1,6 @@
 mod differ;
+#[cfg(any(target_os = "linux", test))]
+mod inet_diag_wire;
 mod process;
 mod recording;
 
@@ -6,9 +8,13 @@ mod recording;
 mod linux;
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(target_os = "windows")]
+mod windows_events;
 
 pub use differ::SnapshotDiffer;
 pub use recording::RecordingController;
+#[cfg(target_os = "windows")]
+pub use windows_events::{DnsObservation, WindowsEventCapture};
 
 use sabicheiro_core::{
     ConnectionState, Direction, Endpoint, NetworkInterface, NetworkProtocol, ProcessInfo,
@@ -184,7 +190,9 @@ pub(crate) fn interface_model(
             .any(|marker| lower.contains(marker));
     NetworkInterface {
         id: name.clone(),
-        name,
+        stable_id: name.clone(),
+        name: name.clone(),
+        system_name: name,
         description: if is_vpn {
             "VPN or tunnel interface".into()
         } else if is_virtual {
@@ -194,6 +202,8 @@ pub(crate) fn interface_model(
         } else {
             "Network interface".into()
         },
+        luid: None,
+        network_guid: None,
         addresses,
         is_up,
         is_loopback,

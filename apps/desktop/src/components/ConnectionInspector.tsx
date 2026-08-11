@@ -133,9 +133,9 @@ export function ConnectionInspector({
           className="signal-callout"
           key={`${signal.kind}-${signal.title}`}
         >
-          <strong>{signal.title}</strong>
-          <p>{signal.reason}</p>
-          {signal.typical && <small>{signal.typical}</small>}
+          <strong>{t(signal.title)}</strong>
+          <p>{t(signal.reason)}</p>
+          {signal.typical && <small>{t(signal.typical)}</small>}
         </section>
       ))}
       <section className="inspector-section">

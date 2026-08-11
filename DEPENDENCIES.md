@@ -1,6 +1,6 @@
 # Dependency and Cost Review
 
-Review date: 2026-08-09. Every required runtime feature has zero service/API cost.
+Review date: 2026-08-11. Every required runtime feature has zero service/API cost.
 Permissive-license notices are retained in release materials; DB-IP attribution is
 shown in Settings/About and release notices.
 
@@ -23,7 +23,9 @@ shown in Settings/About and release notices.
 | dns-lookup | opt-in system reverse DNS adapter | MIT OR Apache-2.0 | €0 | Allowed with notice | Off by default; cached and off capture thread; may contact configured resolver |
 | reqwest + rustls | explicit DB-IP Lite download | MIT OR Apache-2.0 | €0 | Allowed with notice | Used only when the user requests an update |
 | flate2 | unpack the downloaded MMDB archive | MIT OR Apache-2.0 | €0 | Allowed with notice | Local decompression with a size bound |
-| windows-sys | Windows IP Helper/process FFI | MIT OR Apache-2.0 | €0 | Allowed with notice | Target-specific; calls OS APIs |
+| windows-sys | Windows IP Helper/adapter/process FFI | MIT OR Apache-2.0 | €0 | Allowed with notice | Target-specific; calls OS APIs directly |
+| ferrisetw | bounded Windows network and DNS ETW sessions | MIT OR Apache-2.0 | €0 | Allowed with notice | Optional event enhancement; IP Helper remains the permission-safe fallback |
+| sha2 | offline MMDB integrity fingerprint | MIT OR Apache-2.0 | €0 | Allowed with notice | Computes local SHA-256; no network service |
 | libc | Linux signal handling for clean dumpcap stop | MIT OR Apache-2.0 | €0 | Allowed with notice | Target-specific; no service |
 | tracing | capture debug instrumentation | MIT | €0 | Allowed with notice | No remote collector; lifecycle file logging uses only Rust std/chrono |
 | tempfile (dev) | isolated storage tests | MIT OR Apache-2.0 | €0 | Development only | Not shipped as a service |
@@ -32,7 +34,6 @@ shown in Settings/About and release notices.
 | WebView2 | Windows webview runtime | Microsoft runtime terms | €0 | Evergreen/bootstrap permitted by Tauri | Included with supported Windows versions |
 | WebKitGTK | Linux system webview | LGPL-2.1+ components | €0 | Dynamically linked system dependency | Installed by distro, not modified/bundled by source tree |
 | Pktmon | optional Windows packet recording | Windows inbox component | €0 | Not redistributed | Windows 10 2004+/11; elevation may be required |
-| PowerShell + NetTCPIP module | fixed Windows interface discovery | Windows inbox component | €0 | Not redistributed | No user input is interpolated into the command |
 | iproute2 `ip` | fixed Linux interface discovery | GPL-2.0-or-later | €0 | System dependency, not bundled | Used only for address/interface enumeration |
 | dumpcap/Wireshark | explicit Linux PCAPNG recording | GPL-2.0-or-later | €0 | System dependency, not bundled | Optional; distro capture-group/capability setup |
 | libpcap/Npcap runtime | dumpcap dependency / possible future source | BSD (libpcap); Npcap custom | €0 baseline | **Not redistributed** | Npcap is never mandatory; its restrictions prevent bundling |
@@ -59,9 +60,9 @@ shown in Settings/About and release notices.
 
 ## Locked transitive audit
 
-The 2026-08-09 locked audit inspected every package manifest available locally:
+The 2026-08-11 locked audit inspected every package manifest available locally:
 
-- Cargo metadata: **493 packages**, zero missing license declarations. The set is
+- Cargo metadata: **515 packages**, zero missing license declarations. The set is
   composed of MIT/Apache/ISC/BSD/Zlib/Unicode/MPL-2.0 and other compatible permissive
   expressions (including CDLA-Permissive-2.0 data); no commercial-only crate appears.
 - pnpm store: **43 unique packages**, zero missing license declarations: 30 MIT, 4

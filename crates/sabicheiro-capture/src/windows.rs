@@ -4,10 +4,25 @@ use crate::{
 };
 use sabicheiro_core::{ConnectionState, Endpoint, NetworkInterface, NetworkProtocol};
 use std::{
-    ffi::c_void,
+    ffi::{CStr, c_void},
     mem::size_of,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     ptr,
+};
+use windows_sys::{
+    Win32::{
+        Foundation::ERROR_BUFFER_OVERFLOW,
+        NetworkManagement::{
+            IpHelper::{
+                GAA_FLAG_INCLUDE_PREFIX, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER,
+                GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses, IF_TYPE_SOFTWARE_LOOPBACK,
+                IP_ADAPTER_ADDRESSES_LH,
+            },
+            Ndis::IfOperStatusUp,
+        },
+        Networking::WinSock::{SOCKADDR_IN, SOCKADDR_IN6},
+    },
+    core::GUID,
 };
 
 const AF_INET: u32 = 2;
@@ -109,11 +124,164 @@ impl NetworkCaptureProvider for WindowsCaptureProvider {
     }
 
     fn interfaces(&mut self) -> Result<Vec<NetworkInterface>, CaptureError> {
-        // sysinfo uses GetAdaptersAddresses on Windows. Unlike redirected Windows
-        // PowerShell output, its UTF-16 friendly names and unicast addresses are
-        // converted without a legacy code-page round trip.
-        Ok(interfaces_from_sysinfo())
+        windows_interfaces().or_else(|error| {
+            tracing::warn!(%error, "stable adapter discovery failed; using the compatibility list");
+            let fallback = interfaces_from_sysinfo();
+            (!fallback.is_empty()).then_some(fallback).ok_or(error)
+        })
     }
+}
+
+fn windows_interfaces() -> Result<Vec<NetworkInterface>, CaptureError> {
+    const FAMILY_UNSPECIFIED: u32 = 0;
+    const MAX_ADAPTER_BYTES: u32 = 16 * 1024 * 1024;
+    let flags = GAA_FLAG_INCLUDE_PREFIX
+        | GAA_FLAG_SKIP_ANYCAST
+        | GAA_FLAG_SKIP_MULTICAST
+        | GAA_FLAG_SKIP_DNS_SERVER;
+    let mut size = 15_000_u32;
+    for _ in 0..3 {
+        if size == 0 || size > MAX_ADAPTER_BYTES {
+            break;
+        }
+        // usize alignment is sufficient for IP_ADAPTER_ADDRESSES and its linked nodes.
+        let mut storage = vec![0_usize; (size as usize).div_ceil(size_of::<usize>())];
+        let result = unsafe {
+            GetAdaptersAddresses(
+                FAMILY_UNSPECIFIED,
+                flags,
+                ptr::null(),
+                storage.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>(),
+                &mut size,
+            )
+        };
+        if result == ERROR_BUFFER_OVERFLOW {
+            continue;
+        }
+        if result != 0 {
+            return Err(CaptureError::OperatingSystem(format!(
+                "GetAdaptersAddresses failed with Windows error {result}"
+            )));
+        }
+        let mut interfaces = Vec::new();
+        let mut current = storage.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+        for _ in 0..4_096 {
+            let Some(adapter) = (unsafe { current.as_ref() }) else {
+                break;
+            };
+            let permanent_name = unsafe { c_string(adapter.AdapterName) };
+            let friendly_name = unsafe { wide_string(adapter.FriendlyName) }
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| permanent_name.clone());
+            let native_description =
+                unsafe { wide_string(adapter.Description) }.filter(|value| !value.is_empty());
+            let mut addresses = Vec::new();
+            let mut unicast = adapter.FirstUnicastAddress;
+            for _ in 0..512 {
+                let Some(address) = (unsafe { unicast.as_ref() }) else {
+                    break;
+                };
+                if let Some(ip) = unsafe { socket_address(address.Address.lpSockaddr) } {
+                    addresses.push(ip);
+                }
+                unicast = address.Next;
+            }
+            let mut interface = crate::interface_model(
+                friendly_name.clone(),
+                addresses,
+                adapter.OperStatus == IfOperStatusUp,
+            );
+            let luid = unsafe { adapter.Luid.Value };
+            let network_guid = format_guid(adapter.NetworkGuid);
+            let stable_id = if !permanent_name.is_empty() {
+                format!("windows-adapter:{}", permanent_name.to_ascii_lowercase())
+            } else if luid != 0 {
+                format!("windows-luid:{luid:016x}")
+            } else {
+                format!("windows-name:{}", friendly_name.to_ascii_lowercase())
+            };
+            interface.id = stable_id.clone();
+            interface.stable_id = stable_id;
+            interface.system_name = permanent_name;
+            interface.luid = (luid != 0).then_some(luid);
+            interface.network_guid = network_guid;
+            interface.is_loopback =
+                interface.is_loopback || adapter.IfType == IF_TYPE_SOFTWARE_LOOPBACK;
+            if let Some(description) = native_description {
+                interface.description = description;
+            }
+            interfaces.push(interface);
+            current = adapter.Next;
+        }
+        interfaces.sort_by(|left, right| left.name.cmp(&right.name));
+        return Ok(interfaces);
+    }
+    Err(CaptureError::InvalidData(
+        "GetAdaptersAddresses returned an unstable buffer size".into(),
+    ))
+}
+
+unsafe fn c_string(value: *mut u8) -> String {
+    if value.is_null() {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(value.cast()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+unsafe fn wide_string(value: *mut u16) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    let mut length = 0_usize;
+    while length < 32_768 && unsafe { *value.add(length) } != 0 {
+        length += 1;
+    }
+    (length < 32_768)
+        .then(|| String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(value, length) }))
+}
+
+unsafe fn socket_address(
+    value: *mut windows_sys::Win32::Networking::WinSock::SOCKADDR,
+) -> Option<IpAddr> {
+    let family = unsafe { value.as_ref() }?.sa_family as u32;
+    match family {
+        AF_INET => {
+            let address = unsafe { &*value.cast::<SOCKADDR_IN>() };
+            let bytes = unsafe { address.sin_addr.S_un.S_un_b };
+            Some(IpAddr::V4(Ipv4Addr::new(
+                bytes.s_b1, bytes.s_b2, bytes.s_b3, bytes.s_b4,
+            )))
+        }
+        AF_INET6 => {
+            let address = unsafe { &*value.cast::<SOCKADDR_IN6>() };
+            Some(IpAddr::V6(Ipv6Addr::from(unsafe {
+                address.sin6_addr.u.Byte
+            })))
+        }
+        _ => None,
+    }
+}
+
+fn format_guid(guid: GUID) -> Option<String> {
+    if guid.data1 == 0 && guid.data2 == 0 && guid.data3 == 0 && guid.data4 == [0; 8] {
+        return None;
+    }
+    Some(format!(
+        "{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        guid.data1,
+        guid.data2,
+        guid.data3,
+        guid.data4[0],
+        guid.data4[1],
+        guid.data4[2],
+        guid.data4[3],
+        guid.data4[4],
+        guid.data4[5],
+        guid.data4[6],
+        guid.data4[7]
+    ))
 }
 
 fn read_tcp4() -> Result<Vec<ObservedSocket>, CaptureError> {

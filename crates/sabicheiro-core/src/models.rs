@@ -144,6 +144,27 @@ impl TrafficCounters {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CounterSource {
+    #[default]
+    Unavailable,
+    InterfaceAggregate,
+    EtwFlow,
+    Demo,
+}
+
+impl CounterSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unavailable => "unavailable",
+            Self::InterfaceAggregate => "interface_aggregate",
+            Self::EtwFlow => "etw_flow",
+            Self::Demo => "demo",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct TransferRates {
     pub down_bytes_per_second: f64,
@@ -186,6 +207,8 @@ pub struct Connection {
     pub geo: Option<GeoLocation>,
     pub asn: Option<AsnInfo>,
     pub traffic: TrafficCounters,
+    #[serde(default)]
+    pub counter_source: CounterSource,
     pub rates: TransferRates,
     pub first_seen_ms: i64,
     pub last_seen_ms: i64,
@@ -219,6 +242,7 @@ impl Connection {
             geo: None,
             asn: None,
             traffic: TrafficCounters::default(),
+            counter_source: CounterSource::Unavailable,
             rates: TransferRates::default(),
             first_seen_ms: timestamp_ms,
             last_seen_ms: timestamp_ms,
@@ -254,6 +278,8 @@ pub struct NormalizedNetworkEvent {
     pub geo: Option<GeoLocation>,
     pub asn: Option<AsnInfo>,
     pub traffic_delta: TrafficCounters,
+    #[serde(default)]
+    pub counter_source: CounterSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -304,6 +330,10 @@ pub struct Diagnostics {
     pub dropped_ui_events: u64,
     pub queue_saturation: f32,
     pub backend: String,
+    pub capture_event_source: String,
+    pub flow_counters_available: bool,
+    pub packet_events_observed: u64,
+    pub dns_correlations_observed: u64,
     pub last_error: Option<String>,
 }
 
@@ -380,8 +410,16 @@ impl DashboardSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkInterface {
     pub id: String,
+    #[serde(default)]
+    pub stable_id: String,
     pub name: String,
+    #[serde(default)]
+    pub system_name: String,
     pub description: String,
+    #[serde(default)]
+    pub luid: Option<u64>,
+    #[serde(default)]
+    pub network_guid: Option<String>,
     pub addresses: Vec<IpAddr>,
     pub is_up: bool,
     pub is_loopback: bool,
@@ -455,6 +493,8 @@ pub struct AppSettings {
     pub ui_language: String,
     pub demo_seed: u64,
     pub feed_group_window_seconds: u32,
+    pub active_workspace: ConnectionWorkspace,
+    pub notification_rules: Vec<NotificationRule>,
 }
 
 impl Default for AppSettings {
@@ -472,8 +512,37 @@ impl Default for AppSettings {
             ui_language: "en".into(),
             demo_seed: 0x5A81_C4E1,
             feed_group_window_seconds: 30,
+            active_workspace: ConnectionWorkspace::Remote,
+            notification_rules: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionWorkspace {
+    #[default]
+    Remote,
+    Local,
+    Listeners,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationRuleKind {
+    NewProcess,
+    NewCountry,
+    Asn,
+    Port,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationRule {
+    pub id: String,
+    pub kind: NotificationRuleKind,
+    pub value: Option<String>,
+    pub enabled: bool,
+    pub cooldown_seconds: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -551,7 +620,96 @@ pub struct GeoDatabaseStatus {
     pub last_update_ms: Option<i64>,
     pub next_recommended_update_ms: Option<i64>,
     pub path: Option<String>,
+    #[serde(default)]
+    pub edition: Option<String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
     pub attribution: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimelineResolution {
+    OneSecond,
+    OneMinute,
+    OneHour,
+}
+
+impl TimelineResolution {
+    pub const fn bucket_ms(self) -> i64 {
+        match self {
+            Self::OneSecond => 1_000,
+            Self::OneMinute => 60_000,
+            Self::OneHour => 3_600_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimelineQuery {
+    pub from_ms: i64,
+    pub to_ms: i64,
+    pub session_id: Option<String>,
+    pub process_key: Option<String>,
+    pub resolution: TimelineResolution,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrafficSample {
+    pub timestamp_ms: i64,
+    pub session_id: Option<String>,
+    pub process_key: Option<String>,
+    pub counters: TrafficCounters,
+    pub rates: TransferRates,
+    pub source: CounterSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SelfTestLevel {
+    Pass,
+    Warn,
+    Fail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelfTestCheck {
+    pub id: String,
+    pub level: SelfTestLevel,
+    pub title: String,
+    pub detail: String,
+    pub diagnostic_code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureSelfTest {
+    pub generated_at_ms: i64,
+    pub checks: Vec<SelfTestCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComparisonRow {
+    pub key: String,
+    pub left_count: usize,
+    pub right_count: usize,
+    pub delta: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionComparison {
+    pub left_session_id: String,
+    pub right_session_id: String,
+    pub processes: Vec<ComparisonRow>,
+    pub destinations: Vec<ComparisonRow>,
+    pub countries: Vec<ComparisonRow>,
+    pub ports: Vec<ComparisonRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupportBundleRequest {
+    pub path: String,
+    pub include_settings: bool,
+    pub include_logs: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

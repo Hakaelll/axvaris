@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import type { HistoryQuery, HistoryResponse } from "../types";
+import type {
+  HistoryQuery,
+  HistoryResponse,
+  SessionComparison,
+  TimelineResolution,
+  TrafficSample,
+} from "../types";
 import { formatBytes, formatDateTime, formatDuration } from "../lib/format";
+import { desktopApi } from "../lib/backend";
 
 interface HistoryViewProps {
   loadHistory: (
@@ -37,6 +44,19 @@ export function HistoryView({
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [cursorMs, setCursorMs] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [traffic, setTraffic] = useState<TrafficSample[]>([]);
+  const [trafficResolution, setTrafficResolution] =
+    useState<TimelineResolution>("one_minute");
+  const [timelinePaused, setTimelinePaused] = useState(false);
+  const [leftSession, setLeftSession] = useState("");
+  const [rightSession, setRightSession] = useState("");
+  const [comparison, setComparison] = useState<SessionComparison | null>(null);
+  const [comparisonCategory, setComparisonCategory] = useState<
+    "processes" | "destinations" | "countries" | "ports"
+  >("processes");
+  const [comparisonExported, setComparisonExported] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +101,45 @@ export function HistoryView({
     else setCursorMs(null);
   }, [bounds]);
 
+  useEffect(() => {
+    if (timelinePaused) return;
+    const now = Date.now();
+    const fromMs =
+      bounds?.start ??
+      (range.milliseconds === null
+        ? now - 7 * 86_400_000
+        : now - range.milliseconds);
+    const toMs = bounds?.end ?? now;
+    let cancelled = false;
+    void desktopApi
+      .queryTrafficTimeline({
+        from_ms: fromMs,
+        to_ms: toMs,
+        session_id: selectedSession,
+        process_key: null,
+        resolution: trafficResolution,
+      })
+      .then((samples) => {
+        if (!cancelled) setTraffic(samples);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bounds?.end,
+    bounds?.start,
+    range.milliseconds,
+    selectedSession,
+    timelinePaused,
+    trafficResolution,
+  ]);
+
+  useEffect(() => {
+    const sessions = history?.sessions ?? [];
+    if (!leftSession && sessions[1]) setLeftSession(sessions[1].id);
+    if (!rightSession && sessions[0]) setRightSession(sessions[0].id);
+  }, [history?.sessions, leftSession, rightSession]);
+
   const histogram = useMemo(() => {
     const buckets = Array.from({ length: 32 }, () => 0);
     if (!bounds) return buckets;
@@ -98,6 +157,33 @@ export function HistoryView({
     return buckets;
   }, [bounds, history]);
   const maximum = Math.max(1, ...histogram);
+  const trafficBars = useMemo(() => {
+    if (traffic.length <= 96)
+      return traffic.map((sample) => ({
+        timestamp_ms: sample.timestamp_ms,
+        rate:
+          sample.rates.down_bytes_per_second + sample.rates.up_bytes_per_second,
+      }));
+    const size = Math.ceil(traffic.length / 96);
+    const bars: { timestamp_ms: number; rate: number }[] = [];
+    for (let index = 0; index < traffic.length; index += size) {
+      const group = traffic.slice(index, index + size);
+      bars.push({
+        timestamp_ms: group.at(-1)?.timestamp_ms ?? 0,
+        rate:
+          group.reduce(
+            (sum, sample) =>
+              sum +
+              sample.rates.down_bytes_per_second +
+              sample.rates.up_bytes_per_second,
+            0,
+          ) / Math.max(1, group.length),
+      });
+    }
+    return bars;
+  }, [traffic]);
+  const trafficMaximum = Math.max(1, ...trafficBars.map((item) => item.rate));
+  const trafficSource = traffic[0]?.source ?? "unavailable";
   const reconstructedCount =
     cursorMs === null
       ? 0
@@ -151,6 +237,65 @@ export function HistoryView({
           </button>
         </div>
       </header>
+      <section className="traffic-timeline-panel">
+        <header>
+          <div>
+            <span className="eyebrow">{t("TRAFFIC TIMELINE")}</span>
+            <strong>
+              {t("Stored rates / {source}", { source: trafficSource })}
+            </strong>
+          </div>
+          <div className="traffic-timeline-panel__controls">
+            <div className="segmented" aria-label={t("Traffic resolution")}>
+              {(
+                [
+                  ["one_second", "1 s"],
+                  ["one_minute", "1 min"],
+                  ["one_hour", "1 h"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  aria-pressed={trafficResolution === value}
+                  className={
+                    trafficResolution === value ? "is-active" : undefined
+                  }
+                  key={value}
+                  onClick={() => setTrafficResolution(value)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              aria-pressed={timelinePaused}
+              className="button button--secondary"
+              onClick={() => setTimelinePaused((value) => !value)}
+              type="button"
+            >
+              {timelinePaused ? t("Resume timeline") : t("Pause timeline")}
+            </button>
+          </div>
+        </header>
+        <div
+          aria-label={t("Traffic rates over selected time range")}
+          className="traffic-timeline-panel__bars"
+          role="img"
+        >
+          {trafficBars.map((bar, index) => (
+            <span
+              key={`${bar.timestamp_ms}-${index}`}
+              style={{
+                height: `${Math.max(2, (bar.rate / trafficMaximum) * 100)}%`,
+              }}
+              title={`${formatDateTime(bar.timestamp_ms)} / ${formatBytes(bar.rate)}/s`}
+            />
+          ))}
+          {trafficBars.length === 0 && (
+            <p>{t("No traffic samples in this range.")}</p>
+          )}
+        </div>
+      </section>
       <div
         aria-label={t("Connection activity over selected time range")}
         className="timeline"
@@ -352,6 +497,136 @@ export function HistoryView({
           )}
         </div>
       </div>
+      <section className="session-comparison">
+        <header>
+          <div>
+            <span className="eyebrow">{t("SESSION COMPARISON")}</span>
+            <h2>{t("Compare retained evidence")}</h2>
+            <p>
+              {t(
+                "Compare processes, destinations, countries and ports without leaving local storage.",
+              )}
+            </p>
+          </div>
+          <div className="session-comparison__selectors">
+            <select
+              aria-label={t("Earlier session")}
+              onChange={(event) => setLeftSession(event.target.value)}
+              value={leftSession}
+            >
+              <option value="">{t("Earlier session")}</option>
+              {(history?.sessions ?? []).map((session) => (
+                <option key={session.id} value={session.id}>
+                  {formatDateTime(session.started_at_ms)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label={t("Later session")}
+              onChange={(event) => setRightSession(event.target.value)}
+              value={rightSession}
+            >
+              <option value="">{t("Later session")}</option>
+              {(history?.sessions ?? []).map((session) => (
+                <option key={session.id} value={session.id}>
+                  {formatDateTime(session.started_at_ms)}
+                </option>
+              ))}
+            </select>
+            <button
+              className="button button--primary"
+              disabled={
+                !leftSession || !rightSession || leftSession === rightSession
+              }
+              onClick={() =>
+                void desktopApi
+                  .compareSessions(leftSession, rightSession)
+                  .then(setComparison)
+              }
+              type="button"
+            >
+              {t("Compare sessions")}
+            </button>
+          </div>
+        </header>
+        {comparison && (
+          <>
+            <div className="session-comparison__toolbar">
+              <div className="segmented" aria-label={t("Comparison category")}>
+                {(
+                  ["processes", "destinations", "countries", "ports"] as const
+                ).map((category) => (
+                  <button
+                    aria-pressed={comparisonCategory === category}
+                    className={
+                      comparisonCategory === category ? "is-active" : undefined
+                    }
+                    key={category}
+                    onClick={() => setComparisonCategory(category)}
+                    type="button"
+                  >
+                    {t(category)}
+                  </button>
+                ))}
+              </div>
+              <div>
+                {(["csv", "json"] as const).map((format) => (
+                  <button
+                    className="button button--secondary"
+                    key={format}
+                    onClick={() =>
+                      void desktopApi
+                        .exportSessionComparison({
+                          left_session_id: leftSession,
+                          right_session_id: rightSession,
+                          format,
+                          path: `sabicheiro-session-comparison-${Date.now()}.${format}`,
+                        })
+                        .then((result) => setComparisonExported(result.path))
+                    }
+                    type="button"
+                  >
+                    {t("Export {format}", { format: format.toUpperCase() })}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {comparisonExported && (
+              <p className="session-comparison__exported">
+                {t("Saved comparison to {path}", { path: comparisonExported })}
+              </p>
+            )}
+            <div className="session-comparison__table" role="table">
+              <div role="row">
+                <strong role="columnheader">{t("Value")}</strong>
+                <strong role="columnheader">{t("Earlier")}</strong>
+                <strong role="columnheader">{t("Later")}</strong>
+                <strong role="columnheader">Δ</strong>
+              </div>
+              {comparison[comparisonCategory].slice(0, 100).map((row) => (
+                <div key={row.key} role="row">
+                  <span role="cell">{row.key}</span>
+                  <span role="cell">{row.left_count}</span>
+                  <span role="cell">{row.right_count}</span>
+                  <span
+                    className={
+                      row.delta > 0
+                        ? "is-up"
+                        : row.delta < 0
+                          ? "is-down"
+                          : undefined
+                    }
+                    role="cell"
+                  >
+                    {row.delta > 0 ? "+" : ""}
+                    {row.delta}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
     </section>
   );
 }

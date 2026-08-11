@@ -63,6 +63,12 @@ export interface TrafficCounters {
   packets_received: number;
 }
 
+export type CounterSource =
+  | "unavailable"
+  | "interface_aggregate"
+  | "etw_flow"
+  | "demo";
+
 export interface TransferRates {
   down_bytes_per_second: number;
   up_bytes_per_second: number;
@@ -99,6 +105,7 @@ export interface Connection {
   geo: GeoLocation | null;
   asn: AsnInfo | null;
   traffic: TrafficCounters;
+  counter_source: CounterSource;
   rates: TransferRates;
   first_seen_ms: number;
   last_seen_ms: number;
@@ -154,6 +161,10 @@ export interface Diagnostics {
   dropped_ui_events: number;
   queue_saturation: number;
   backend: string;
+  capture_event_source: string;
+  flow_counters_available: boolean;
+  packet_events_observed: number;
+  dns_correlations_observed: number;
   last_error: string | null;
 }
 
@@ -201,8 +212,12 @@ export interface DashboardSnapshot {
 
 export interface NetworkInterface {
   id: string;
+  stable_id: string;
   name: string;
+  system_name: string;
   description: string;
+  luid: number | null;
+  network_guid: string | null;
   addresses: string[];
   is_up: boolean;
   is_loopback: boolean;
@@ -250,6 +265,23 @@ export interface AppSettings {
   ui_language: string;
   demo_seed: number;
   feed_group_window_seconds: number;
+  active_workspace: ConnectionWorkspace;
+  notification_rules: NotificationRule[];
+}
+
+export type ConnectionWorkspace = "remote" | "local" | "listeners";
+export type NotificationRuleKind =
+  | "new_process"
+  | "new_country"
+  | "asn"
+  | "port";
+
+export interface NotificationRule {
+  id: string;
+  kind: NotificationRuleKind;
+  value: string | null;
+  enabled: boolean;
+  cooldown_seconds: number;
 }
 
 export type RuleKind = "process" | "domain" | "ip" | "country" | "localhost";
@@ -293,7 +325,70 @@ export interface GeoDatabaseStatus {
   last_update_ms: number | null;
   next_recommended_update_ms: number | null;
   path: string | null;
+  edition: string | null;
+  sha256: string | null;
   attribution: string;
+}
+
+export type TimelineResolution = "one_second" | "one_minute" | "one_hour";
+
+export interface TimelineQuery {
+  from_ms: number;
+  to_ms: number;
+  session_id: string | null;
+  process_key: string | null;
+  resolution: TimelineResolution;
+}
+
+export interface TrafficSample {
+  timestamp_ms: number;
+  session_id: string | null;
+  process_key: string | null;
+  counters: TrafficCounters;
+  rates: TransferRates;
+  source: CounterSource;
+}
+
+export interface SelfTestCheck {
+  id: string;
+  level: "pass" | "warn" | "fail";
+  title: string;
+  detail: string;
+  diagnostic_code: string | null;
+}
+
+export interface CaptureSelfTest {
+  generated_at_ms: number;
+  checks: SelfTestCheck[];
+}
+
+export interface ComparisonRow {
+  key: string;
+  left_count: number;
+  right_count: number;
+  delta: number;
+}
+
+export interface SessionComparison {
+  left_session_id: string;
+  right_session_id: string;
+  processes: ComparisonRow[];
+  destinations: ComparisonRow[];
+  countries: ComparisonRow[];
+  ports: ComparisonRow[];
+}
+
+export interface ComparisonExportRequest {
+  left_session_id: string;
+  right_session_id: string;
+  format: "csv" | "json";
+  path: string;
+}
+
+export interface SupportBundleRequest {
+  path: string;
+  include_settings: boolean;
+  include_logs: boolean;
 }
 
 export type RecordingStatus =

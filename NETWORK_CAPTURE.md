@@ -8,10 +8,10 @@ commercially restricted driver while still providing real process-aware connecti
 
 | Capability | Windows | Linux |
 | --- | --- | --- |
-| TCP endpoints + PID | IP Helper `GetExtendedTcpTable` | `/proc/net/tcp*` + inode owner |
-| UDP bound endpoints + PID | IP Helper `GetExtendedUdpTable` | `/proc/net/udp*` + inode owner |
+| TCP endpoints + PID | IP Helper `GetExtendedTcpTable` plus optional ETW events | Netlink `INET_DIAG` plus `/proc/<pid>/fd` owner mapping |
+| UDP bound endpoints + PID | IP Helper `GetExtendedUdpTable` plus optional ETW events | Netlink `INET_DIAG` plus `/proc/<pid>/fd` owner mapping |
 | IPv4/IPv6 | native tables | native tables |
-| Per-flow bytes/packets | not supplied by v0.1 socket backend | not supplied by v0.1 socket backend |
+| Per-flow bytes/packets | ETW event deltas when Windows permits the trace; otherwise explicitly unavailable | not supplied by `INET_DIAG` snapshots |
 | PCAPNG recording | inbox Pktmon adapter | locally installed dumpcap |
 | Normal UI privilege | current user | current user |
 
@@ -29,22 +29,39 @@ The provider polls owner-PID TCP and UDP tables, normalizes byte order and joins
 to a guarded process cache. It requires no third-party driver and works as a normal
 desktop user, subject to Windows access controls. TCP state and endpoint lifecycle are
 diffed between polls. Interface friendly names, unicast addresses and operational state
-come from the native `GetAdaptersAddresses` path exposed by `sysinfo`; no redirected
-PowerShell text or legacy code page is involved. Choosing one filters snapshots by its
-local IPs.
+come directly from `GetAdaptersAddresses`; stable adapter name, LUID and Network GUID
+are retained separately from the display name. No redirected PowerShell text or legacy
+code page is involved. The selected adapter is refreshed every five seconds so rename,
+dock, VPN and Wi-Fi changes do not leave an invisible stale filter.
 
-The normal feed keeps only sockets with a real remote peer. Bound UDP sockets and TCP
-listeners can be enabled explicitly in Settings, but they never train remote-destination
-baselines. IP Helper does not expose reliable per-flow byte or packet counters. The UI
-therefore labels rows as endpoint metadata and reports independently measured aggregate
-interface throughput in the bottom strip instead of assigning device totals to flows.
+Remote peers, local/LAN traffic and bound TCP/UDP listeners are retained in separate
+workspaces and counts. Listeners never train remote-destination baselines. IP Helper
+does not expose reliable per-flow byte or packet counters. The UI therefore labels its
+rows as endpoint metadata and reports independently measured aggregate interface
+throughput in the bottom strip instead of assigning device totals to flows.
+
+### Event enhancement: ETW network and DNS Client providers
+
+Sabicheiro attempts a bounded `Microsoft-Windows-Kernel-Network` and Windows DNS Client
+user trace alongside IP Helper. Parsed TCP/UDP send, receive, connect, accept,
+disconnect and retransmit records add short-lived endpoints and PID/5-tuple byte and
+packet deltas without retaining payloads. Copy events are discarded to avoid double
+counting. DNS answers enter a bounded expiring correlation cache; they never trigger an
+external lookup. Queue depth, capacity, parsed packet events and drops are visible in
+Diagnostics.
+
+ETW access is policy- and privilege-sensitive. On the 2026-08-11 normal-user validation
+host Windows returned `ERROR_ACCESS_DENIED`. Sabicheiro recorded the actionable detail,
+kept IP Helper active and marked flow counters unavailable; it did not elevate the
+whole UI or invent per-flow rates. A live ETW proof therefore remains `REVIEW` in
+`docs/VALIDATION.md`.
 
 ### Packet recording: Pktmon
 
 Windows 10 build 19041+ and Windows 11 include Packet Monitor (`pktmon.exe`). Sabicheiro
 invokes the executable directly with a fixed argument vector—never through a shell—and
 captures full packets to temporary ETL before `etl2pcap` conversion. Recording is an
-explicit operation and commonly requires an elevated capture context. v0.1 does not
+explicit operation and commonly requires an elevated capture context. v0.2 does not
 install an elevation service; if the current process cannot start Pktmon, it reports a
 permission error instead of elevating the whole UI silently.
 
@@ -63,32 +80,33 @@ detected as an optional backend, but it is never bundled or required for the cor
 
 - WFP: powerful and process-aware, but a distributable callout driver adds signing,
   privileged-service and maintenance complexity inappropriate for the first release.
-- ETW/TCPIP: useful future high-rate provider; event schemas/version permissions need
-  more platform validation before it can replace the stable IP Helper baseline.
+- ETW/TCPIP: implemented as an enhancement rather than a replacement because event
+  schemas and trace permissions vary; IP Helper remains the reliable fallback.
 - WinDivert/Npcap: technically capable but unsuitable as a mandatory dependency after
   redistribution/license review.
 
 ## Linux backend
 
-The compatibility provider parses `/proc/net/tcp`, `tcp6`, `udp` and `udp6`, then maps
-socket inodes through `/proc/<pid>/fd`. It normally attributes the current user's
-processes; hidepid and other-user permissions can produce `Unknown process`. Linux
-kernel documentation notes `/proc/net/tcp*` is deprecated in favour of `tcp_diag`, so
-the provider boundary is prepared for a Netlink `INET_DIAG` implementation. A fixed
-`ip -o address show` command supplies interface/address metadata; the selected local
-addresses filter the common socket snapshot.
+The provider sends bounded `SOCK_DIAG_BY_FAMILY` Netlink dumps for TCP/UDP over IPv4 and
+IPv6 and parses `inet_diag_msg` using layouts checked against the Linux UAPI. It no
+longer reads the deprecated `/proc/net/{tcp,udp}*` socket tables. Socket inode ownership
+is still mapped through `/proc/<pid>/fd`, so `hidepid` and other-user permissions can
+produce `Unknown process` without dropping the endpoint. A fixed `ip -o address show`
+command supplies interface/address metadata; selected local addresses filter the common
+snapshot. The parser and Linux target cross-compilation pass on Windows, but runtime
+permission/performance evidence still requires a real Linux host.
 
 PCAPNG recording uses a locally installed `dumpcap` process on interface `any`. The
 normal setup is the distro's Wireshark capture group/capability configuration so the
 Tauri/UI process stays unprivileged. Rotation passes `files:4` and a per-file size;
 non-rotating capture uses a size autostop, and both modes accept a duration autostop.
 Sabicheiro does not silently install or redistribute dumpcap/libpcap. A separately
-packaged minimal helper is still desirable hardening beyond v0.1.
+packaged minimal helper is still required hardening beyond v0.2.
 
 ### Alternatives evaluated
 
-- Netlink `sock_diag`: preferred successor for scalable socket enumeration; kept behind
-  the same provider contract.
+- `/proc/net` parsing: removed because the kernel documents these socket tables as
+  deprecated in favour of `tcp_diag`/`INET_DIAG`.
 - eBPF: optional future backend, not a baseline because kernel/BTF/privilege and distro
   compatibility costs outweigh the v1 benefit.
 - libpcap: mature and free, but a system dependency and not sufficient by itself for
@@ -109,22 +127,28 @@ destination is hidden rather than presenting the VPN server as the destination.
 
 ## Known limitations
 
-- Socket polling can miss connections shorter than the polling interval; diagnostics
-  expose the backend identity, but v0.1 has no packet-to-flow merger to close the gap.
+- IP Helper polling can miss connections shorter than the polling interval when ETW is
+  denied. Diagnostics expose the active event source and retain the original permission
+  detail.
 - Baseline Windows UDP tables lack remote endpoints; bound UDP listeners are hidden by
   default instead of being presented as connections to `0.0.0.0:0` or `[::]:0`.
-- Real per-flow byte/packet counters require future packet/event correlation; interface
-  totals are never misrepresented as exact flow totals.
+- Per-flow byte/packet counters are available only from accepted ETW events. Aggregate
+  interface totals remain independently sourced and are never misrepresented as flow
+  totals.
 - Reverse DNS is opt-in and may use the configured resolver. TLS/SNI parsing is not
   implemented; encrypted DNS/TLS remains encrypted and no MITM is attempted.
 - Windows recording elevation is not yet isolated in a dedicated minimal helper.
-- Linux provider/packaging code is present but has not been executed in this Windows
-  validation environment; see `docs/VALIDATION.md`.
+- Linux `INET_DIAG` compiles for `x86_64-unknown-linux-gnu`, but provider/runtime and
+  packaging proof have not been executed on Linux; see `docs/VALIDATION.md`.
 
 ## Primary references
 
 - [Microsoft GetExtendedTcpTable](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getextendedtcptable)
 - [Microsoft GetExtendedUdpTable](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getextendedudptable)
+- [Microsoft GetAdaptersAddresses](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getadaptersaddresses)
+- [Microsoft TCP/IP ETW events](https://learn.microsoft.com/en-us/windows/win32/etw/tcpip)
+- [Microsoft UDP/IP ETW events](https://learn.microsoft.com/en-us/windows/win32/etw/udpip)
 - [Microsoft Packet Monitor](https://learn.microsoft.com/en-us/windows-server/networking/technologies/pktmon/pktmon)
 - [Microsoft `pktmon start`](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/pktmon-start)
-- [Linux `/proc/net/tcp` format](https://docs.kernel.org/networking/proc_net_tcp.html)
+- [Linux `inet_diag` UAPI](https://github.com/torvalds/linux/blob/master/include/uapi/linux/inet_diag.h)
+- [Linux `sock_diag` UAPI](https://github.com/torvalds/linux/blob/master/include/uapi/linux/sock_diag.h)

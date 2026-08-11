@@ -5,36 +5,40 @@ application that turns the network activity of one computer into an interactive,
 searchable world view. It connects processes to endpoints, destinations, local
 history and explainable behaviour signals without accounts, telemetry or a paid API.
 
-> Status: functional `0.1.1` release candidate. The Windows x86_64 application is
-> built and smoke-tested locally, and the NSIS installer is built with a stable alias.
-> Windows and platform-independent unit tests pass. Linux source, `/proc` provider and
-> AppImage/deb workflow are present, but Linux-native packaging still requires
-> verification on a Linux machine. The exact evidence and remaining platform checks
-> are in [docs/VALIDATION.md](docs/VALIDATION.md).
+> Status: functional `0.2.0` release candidate. The Windows x86_64 application, tests,
+> production frontend and target-size UI checks pass locally. Linux `INET_DIAG` source
+> cross-compiles, but AppImage/deb launch validation still requires a Linux machine.
+> Windows ETW and packet recording remain privilege-sensitive and fall back safely.
+> Exact evidence and remaining platform checks are in
+> [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Visual evidence
 
 The deterministic demo is the reproducible visual fixture (`pnpm dev`, then **Demo
-mode**). No screenshot is labelled as verified in this repository because the current
-desktop-browser QA session failed before it could capture the already-running preview;
-substituting a fabricated or unverified image would be misleading. The visual check is
-therefore recorded as `REVIEW` in [docs/VALIDATION.md](docs/VALIDATION.md).
+mode**). It was inspected at 1280×720 and 1920×1080 in English and Castellano, including
+Globe, Settings, History, semantic roles and keyboard shortcuts. The review caught and
+fixed retained scroll position between views; the console remained error-free. This is
+recorded in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Highlights
 
 - Synchronized local 3D globe, detailed 50m 2D map, grouped live feed and connection inspector.
 - Adaptive country/region/destination route grouping to keep dense views readable.
 - Native TCP/UDP socket observation and process attribution where the OS exposes it.
-- Remote-peer feed by default, with local TCP/UDP listeners available as an option.
-- Real aggregate interface throughput without misattributing totals to individual flows.
-- IPv4/IPv6 models, selectable interfaces, VPN awareness and safe unknown fallbacks.
+- Optional bounded Windows ETW network/DNS events with measured loss and IP Helper fallback.
+- Separate remote, LAN/loopback and listener workspaces with independent counts.
+- Real aggregate interface throughput plus explicitly sourced ETW per-flow deltas.
+- Stable adapter name/LUID/GUID, hot-plug recovery, VPN awareness and safe fallbacks.
 - Process, destination and historical views backed by versioned local SQLite storage.
-- Time Machine reconstruction, sessions and indexed packet-recording markers.
+- Time Machine reconstruction, 1 s/1 min/1 h traffic timelines and process sparklines.
+- Session comparison by process/destination/country/port with CSV/JSON export.
 - Search and filters such as `process:firefox country:DE port:443 state:active`.
 - Local bookmarks and view-only ignore rules; Sabicheiro never blocks traffic.
 - Deterministic demo mode, command palette, keyboard navigation and reduced motion.
 - Persistent English/Castellano interface selector on first run and in Settings.
-- Offline MMDB GeoIP/ASN, opt-in system reverse DNS and explainable local baselines.
+- Verified offline City/ASN MMDB import, opt-in reverse DNS and explainable local baselines.
+- Rate-limited local notification rules for new process/country, ASN or port.
+- Capture self-test and user-reviewed redacted ZIP support bundle.
 - CSV/JSON scoped export, retention cleanup and local resource/drop diagnostics.
 - Explicit bounded PCAPNG recording: Pktmon on Windows, dumpcap on Linux.
 
@@ -42,14 +46,14 @@ therefore recorded as `REVIEW` in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 | Platform | Observation backend | Package/validation state |
 | --- | --- | --- |
-| Windows 10/11 x86_64 | IP Helper owner-PID tables; Pktmon recording | application smoke-tested; NSIS `Sabicheiro-Setup.exe` built |
-| Debian/Ubuntu x86_64 | `/proc/net` plus inode→PID; dumpcap recording | AppImage/deb configuration present; Linux-native validation pending |
+| Windows 10/11 x86_64 | IP Helper owner-PID tables; optional ETW events; Pktmon recording | application/tests validated; NSIS release built locally |
+| Debian/Ubuntu x86_64 | Netlink `INET_DIAG` plus inode→PID; dumpcap recording | source cross-check passes; AppImage/deb runtime validation pending |
 | Fedora/Arch | Same source boundary; distro prerequisites differ | source compatibility only, not a verified v1 artifact |
 | ARM64 | Domain/provider boundaries are architecture-neutral | future target; no v1 artifact |
 
 ## Install
 
-Windows users can run the generated `Sabicheiro-Setup.exe`; it installs per-user,
+Windows users can run `Sabicheiro-0.2.0-windows-x64-setup.exe`; it installs per-user,
 adds a Start-menu entry and an uninstaller. Linux packages can be produced natively
 with the commands in [BUILD.md](BUILD.md); when built, mark the AppImage executable or
 install the `.deb` using the normal distro tooling.
@@ -64,9 +68,10 @@ GeoIP** action downloads the current free DB-IP Lite database for later offline 
 ## Permissions and capture limits
 
 The UI and normal socket observer run as the current user. Demo mode requires no extra
-permission. The OS can hide sockets/processes owned by other users, and snapshot-based
-observation can miss very short connections. Windows IP Helper does not provide remote
-UDP destinations or per-flow traffic byte counters.
+permission. The OS can hide sockets/processes owned by other users. Windows IP Helper
+does not provide remote UDP destinations or per-flow traffic byte counters; ETW can add
+both, but Windows may deny the trace to a normal user. In that case Sabicheiro keeps IP
+Helper active and labels flow counters unavailable instead of inventing them.
 
 Full packet recording is a separate explicit action. Pktmon may require elevation on
 Windows; Linux dumpcap should be configured with the distro's capture group or minimal
@@ -111,12 +116,13 @@ such as Pktmon and dumpcap are not redistributed by this source tree.
 - **Capture unavailable:** choose **All interfaces**, check OS visibility/permissions,
   or switch to deterministic Demo mode. Adapter names, addresses and state are read
   through native APIs on Windows; stale selections are reset safely.
-- **Only local listeners appear:** version 0.1.1 hides bound/wildcard listeners by
-  default so real remote peers stay visible. Re-enable them under **Settings ->
-  Capture -> Show listening sockets** when auditing services exposed by the computer.
+- **Where are LAN/listener sockets?** Use the **Remote**, **Local** and **Listeners**
+  tabs. Their counts and semantics stay separate and listeners never train remote
+  destination baselines.
 - **Connection rows show no byte rate:** Windows IP Helper exposes endpoints and PIDs,
-  not per-flow byte counters. The bottom strip now shows real aggregate device traffic;
-  per-flow correlation remains a future no-payload provider improvement.
+  not per-flow byte counters. The bottom strip shows real aggregate device traffic;
+  ETW flow correlation appears only when Windows accepts the trace. Diagnostics shows
+  the active source and preserves the original permission detail.
 - **No city/ASN:** install DB-IP Lite in Settings. Unknown locations stay textual and
   are never plotted at invented coordinates.
 - **No hostname:** enable reverse DNS only if its privacy trade-off is acceptable;

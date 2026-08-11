@@ -1,5 +1,7 @@
 use crate::{ObservedSocket, SocketIdentity};
-use sabicheiro_core::{ConnectionKey, NetworkEventKind, NormalizedNetworkEvent, TrafficCounters};
+use sabicheiro_core::{
+    ConnectionKey, CounterSource, NetworkEventKind, NormalizedNetworkEvent, TrafficCounters,
+};
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -74,6 +76,7 @@ fn to_event(
         geo: None,
         asn: None,
         traffic_delta: TrafficCounters::default(),
+        counter_source: CounterSource::Unavailable,
     }
 }
 

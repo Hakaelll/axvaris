@@ -2,12 +2,16 @@ import { useState } from "react";
 import { useI18n } from "../i18n";
 import type {
   AppSettings,
+  CaptureSelfTest,
   DashboardSnapshot,
+  ExportResult,
   FocusRules,
   GeoDatabaseStatus,
   NetworkInterface,
+  NotificationRuleKind,
   RetentionPolicy,
   RuleKind,
+  SupportBundleRequest,
 } from "../types";
 import { formatBytes, formatDateTime } from "../lib/format";
 import { Icon } from "../components/Icon";
@@ -20,6 +24,11 @@ interface SettingsViewProps {
   focusRules: FocusRules;
   onUpdate: (settings: AppSettings) => void;
   onUpdateGeo: () => void;
+  onImportGeo: (path: string, kind: "city" | "asn") => Promise<void>;
+  onRunSelfTest: () => Promise<CaptureSelfTest | null>;
+  onExportSupportBundle: (
+    request: SupportBundleRequest,
+  ) => Promise<ExportResult | null>;
   onClearSession: () => void;
   onAddBookmark: (kind: Exclude<RuleKind, "localhost">, value: string) => void;
   onRemoveBookmark: (id: number) => void;
@@ -63,6 +72,9 @@ export function SettingsView({
   focusRules,
   onUpdate,
   onUpdateGeo,
+  onImportGeo,
+  onRunSelfTest,
+  onExportSupportBundle,
   onClearSession,
   onAddBookmark,
   onRemoveBookmark,
@@ -75,6 +87,17 @@ export function SettingsView({
   const [ruleMode, setRuleMode] = useState<"bookmark" | "ignore">("bookmark");
   const [ruleKind, setRuleKind] = useState<RuleKind>("process");
   const [ruleValue, setRuleValue] = useState("");
+  const [notificationKind, setNotificationKind] =
+    useState<NotificationRuleKind>("new_process");
+  const [notificationValue, setNotificationValue] = useState("");
+  const [geoImportPath, setGeoImportPath] = useState("");
+  const [geoImportKind, setGeoImportKind] = useState<"city" | "asn">("city");
+  const [selfTest, setSelfTest] = useState<CaptureSelfTest | null>(null);
+  const [selfTestRunning, setSelfTestRunning] = useState(false);
+  const [bundlePath, setBundlePath] = useState("sabicheiro-support.zip");
+  const [bundleIncludeSettings, setBundleIncludeSettings] = useState(true);
+  const [bundleIncludeLogs, setBundleIncludeLogs] = useState(true);
+  const [bundleResult, setBundleResult] = useState<ExportResult | null>(null);
   const submitRule = () => {
     const value = ruleKind === "localhost" ? "localhost" : ruleValue.trim();
     if (!value) return;
@@ -82,6 +105,32 @@ export function SettingsView({
       onAddBookmark(ruleKind, value);
     else onAddIgnoreRule(ruleKind, value);
     setRuleValue("");
+  };
+  const addNotificationRule = () => {
+    const needsValue =
+      notificationKind === "port" || notificationKind === "asn";
+    const value = notificationValue.trim();
+    if (needsValue && !value) return;
+    onUpdate({
+      ...settings,
+      notification_rules: [
+        ...settings.notification_rules,
+        {
+          id: `notification-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          kind: notificationKind,
+          value: needsValue ? value : null,
+          enabled: true,
+          cooldown_seconds: 60,
+        },
+      ],
+    });
+    setNotificationValue("");
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "default"
+    ) {
+      void Notification.requestPermission();
+    }
   };
   return (
     <section className="data-view settings-view">
@@ -101,6 +150,7 @@ export function SettingsView({
           <a href="#capture">{t("Capture")}</a>
           <a href="#privacy">{t("Privacy & storage")}</a>
           <a href="#focus">{t("Focus rules")}</a>
+          <a href="#notifications">{t("Notifications")}</a>
           <a href="#geo">{t("GeoIP data")}</a>
           <a href="#display">{t("Display")}</a>
           <a href="#diagnostics">{t("Diagnostics")}</a>
@@ -174,26 +224,14 @@ export function SettingsView({
                 value={settings.feed_group_window_seconds}
               />
             </label>
-            <Toggle
-              checked={settings.show_local_traffic}
-              detail={t(
-                "Include loopback, LAN and private-address destinations in lists.",
-              )}
-              label={t("Show local traffic")}
-              onChange={(value) =>
-                onUpdate({ ...settings, show_local_traffic: value })
-              }
-            />
-            <Toggle
-              checked={settings.show_listening_sockets}
-              detail={t(
-                "Include bound TCP/UDP listeners separately from real remote connections.",
-              )}
-              label={t("Show listening sockets")}
-              onChange={(value) =>
-                onUpdate({ ...settings, show_listening_sockets: value })
-              }
-            />
+            <div className="privacy-note">
+              <strong>{t("Separate connection workspaces")}</strong>
+              <p>
+                {t(
+                  "Remote peers, local traffic and listeners are always kept in separate tabs so their counts and meaning are never mixed.",
+                )}
+              </p>
+            </div>
           </section>
           <section id="focus">
             <header>
@@ -317,6 +355,114 @@ export function SettingsView({
               </div>
             </div>
           </section>
+          <section id="notifications">
+            <header>
+              <Icon name="activity" />
+              <div>
+                <h2>{t("Local notifications")}</h2>
+                <p>
+                  {t(
+                    "Opt-in, explainable rules are evaluated locally and rate-limited. They never block traffic.",
+                  )}
+                </p>
+              </div>
+            </header>
+            <div className="rule-builder">
+              <select
+                aria-label={t("Notification rule")}
+                onChange={(event) =>
+                  setNotificationKind(
+                    event.target.value as NotificationRuleKind,
+                  )
+                }
+                value={notificationKind}
+              >
+                <option value="new_process">{t("New network process")}</option>
+                <option value="new_country">
+                  {t("New destination country")}
+                </option>
+                <option value="asn">{t("ASN number or organization")}</option>
+                <option value="port">{t("Remote port")}</option>
+              </select>
+              <input
+                aria-label={t("Notification value")}
+                disabled={
+                  notificationKind === "new_process" ||
+                  notificationKind === "new_country"
+                }
+                inputMode={notificationKind === "port" ? "numeric" : "text"}
+                onChange={(event) => setNotificationValue(event.target.value)}
+                placeholder={notificationKind === "port" ? "443" : "15169"}
+                value={notificationValue}
+              />
+              <button
+                className="button button--secondary"
+                disabled={
+                  (notificationKind === "port" || notificationKind === "asn") &&
+                  !notificationValue.trim()
+                }
+                onClick={addNotificationRule}
+                type="button"
+              >
+                {t("Add notification")}
+              </button>
+            </div>
+            <div className="rule-lists rule-lists--single">
+              <div>
+                {settings.notification_rules.map((rule) => (
+                  <div
+                    className={`saved-rule${rule.enabled ? "" : " is-disabled"}`}
+                    key={rule.id}
+                  >
+                    <label>
+                      <input
+                        checked={rule.enabled}
+                        onChange={(event) =>
+                          onUpdate({
+                            ...settings,
+                            notification_rules: settings.notification_rules.map(
+                              (item) =>
+                                item.id === rule.id
+                                  ? { ...item, enabled: event.target.checked }
+                                  : item,
+                            ),
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      <span>
+                        <small>{t(rule.kind)}</small>
+                        <strong>
+                          {rule.value ?? t("Any new observation")} /{" "}
+                          {rule.cooldown_seconds}s
+                        </strong>
+                      </span>
+                    </label>
+                    <button
+                      aria-label={t("Remove notification rule")}
+                      onClick={() =>
+                        onUpdate({
+                          ...settings,
+                          notification_rules:
+                            settings.notification_rules.filter(
+                              (item) => item.id !== rule.id,
+                            ),
+                        })
+                      }
+                      type="button"
+                    >
+                      {t("Remove")}
+                    </button>
+                  </div>
+                ))}
+                {settings.notification_rules.length === 0 && (
+                  <p className="list-empty">
+                    {t("No notification rules yet.")}
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
           <section id="privacy">
             <header>
               <Icon name="shield" />
@@ -382,6 +528,65 @@ export function SettingsView({
                 {t("Clear session")}
               </button>
             </div>
+            <div className="support-bundle-panel">
+              <div>
+                <strong>{t("Diagnostic support bundle")}</strong>
+                <p>
+                  {t(
+                    "Review and export versions, redacted settings and local logs. Connection history, raw IPs, payloads, recordings and secrets are excluded.",
+                  )}
+                </p>
+              </div>
+              <div className="support-bundle-panel__controls">
+                <input
+                  aria-label={t("Support bundle filename")}
+                  onChange={(event) => setBundlePath(event.target.value)}
+                  value={bundlePath}
+                />
+                <label>
+                  <input
+                    checked={bundleIncludeSettings}
+                    onChange={(event) =>
+                      setBundleIncludeSettings(event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  {t("Redacted settings")}
+                </label>
+                <label>
+                  <input
+                    checked={bundleIncludeLogs}
+                    onChange={(event) =>
+                      setBundleIncludeLogs(event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  {t("Local application logs")}
+                </label>
+                <button
+                  className="button button--secondary"
+                  disabled={!bundlePath.trim()}
+                  onClick={() =>
+                    void onExportSupportBundle({
+                      path: bundlePath.trim(),
+                      include_settings: bundleIncludeSettings,
+                      include_logs: bundleIncludeLogs,
+                    }).then(setBundleResult)
+                  }
+                  type="button"
+                >
+                  {t("Export reviewed ZIP")}
+                </button>
+              </div>
+              {bundleResult && (
+                <small>
+                  {t("Saved {count} redacted files to {path}", {
+                    count: bundleResult.records,
+                    path: bundleResult.path,
+                  })}
+                </small>
+              )}
+            </div>
             <div className="privacy-note">
               <strong>{t("Local by default")}</strong>
               <p>
@@ -423,6 +628,54 @@ export function SettingsView({
                 {geoStatus?.installed
                   ? t("Check free update")
                   : t("Install free database")}
+              </button>
+            </div>
+            {geoStatus?.installed && (
+              <div className="geo-integrity">
+                <span>
+                  <small>{t("EDITION")}</small>
+                  <strong>{geoStatus.edition ?? t("Unknown")}</strong>
+                </span>
+                <span>
+                  <small>SHA-256</small>
+                  <code>{geoStatus.sha256 ?? t("Unavailable")}</code>
+                </span>
+              </div>
+            )}
+            <div className="geo-import-panel">
+              <div>
+                <strong>{t("Offline MMDB import")}</strong>
+                <p>
+                  {t(
+                    "Import a free City or ASN database from this computer. Edition and checksum are verified before the local atomic replacement.",
+                  )}
+                </p>
+              </div>
+              <select
+                aria-label={t("MMDB kind")}
+                onChange={(event) =>
+                  setGeoImportKind(event.target.value as "city" | "asn")
+                }
+                value={geoImportKind}
+              >
+                <option value="city">City MMDB</option>
+                <option value="asn">ASN MMDB</option>
+              </select>
+              <input
+                aria-label={t("MMDB file path")}
+                onChange={(event) => setGeoImportPath(event.target.value)}
+                placeholder="C:\\Data\\dbip-city-lite.mmdb"
+                value={geoImportPath}
+              />
+              <button
+                className="button button--secondary"
+                disabled={!geoImportPath.trim()}
+                onClick={() =>
+                  void onImportGeo(geoImportPath.trim(), geoImportKind)
+                }
+                type="button"
+              >
+                {t("Verify and import")}
               </button>
             </div>
             <p className="attribution">
@@ -522,6 +775,72 @@ export function SettingsView({
                     diagnostics.dropped_ui_events}
                 </strong>
               </div>
+              <div>
+                <small>{t("EVENT SOURCE")}</small>
+                <strong>{diagnostics.capture_event_source}</strong>
+              </div>
+              <div>
+                <small>{t("FLOW COUNTERS")}</small>
+                <strong>
+                  {diagnostics.flow_counters_available
+                    ? t("Available")
+                    : t("Unavailable")}
+                </strong>
+              </div>
+              <div>
+                <small>{t("PACKET EVENTS")}</small>
+                <strong>{diagnostics.packet_events_observed}</strong>
+              </div>
+              <div>
+                <small>{t("DNS CORRELATIONS")}</small>
+                <strong>{diagnostics.dns_correlations_observed}</strong>
+              </div>
+            </div>
+            <div className="self-test-panel">
+              <div>
+                <strong>{t("Capture self-test")}</strong>
+                <p>
+                  {t(
+                    "Checks adapters, socket tables, process attribution, DNS, GeoIP and storage without requiring a terminal.",
+                  )}
+                </p>
+              </div>
+              <button
+                className="button button--secondary"
+                disabled={selfTestRunning}
+                onClick={() => {
+                  setSelfTestRunning(true);
+                  void onRunSelfTest().then((result) => {
+                    setSelfTest(result);
+                    setSelfTestRunning(false);
+                  });
+                }}
+                type="button"
+              >
+                {selfTestRunning ? t("Running checks...") : t("Run self-test")}
+              </button>
+              {selfTest && (
+                <div className="self-test-results">
+                  {selfTest.checks.map((check) => (
+                    <article className={`is-${check.level}`} key={check.id}>
+                      <span>
+                        {check.level === "pass"
+                          ? "✓"
+                          : check.level === "warn"
+                            ? "!"
+                            : "×"}
+                      </span>
+                      <div>
+                        <strong>{t(check.title)}</strong>
+                        <p>{t(check.detail)}</p>
+                        {check.diagnostic_code && (
+                          <code>{check.diagnostic_code}</code>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         </div>

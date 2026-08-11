@@ -313,10 +313,12 @@ export function ExportDialog({
 export function ErrorBanner({
   title = "Operation could not be completed",
   message,
+  detail,
   onClose,
 }: {
   title?: string | undefined;
   message: string;
+  detail?: string | undefined;
   onClose: () => void;
 }) {
   const t = useI18n();
@@ -326,6 +328,12 @@ export function ErrorBanner({
       <div>
         <strong>{t(title)}</strong>
         <p>{t(message)}</p>
+        {detail && detail !== message && (
+          <details>
+            <summary>{t("Original diagnostic detail")}</summary>
+            <code>{detail}</code>
+          </details>
+        )}
       </div>
       <button aria-label={t("Dismiss error")} onClick={onClose} type="button">
         <Icon name="close" />

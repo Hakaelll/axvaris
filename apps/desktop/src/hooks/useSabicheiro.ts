@@ -8,6 +8,7 @@ import {
 } from "../lib/filter";
 import type {
   AppSettings,
+  CaptureSelfTest,
   CaptureMode,
   CommandFailure,
   Connection,
@@ -22,6 +23,7 @@ import type {
   RecordingRequest,
   RecordingState,
   RuleKind,
+  SupportBundleRequest,
   TimeMachineState,
   ViewMode,
 } from "../types";
@@ -53,6 +55,10 @@ const emptySnapshot: DashboardSnapshot = {
     dropped_ui_events: 0,
     queue_saturation: 0,
     backend: "initializing",
+    capture_event_source: "none",
+    flow_counters_available: false,
+    packet_events_observed: 0,
+    dns_correlations_observed: 0,
     last_error: null,
   },
   capture: {
@@ -78,9 +84,18 @@ const defaultSettings: AppSettings = {
   ui_language: "en",
   demo_seed: 1518458081,
   feed_group_window_seconds: 30,
+  active_workspace: "remote",
+  notification_rules: [],
 };
 
 const emptyFocusRules: FocusRules = { bookmarks: [], ignore_rules: [] };
+
+export interface LocalNotification {
+  id: string;
+  title: string;
+  detail: string;
+  created_at_ms: number;
+}
 
 function normalizeError(error: unknown): CommandFailure {
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -256,7 +271,21 @@ export function useSabicheiro() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [notifications, setNotifications] = useState<LocalNotification[]>([]);
+  const [processRateHistory, setProcessRateHistory] = useState<
+    Record<string, number[]>
+  >({});
   const pausedRevision = useRef(0);
+  const settingsRef = useRef(settings);
+  const notificationReady = useRef(false);
+  const seenConnectionIds = useRef(new Set<string>());
+  const seenProcesses = useRef(new Set<string>());
+  const seenCountries = useRef(new Set<string>());
+  const notificationCooldowns = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,6 +341,105 @@ export function useSabicheiro() {
         if (cancelled) return;
         setLiveSnapshot(next);
         if (!paused) setVisualSnapshot(next);
+        const processRates = new Map<string, number>();
+        for (const connection of next.connections) {
+          if (!connection.active) continue;
+          const key = `${connection.process.name}:${connection.process.pid ?? "unknown"}`;
+          processRates.set(
+            key,
+            (processRates.get(key) ?? 0) +
+              connection.rates.down_bytes_per_second +
+              connection.rates.up_bytes_per_second,
+          );
+        }
+        setProcessRateHistory((current) => {
+          const updated = { ...current };
+          for (const [key, rate] of processRates) {
+            updated[key] = [...(updated[key] ?? []), rate].slice(-60);
+          }
+          return updated;
+        });
+
+        const active = next.connections.filter(
+          (connection) => connection.active,
+        );
+        if (!notificationReady.current || next.capture.mode === "off") {
+          seenConnectionIds.current = new Set(active.map((item) => item.id));
+          seenProcesses.current = new Set(
+            active.map(
+              (item) => `${item.process.name}:${item.process.pid ?? "?"}`,
+            ),
+          );
+          seenCountries.current = new Set(
+            active.flatMap((item) => item.geo?.country_code ?? []),
+          );
+          notificationReady.current = next.capture.mode !== "off";
+        } else {
+          const now = Date.now();
+          const created: LocalNotification[] = [];
+          for (const connection of active) {
+            if (seenConnectionIds.current.has(connection.id)) continue;
+            const processKey = `${connection.process.name}:${connection.process.pid ?? "?"}`;
+            const isNewProcess = !seenProcesses.current.has(processKey);
+            const country = connection.geo?.country_code ?? null;
+            const isNewCountry = Boolean(
+              country && !seenCountries.current.has(country),
+            );
+            for (const rule of settingsRef.current.notification_rules) {
+              if (!rule.enabled) continue;
+              const value = rule.value?.trim().toLowerCase() ?? "";
+              const matches =
+                (rule.kind === "new_process" && isNewProcess) ||
+                (rule.kind === "new_country" && isNewCountry) ||
+                (rule.kind === "port" &&
+                  String(connection.key.remote.port) === value) ||
+                (rule.kind === "asn" &&
+                  Boolean(
+                    connection.asn &&
+                      (String(connection.asn.number) === value ||
+                        connection.asn.organization
+                          .toLowerCase()
+                          .includes(value)),
+                  ));
+              const previous = notificationCooldowns.current.get(rule.id) ?? 0;
+              if (
+                !matches ||
+                now - previous < Math.max(5, rule.cooldown_seconds) * 1_000
+              )
+                continue;
+              notificationCooldowns.current.set(rule.id, now);
+              const title =
+                rule.kind === "new_process"
+                  ? "New network process"
+                  : rule.kind === "new_country"
+                    ? "New destination country"
+                    : rule.kind === "asn"
+                      ? "ASN rule matched"
+                      : "Port rule matched";
+              const detail = `${connection.process.name} → ${connection.domain ?? connection.hostname ?? connection.key.remote.address}:${connection.key.remote.port}`;
+              created.push({
+                id: `${rule.id}-${connection.id}-${now}`,
+                title,
+                detail,
+                created_at_ms: now,
+              });
+              if (
+                typeof Notification !== "undefined" &&
+                Notification.permission === "granted"
+              ) {
+                new Notification(`Sabicheiro / ${title}`, { body: detail });
+              }
+            }
+            seenConnectionIds.current.add(connection.id);
+            seenProcesses.current.add(processKey);
+            if (country) seenCountries.current.add(country);
+          }
+          if (created.length > 0) {
+            setNotifications((current) =>
+              [...created, ...current].slice(0, 20),
+            );
+          }
+        }
         setLoading(false);
       } catch (cause) {
         if (!cancelled) {
@@ -348,22 +476,43 @@ export function useSabicheiro() {
   }, [recording?.status]);
 
   const parsedQuery = useMemo(() => parseQuery(query), [query]);
+  const workspaceCounts = useMemo(() => {
+    const values = timeMachine?.connections ?? visualSnapshot.connections;
+    return values.reduce(
+      (counts, connection) => {
+        if (isListenerOnly(connection)) counts.listeners += 1;
+        else if (isLocalAddress(connection.key.remote.address))
+          counts.local += 1;
+        else counts.remote += 1;
+        return counts;
+      },
+      { remote: 0, local: 0, listeners: 0 },
+    );
+  }, [timeMachine?.connections, visualSnapshot.connections]);
   const connections = useMemo(
     () =>
       (timeMachine?.connections ?? visualSnapshot.connections).filter(
-        (connection) =>
-          (settings.show_listening_sockets || !isListenerOnly(connection)) &&
-          (isListenerOnly(connection) ||
-            settings.show_local_traffic ||
-            !isLocalAddress(connection.key.remote.address)) &&
-          !ignoredByRule(connection, focusRules) &&
-          matchesQuery(connection, parsedQuery),
+        (connection) => {
+          const listener = isListenerOnly(connection);
+          const local =
+            !listener && isLocalAddress(connection.key.remote.address);
+          const inWorkspace =
+            settings.active_workspace === "listeners"
+              ? listener
+              : settings.active_workspace === "local"
+                ? local
+                : !listener && !local;
+          return (
+            inWorkspace &&
+            !ignoredByRule(connection, focusRules) &&
+            matchesQuery(connection, parsedQuery)
+          );
+        },
       ),
     [
       focusRules,
       parsedQuery,
-      settings.show_listening_sockets,
-      settings.show_local_traffic,
+      settings.active_workspace,
       timeMachine,
       visualSnapshot.connections,
     ],
@@ -538,6 +687,44 @@ export function useSabicheiro() {
     }
   }, []);
 
+  const importGeo = useCallback(
+    async (sourcePath: string, kind: "city" | "asn") => {
+      try {
+        setGeoStatus(await desktopApi.importGeoDatabase(sourcePath, kind));
+        setError(null);
+      } catch (cause) {
+        setError(normalizeError(cause));
+      }
+    },
+    [],
+  );
+
+  const runCaptureSelfTest =
+    useCallback(async (): Promise<CaptureSelfTest | null> => {
+      try {
+        const result = await desktopApi.runCaptureSelfTest();
+        setError(null);
+        return result;
+      } catch (cause) {
+        setError(normalizeError(cause));
+        return null;
+      }
+    }, []);
+
+  const exportSupportBundle = useCallback(
+    async (request: SupportBundleRequest) => {
+      try {
+        const result = await desktopApi.exportSupportBundle(request);
+        setError(null);
+        return result;
+      } catch (cause) {
+        setError(normalizeError(cause));
+        return null;
+      }
+    },
+    [],
+  );
+
   const startRecording = useCallback(async (request: RecordingRequest) => {
     try {
       setRecording(await desktopApi.startRecording(request));
@@ -664,6 +851,9 @@ export function useSabicheiro() {
     setIgnoreRuleEnabled,
     removeIgnoreRule,
     updateGeo,
+    importGeo,
+    runCaptureSelfTest,
+    exportSupportBundle,
     startRecording,
     stopRecording,
     exportView,
@@ -677,5 +867,11 @@ export function useSabicheiro() {
     setRecordDialogOpen,
     exportDialogOpen,
     setExportDialogOpen,
+    notifications,
+    dismissNotification: (id: string) =>
+      setNotifications((current) => current.filter((item) => item.id !== id)),
+    clearNotifications: () => setNotifications([]),
+    processRateHistory,
+    workspaceCounts,
   };
 }

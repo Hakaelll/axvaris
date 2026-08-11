@@ -6,12 +6,16 @@ interface ProcessViewProps {
   processes: ProcessSummary[];
   connections: Connection[];
   onFilter: (query: string) => void;
+  rateHistory: Record<string, number[]>;
+  flowCountersAvailable: boolean;
 }
 
 export function ProcessView({
   processes,
   connections,
   onFilter,
+  rateHistory,
+  flowCountersAvailable,
 }: ProcessViewProps) {
   const t = useI18n();
   const peak = Math.max(
@@ -55,6 +59,14 @@ export function ProcessView({
               item.rates.up_bytes_per_second,
             0,
           );
+          const sparkline = rateHistory[process.key] ?? [];
+          const sparklinePeak = Math.max(1, ...sparkline);
+          const points = sparkline
+            .map(
+              (value, pointIndex) =>
+                `${(pointIndex / Math.max(1, sparkline.length - 1)) * 86},${24 - (value / sparklinePeak) * 22}`,
+            )
+            .join(" ");
           return (
             <button
               className="rank-row"
@@ -87,9 +99,21 @@ export function ProcessView({
               </span>
               <span className="rank-row__bar">
                 <i style={{ width: `${(total / peak) * 100}%` }} />
+                <svg
+                  aria-label={t("Recent process traffic sparkline")}
+                  className="process-sparkline"
+                  role="img"
+                  viewBox="0 0 86 26"
+                >
+                  <polyline points={points} />
+                </svg>
                 <strong>{formatBytes(total)}</strong>
                 <small>
                   {t("{rate} now", { rate: formatBytes(activeRate, true) })}
+                  {" / "}
+                  {flowCountersAvailable
+                    ? t("per-flow events")
+                    : t("interface aggregate only")}
                 </small>
               </span>
               <span className="rank-row__arrow">→</span>

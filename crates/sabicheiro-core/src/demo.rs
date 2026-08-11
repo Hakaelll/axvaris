@@ -278,6 +278,7 @@ fn demo_event(
             packets_sent: (sent / 1_200).max(1),
             packets_received: (received / 1_200).max(1),
         },
+        counter_source: crate::CounterSource::Demo,
     }
 }
 

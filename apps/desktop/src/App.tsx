@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { desktopApi } from "./lib/backend";
@@ -27,6 +28,8 @@ import { ProcessView } from "./views/ProcessView";
 import { DestinationView } from "./views/DestinationView";
 import { HistoryView } from "./views/HistoryView";
 import { SettingsView } from "./views/SettingsView";
+import { WorkspaceTabs } from "./components/WorkspaceTabs";
+import { NotificationCenter } from "./components/NotificationCenter";
 
 const GlobeScene = lazy(async () => {
   const module = await import("./components/visualization/GlobeScene");
@@ -47,6 +50,33 @@ function isEditable(target: EventTarget | null): boolean {
   );
 }
 
+const localizedFailureMessages: Record<string, string> = {
+  capture_unavailable:
+    "Network capture is unavailable. Try All interfaces or run the capture self-test.",
+  interface_unavailable:
+    "The selected network interface is unavailable. Choose All interfaces and try again.",
+  history_unavailable:
+    "Local history could not be read. Check Diagnostics for the original storage detail.",
+  timeline_unavailable:
+    "Stored traffic samples could not be read for this time range.",
+  storage_unavailable:
+    "Local storage is unavailable. Sabicheiro has kept the original diagnostic below.",
+  geo_update_failed:
+    "The free GeoIP update could not be installed. You can retry or import an MMDB offline.",
+  geo_import_failed:
+    "The MMDB import failed edition, checksum or filesystem validation.",
+  export_failed:
+    "The local export could not be written. Choose a new filename or writable folder.",
+  support_bundle_failed: "The redacted support bundle could not be created.",
+  comparison_unavailable:
+    "The selected sessions could not be compared from local history.",
+  comparison_empty: "Both selected sessions need retained connections.",
+  output_path_exists: "That output already exists. Choose a new filename.",
+  output_path_invalid: "The output filename or extension is invalid.",
+  invalid_settings: "One of the local settings is outside its allowed range.",
+  operation_failed: "The operation could not be completed.",
+};
+
 export default function App() {
   const app = useSabicheiro();
   const language: Language = app.settings.ui_language.startsWith("es")
@@ -62,6 +92,7 @@ export default function App() {
     fromMs: number | null;
     toMs: number | null;
   }>({ sessionId: null, fromMs: null, toMs: null });
+  const mainStageRef = useRef<HTMLElement>(null);
   const home = useMemo<[number, number]>(
     () => [app.settings.home_latitude, app.settings.home_longitude],
     [app.settings.home_latitude, app.settings.home_longitude],
@@ -83,6 +114,13 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
+
+  useEffect(() => {
+    if (mainStageRef.current) {
+      mainStageRef.current.scrollTop = 0;
+      mainStageRef.current.scrollLeft = 0;
+    }
+  }, [app.primaryView]);
 
   const showFilter = useCallback(
     (query: string) => {
@@ -170,6 +208,11 @@ export default function App() {
     app.snapshot.capture.status.state === "error"
       ? app.snapshot.capture.status.message
       : null;
+  const localizedFailureMessage = captureError
+    ? "The capture backend stopped. Run the self-test or select a different interface."
+    : (localizedFailureMessages[app.error?.code ?? "operation_failed"] ??
+      "The operation could not be completed.");
+  const originalFailureDetail = app.error?.message ?? captureError ?? undefined;
 
   return (
     <I18nProvider value={language}>
@@ -189,7 +232,10 @@ export default function App() {
           queryError={app.queryError}
           recording={recordingActive}
         />
-        <main className={`main-stage main-stage--${app.primaryView}`}>
+        <main
+          className={`main-stage main-stage--${app.primaryView}`}
+          ref={mainStageRef}
+        >
           {app.primaryView === "globe" && (
             <div className="observatory">
               <section className="visual-canvas">
@@ -208,6 +254,16 @@ export default function App() {
                       })}
                     </small>
                   </div>
+                  <WorkspaceTabs
+                    active={app.settings.active_workspace}
+                    counts={app.workspaceCounts}
+                    onChange={(active_workspace) =>
+                      void app.updateSettings({
+                        ...app.settings,
+                        active_workspace,
+                      })
+                    }
+                  />
                   <div
                     className="view-switcher"
                     aria-label={t("Visualization mode")}
@@ -291,6 +347,28 @@ export default function App() {
                       }
                     />
                   )}
+                  {app.snapshot.capture.mode !== "off" &&
+                    app.settings.active_workspace === "remote" &&
+                    app.snapshot.connections.length > 0 &&
+                    !app.snapshot.connections.some(
+                      (connection) => connection.geo,
+                    ) && (
+                      <div className="geo-empty-guidance">
+                        <strong>{t("Geography is not available yet")}</strong>
+                        <p>
+                          {t(
+                            "Connections are still captured. Install or import a free local City MMDB to place public destinations on the map.",
+                          )}
+                        </p>
+                        <button
+                          className="button button--secondary"
+                          onClick={() => app.setPrimaryView("settings")}
+                          type="button"
+                        >
+                          {t("Open GeoIP settings")}
+                        </button>
+                      </div>
+                    )}
                   <FocusBar
                     bookmarks={app.focusRules.bookmarks}
                     onFilter={showFilter}
@@ -354,7 +432,9 @@ export default function App() {
               </section>
               <LiveFeed
                 connections={app.snapshot.connections}
-                flowTrafficAvailable={app.snapshot.capture.mode === "demo"}
+                flowTrafficAvailable={
+                  app.snapshot.diagnostics.flow_counters_available
+                }
                 groupWindowSeconds={app.settings.feed_group_window_seconds}
                 onPause={app.setPaused}
                 onSelect={app.setSelectedId}
@@ -365,7 +445,9 @@ export default function App() {
               {app.selected && (
                 <ConnectionInspector
                   connection={app.selected}
-                  flowTrafficAvailable={app.snapshot.capture.mode === "demo"}
+                  flowTrafficAvailable={
+                    app.snapshot.diagnostics.flow_counters_available
+                  }
                   onBookmark={(kind, value) =>
                     void app.addBookmark(kind, value)
                   }
@@ -387,8 +469,12 @@ export default function App() {
           {app.primaryView === "processes" && (
             <ProcessView
               connections={app.snapshot.connections}
+              flowCountersAvailable={
+                app.snapshot.diagnostics.flow_counters_available
+              }
               onFilter={showFilter}
               processes={app.snapshot.processes}
+              rateHistory={app.processRateHistory}
             />
           )}
           {app.primaryView === "destinations" && (
@@ -416,11 +502,14 @@ export default function App() {
                 void app.addIgnoreRule(kind, value)
               }
               onClearSession={app.clearSession}
+              onExportSupportBundle={app.exportSupportBundle}
+              onImportGeo={app.importGeo}
               onRemoveBookmark={(id) => void app.removeBookmark(id)}
               onRemoveIgnoreRule={(id) => void app.removeIgnoreRule(id)}
               onToggleIgnoreRule={(id, enabled) =>
                 void app.setIgnoreRuleEnabled(id, enabled)
               }
+              onRunSelfTest={app.runCaptureSelfTest}
               onUpdate={app.updateSettings}
               onUpdateGeo={app.updateGeo}
               settings={app.settings}
@@ -429,11 +518,15 @@ export default function App() {
           )}
         </main>
         <MetricStrip snapshot={app.snapshot} />
+        <NotificationCenter
+          items={app.notifications}
+          onClear={app.clearNotifications}
+          onDismiss={app.dismissNotification}
+        />
         {(app.error || captureError) && (
           <ErrorBanner
-            message={t(
-              app.error?.message ?? captureError ?? "Unknown capture error",
-            )}
+            detail={originalFailureDetail}
+            message={localizedFailureMessage}
             onClose={app.clearError}
             title={captureError ? t("Capture stopped") : undefined}
           />
@@ -445,7 +538,7 @@ export default function App() {
           </div>
         )}
         <CommandPalette
-          localTrafficVisible={app.settings.show_local_traffic}
+          localTrafficVisible={app.settings.active_workspace === "local"}
           onClearSession={() => void app.clearSession()}
           onClose={() => app.setCommandPaletteOpen(false)}
           onExport={() => openExport(app.snapshot.session?.id ?? null)}
@@ -459,7 +552,8 @@ export default function App() {
           onToggleLocalTraffic={() =>
             void app.updateSettings({
               ...app.settings,
-              show_local_traffic: !app.settings.show_local_traffic,
+              active_workspace:
+                app.settings.active_workspace === "local" ? "remote" : "local",
             })
           }
           onView={app.setPrimaryView}

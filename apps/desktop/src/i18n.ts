@@ -371,6 +371,183 @@ const spanish: Record<string, string> = {
   "Dismiss error": "Descartar error",
   "capture provider is unavailable":
     "el proveedor de captura no está disponible",
+  "Connection workspace": "Espacio de conexiones",
+  Listeners: "Servicios en escucha",
+  Notifications: "Notificaciones",
+  "Local notifications": "Notificaciones locales",
+  "Clear all": "Limpiar todo",
+  "Dismiss notification": "Descartar notificación",
+  "Separate connection workspaces": "Espacios de conexiones separados",
+  "Remote peers, local traffic and listeners are always kept in separate tabs so their counts and meaning are never mixed.":
+    "Los destinos remotos, el tráfico local y los servicios en escucha permanecen en pestañas separadas para no mezclar sus recuentos ni su significado.",
+  "Opt-in, explainable rules are evaluated locally and rate-limited. They never block traffic.":
+    "Las reglas opcionales y explicables se evalúan localmente y tienen un límite de frecuencia. Nunca bloquean tráfico.",
+  "Notification rule": "Regla de notificación",
+  "New network process": "Nuevo proceso con actividad de red",
+  "New destination country": "Nuevo país de destino",
+  "ASN number or organization": "Número u organización ASN",
+  "Remote port": "Puerto remoto",
+  "Notification value": "Valor de la notificación",
+  "Add notification": "Añadir notificación",
+  "Any new observation": "Cualquier observación nueva",
+  "Remove notification rule": "Eliminar regla de notificación",
+  "No notification rules yet.": "Todavía no hay reglas de notificación.",
+  "ASN rule matched": "Coincidencia con regla ASN",
+  "Port rule matched": "Coincidencia con regla de puerto",
+  new_process: "nuevo proceso",
+  new_country: "nuevo país",
+  asn: "ASN",
+  port: "puerto",
+  "Diagnostic support bundle": "Paquete de soporte de diagnóstico",
+  "Review and export versions, redacted settings and local logs. Connection history, raw IPs, payloads, recordings and secrets are excluded.":
+    "Revisa y exporta versiones, ajustes anonimizados y registros locales. Se excluyen el historial de conexiones, las IP sin anonimizar, los contenidos, las grabaciones y los secretos.",
+  "Review exactly what is included: versions and redacted diagnostics, with optional redacted settings and local application logs.":
+    "Revisa exactamente qué se incluye: versiones y diagnóstico anonimizado, con ajustes anonimizados y registros locales opcionales.",
+  "Support bundle filename": "Nombre del paquete de soporte",
+  "Redacted settings": "Ajustes anonimizados",
+  "Local application logs": "Registros locales de la aplicación",
+  "Export reviewed ZIP": "Exportar ZIP revisado",
+  "Saved {count} redacted files to {path}":
+    "Se guardaron {count} archivos anonimizados en {path}",
+  "Offline MMDB import": "Importación MMDB sin conexión",
+  "Import a free City or ASN database from this computer. Edition and checksum are verified before the local atomic replacement.":
+    "Importa una base City o ASN gratuita desde este equipo. Se verifican la edición y la suma de comprobación antes del reemplazo local atómico.",
+  "City MMDB": "MMDB de ciudades",
+  "ASN MMDB": "MMDB de ASN",
+  "IP geolocation by DB-IP.com, licensed under CC BY 4.0":
+    "Geolocalización IP de DB-IP.com, con licencia CC BY 4.0",
+  "Choose a DB-IP Lite or compatible City/ASN MMDB already on this device. Sabicheiro validates its edition and checksum before an atomic local install.":
+    "Elige una base DB-IP Lite o una MMDB City/ASN compatible ya presente en este equipo. Sabicheiro valida la edición y la suma de verificación antes de instalarla localmente de forma atómica.",
+  "MMDB kind": "Tipo de MMDB",
+  "MMDB file path": "Ruta del archivo MMDB",
+  "Verify and import": "Verificar e importar",
+  EDITION: "EDICIÓN",
+  Available: "Disponible",
+  Unavailable: "No disponible",
+  "EVENT SOURCE": "ORIGEN DE EVENTOS",
+  "FLOW COUNTERS": "CONTADORES POR FLUJO",
+  "PACKET EVENTS": "EVENTOS DE PAQUETES",
+  "DNS CORRELATIONS": "CORRELACIONES DNS",
+  "Capture self-test": "Autoprueba de captura",
+  "Checks adapters, socket tables, process attribution, DNS, GeoIP and storage without requiring a terminal.":
+    "Comprueba adaptadores, tablas de sockets, atribución de procesos, DNS, GeoIP y almacenamiento sin usar una terminal.",
+  "Running checks...": "Ejecutando comprobaciones...",
+  "Run self-test": "Ejecutar autoprueba",
+  "Network interfaces are discoverable":
+    "Las interfaces de red son detectables",
+  "No active addressed interface was found":
+    "No se encontró ninguna interfaz activa con dirección",
+  "Interface discovery failed": "Falló la detección de interfaces",
+  "Socket tables are readable": "Las tablas de sockets se pueden leer",
+  "Process attribution is working": "La atribución de procesos funciona",
+  "The proof socket could not be attributed":
+    "No se pudo atribuir el socket de prueba",
+  "The current Sabicheiro process was resolved from a real loopback connection.":
+    "El proceso actual de Sabicheiro se identificó mediante una conexión real de bucle local.",
+  "Socket visibility works, but the operating system did not expose the proof PID in time.":
+    "Los sockets son visibles, pero el sistema operativo no expuso a tiempo el PID de prueba.",
+  "Socket table proof failed": "Falló la prueba de la tabla de sockets",
+  "Passive DNS correlation is active": "La correlación DNS pasiva está activa",
+  "Opt-in reverse DNS is enabled": "El DNS inverso opcional está activado",
+  "DNS enrichment is intentionally idle":
+    "El enriquecimiento DNS está inactivo intencionadamente",
+  "Windows DNS Client answers are correlated locally with an expiring bounded cache.":
+    "Las respuestas del cliente DNS de Windows se correlacionan localmente mediante una caché limitada y con caducidad.",
+  "Start Live capture with ETW or explicitly enable reverse DNS to enrich domains.":
+    "Inicia la captura en vivo con ETW o activa expresamente el DNS inverso para enriquecer los dominios.",
+  "Local GeoIP database is ready": "La base GeoIP local está lista",
+  "Local GeoIP database is not installed":
+    "La base GeoIP local no está instalada",
+  "Download the free dataset or import a City MMDB from Settings; observed IPs are never uploaded.":
+    "Descarga el conjunto gratuito o importa una MMDB City desde Ajustes; las IP observadas nunca se suben.",
+  "Local history storage is available": "El historial local está disponible",
+  "Development preview adapter is available.":
+    "El adaptador de la vista previa de desarrollo está disponible.",
+  "Development preview uses deterministic local data.":
+    "La vista previa de desarrollo usa datos locales reproducibles.",
+  "Preview hostnames are deterministic and local.":
+    "Los nombres de host de la vista previa son reproducibles y locales.",
+  "Development preview dataset.":
+    "Conjunto de datos de la vista previa de desarrollo.",
+  "TRAFFIC TIMELINE": "LÍNEA TEMPORAL DE TRÁFICO",
+  "Stored rates / {source}": "Tasas guardadas / {source}",
+  "Traffic resolution": "Resolución del tráfico",
+  "Resume timeline": "Reanudar línea temporal",
+  "Pause timeline": "Pausar línea temporal",
+  "Traffic rates over selected time range":
+    "Tasas de tráfico durante el intervalo seleccionado",
+  "No traffic samples in this range.":
+    "No hay muestras de tráfico en este intervalo.",
+  "SESSION COMPARISON": "COMPARACIÓN DE SESIONES",
+  "Compare retained evidence": "Comparar evidencia conservada",
+  "Compare processes, destinations, countries and ports without leaving local storage.":
+    "Compara procesos, destinos, países y puertos sin salir del almacenamiento local.",
+  "Earlier session": "Sesión anterior",
+  "Later session": "Sesión posterior",
+  "Compare sessions": "Comparar sesiones",
+  "Comparison category": "Categoría de comparación",
+  processes: "procesos",
+  countries: "países",
+  ports: "puertos",
+  "Saved comparison to {path}": "Comparación guardada en {path}",
+  Earlier: "Anterior",
+  Later: "Posterior",
+  "Recent process traffic sparkline":
+    "Minigráfico de tráfico reciente del proceso",
+  "per-flow events": "eventos por flujo",
+  "interface aggregate only": "solo total de interfaz",
+  "Geography is not available yet": "La geografía todavía no está disponible",
+  "Connections are still captured. Install or import a free local City MMDB to place public destinations on the map.":
+    "Las conexiones se siguen capturando. Instala o importa una MMDB City local y gratuita para situar los destinos públicos en el mapa.",
+  "Open GeoIP settings": "Abrir ajustes de GeoIP",
+  "Original diagnostic detail": "Detalle de diagnóstico original",
+  "New network-enabled process": "Nuevo proceso con acceso a red",
+  "New destination": "Nuevo destino",
+  "Higher destination diversity": "Mayor diversidad de destinos",
+  "Unusual for this process": "Inusual para este proceso",
+  "Unusual port": "Puerto inusual",
+  "Unusual activity": "Actividad inusual",
+  "Higher bandwidth than usual": "Ancho de banda superior al habitual",
+  "Persistent connection": "Conexión persistente",
+  "This is an observation, not a security verdict.":
+    "Esto es una observación, no un veredicto de seguridad.",
+  "Previously observed destination set: 11 or fewer.":
+    "Conjunto de destinos observado anteriormente: 11 o menos.",
+  "Typical observed range is below 25 in four seconds.":
+    "El intervalo observado habitual es inferior a 25 en cuatro segundos.",
+  "Long-lived connections can be normal for messaging, media and sync applications.":
+    "Las conexiones duraderas pueden ser normales en aplicaciones de mensajería, multimedia y sincronización.",
+  "Network capture is unavailable. Try All interfaces or run the capture self-test.":
+    "La captura de red no está disponible. Prueba Todas las interfaces o ejecuta la autoprueba de captura.",
+  "The selected network interface is unavailable. Choose All interfaces and try again.":
+    "La interfaz de red seleccionada no está disponible. Elige Todas las interfaces e inténtalo de nuevo.",
+  "Local history could not be read. Check Diagnostics for the original storage detail.":
+    "No se pudo leer el historial local. Consulta Diagnóstico para ver el detalle original del almacenamiento.",
+  "Stored traffic samples could not be read for this time range.":
+    "No se pudieron leer las muestras de tráfico guardadas para este intervalo.",
+  "Local storage is unavailable. Sabicheiro has kept the original diagnostic below.":
+    "El almacenamiento local no está disponible. Sabicheiro conserva debajo el diagnóstico original.",
+  "The free GeoIP update could not be installed. You can retry or import an MMDB offline.":
+    "No se pudo instalar la actualización GeoIP gratuita. Puedes reintentarlo o importar una MMDB sin conexión.",
+  "The MMDB import failed edition, checksum or filesystem validation.":
+    "La importación MMDB no superó la validación de edición, suma de verificación o sistema de archivos.",
+  "The local export could not be written. Choose a new filename or writable folder.":
+    "No se pudo escribir la exportación local. Elige otro nombre o una carpeta con permiso de escritura.",
+  "The redacted support bundle could not be created.":
+    "No se pudo crear el paquete de soporte anonimizado.",
+  "The selected sessions could not be compared from local history.":
+    "No se pudieron comparar las sesiones seleccionadas desde el historial local.",
+  "Both selected sessions need retained connections.":
+    "Las dos sesiones seleccionadas deben contener conexiones conservadas.",
+  "That output already exists. Choose a new filename.":
+    "Ese archivo ya existe. Elige otro nombre.",
+  "The output filename or extension is invalid.":
+    "El nombre o la extensión del archivo de salida no son válidos.",
+  "One of the local settings is outside its allowed range.":
+    "Uno de los ajustes locales está fuera del intervalo permitido.",
+  "The operation could not be completed.": "No se pudo completar la operación.",
+  "The capture backend stopped. Run the self-test or select a different interface.":
+    "El motor de captura se detuvo. Ejecuta la autoprueba o selecciona otra interfaz.",
 };
 
 const I18nContext = createContext<Language>("en");
@@ -395,6 +572,84 @@ function translateDynamicSpanish(source: string): string | null {
   );
   if (missingInterface) {
     return `la interfaz de red '${missingInterface[1]}' ya no está disponible`;
+  }
+  const firstProcess = source.match(
+    /^This is the first locally retained network connection for (.+)\.$/,
+  );
+  if (firstProcess) {
+    return `Esta es la primera conexión de red conservada localmente para ${firstProcess[1]}.`;
+  }
+  const firstDestination = source.match(
+    /^First observed connection from (.+) to (.+)\.$/,
+  );
+  if (firstDestination) {
+    return `Primera conexión observada de ${firstDestination[1]} a ${firstDestination[2]}.`;
+  }
+  const diverseDestinations = source.match(
+    /^(.+) has now contacted 12 distinct destinations in the retained local baseline\.$/,
+  );
+  if (diverseDestinations) {
+    return `${diverseDestinations[1]} ya ha contactado con 12 destinos distintos en la referencia local conservada.`;
+  }
+  const previousCountries = source.match(/^Previously observed: (.+)$/);
+  if (previousCountries) {
+    return `Observado anteriormente: ${previousCountries[1]}`;
+  }
+  const unusualPort = source.match(
+    /^(.+) has not previously used remote port (\d+)\.$/,
+  );
+  if (unusualPort) {
+    return `${unusualPort[1]} no había usado antes el puerto remoto ${unusualPort[2]}.`;
+  }
+  const burst = source.match(
+    /^(.+) created 25 connections within four seconds\.$/,
+  );
+  if (burst) {
+    return `${burst[1]} creó 25 conexiones en cuatro segundos.`;
+  }
+  const bandwidth = source.match(
+    /^(.+) transferred approximately ([\d.]+) MiB\/s in this interval\.$/,
+  );
+  if (bandwidth) {
+    return `${bandwidth[1]} transfirió aproximadamente ${bandwidth[2]} MiB/s en este intervalo.`;
+  }
+  const retainedMean = source.match(/^Retained local mean: ([\d.]+) KiB\/s\.$/);
+  if (retainedMean) {
+    return `Media local conservada: ${retainedMean[1]} KiB/s.`;
+  }
+  const persistent = source.match(
+    /^(.+) has kept this connection open for at least 30 minutes\.$/,
+  );
+  if (persistent) {
+    return `${persistent[1]} ha mantenido esta conexión abierta al menos 30 minutos.`;
+  }
+  const adapterCount = source.match(
+    /^(\d+) adapters found with stable local identifiers$/,
+  );
+  if (adapterCount) {
+    return `${adapterCount[1]} adaptadores encontrados con identificadores locales estables`;
+  }
+  const unavailableAdapters = source.match(
+    /^(\d+) adapters were returned; reconnect the network or select All interfaces$/,
+  );
+  if (unavailableAdapters) {
+    return `Se devolvieron ${unavailableAdapters[1]} adaptadores; vuelve a conectar la red o selecciona Todas las interfaces`;
+  }
+  const socketRows = source.match(
+    /^(\d+) TCP\/UDP rows observed during a local loopback proof$/,
+  );
+  if (socketRows) {
+    return `${socketRows[1]} filas TCP/UDP observadas durante una prueba local de bucle`;
+  }
+  const geoChecksum = source.match(/^(.+) \/ checksum (.+)$/);
+  if (geoChecksum) {
+    return `${geoChecksum[1]} / suma de verificación ${geoChecksum[2]}`;
+  }
+  const sqliteSize = source.match(
+    /^SQLite is writable; current file size is (\d+) bytes$/,
+  );
+  if (sqliteSize) {
+    return `SQLite permite escritura; el archivo actual ocupa ${sqliteSize[1]} bytes`;
   }
   return null;
 }

@@ -1,10 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
+  CaptureSelfTest,
   CaptureMode,
   CaptureSummary,
   ConnectionHistoryStats,
   Connection,
+  ComparisonExportRequest,
   DashboardSnapshot,
   DestinationSummary,
   ExportRequest,
@@ -19,6 +21,10 @@ import type {
   RecordingState,
   RetentionPolicy,
   RuleKind,
+  SessionComparison,
+  SupportBundleRequest,
+  TimelineQuery,
+  TrafficSample,
   TrafficCounters,
 } from "../types";
 
@@ -185,6 +191,8 @@ let previewSettings: AppSettings = {
   ui_language: "en",
   demo_seed: 1518458081,
   feed_group_window_seconds: 30,
+  active_workspace: "remote",
+  notification_rules: [],
 };
 let previewFocusRules: FocusRules = { bookmarks: [], ignore_rules: [] };
 let previewRuleId = 1;
@@ -272,6 +280,7 @@ function previewConnections(now: number): Connection[] {
         packets_sent: Math.round(upRate / 1_100),
         packets_received: Math.round(downRate / 1_100),
       },
+      counter_source: "demo",
       rates: {
         down_bytes_per_second: active ? downRate : 0,
         up_bytes_per_second: active ? upRate : 0,
@@ -387,6 +396,12 @@ function makePreviewSnapshot(): DashboardSnapshot {
       dropped_ui_events: 0,
       queue_saturation: 0,
       backend: previewMode === "off" ? "stopped" : "deterministic-demo",
+      capture_event_source:
+        previewMode === "off" ? "none" : "deterministic_demo",
+      flow_counters_available: previewMode !== "off",
+      packet_events_observed:
+        previewMode === "off" ? 0 : Math.floor((now - previewStarted) / 120),
+      dns_correlations_observed: previewMode === "off" ? 0 : 8,
       last_error: null,
     },
     capture: {
@@ -427,8 +442,12 @@ function makePreviewSnapshot(): DashboardSnapshot {
 const previewInterfaces: NetworkInterface[] = [
   {
     id: "all",
+    stable_id: "all",
     name: "All interfaces",
+    system_name: "all",
     description: "Observe every available interface",
+    luid: null,
+    network_guid: null,
     addresses: [],
     is_up: true,
     is_loopback: false,
@@ -437,8 +456,12 @@ const previewInterfaces: NetworkInterface[] = [
   },
   {
     id: "wifi",
+    stable_id: "windows-adapter:preview-wifi",
     name: "Wi-Fi",
+    system_name: "preview-wifi",
     description: "Wireless network interface",
+    luid: 101,
+    network_guid: "00000000-0000-0000-0000-000000000101",
     addresses: ["192.168.1.42"],
     is_up: true,
     is_loopback: false,
@@ -447,8 +470,12 @@ const previewInterfaces: NetworkInterface[] = [
   },
   {
     id: "ethernet",
+    stable_id: "windows-adapter:preview-ethernet",
     name: "Ethernet",
+    system_name: "preview-ethernet",
     description: "Wired network interface",
+    luid: 102,
+    network_guid: "00000000-0000-0000-0000-000000000102",
     addresses: [],
     is_up: false,
     is_loopback: false,
@@ -483,6 +510,42 @@ export const desktopApi = {
   },
   async listInterfaces(): Promise<NetworkInterface[]> {
     return isDesktop ? call("list_interfaces") : previewInterfaces;
+  },
+  async runCaptureSelfTest(): Promise<CaptureSelfTest> {
+    if (isDesktop) return call("run_capture_self_test");
+    return {
+      generated_at_ms: Date.now(),
+      checks: [
+        {
+          id: "interfaces",
+          level: "pass",
+          title: "Network interfaces are discoverable",
+          detail: "Development preview adapter is available.",
+          diagnostic_code: null,
+        },
+        {
+          id: "socket_table",
+          level: "pass",
+          title: "Socket tables are readable",
+          detail: "Development preview uses deterministic local data.",
+          diagnostic_code: null,
+        },
+        {
+          id: "dns",
+          level: "pass",
+          title: "Passive DNS correlation is active",
+          detail: "Preview hostnames are deterministic and local.",
+          diagnostic_code: null,
+        },
+        {
+          id: "geoip",
+          level: "pass",
+          title: "Local GeoIP database is ready",
+          detail: "Development preview dataset.",
+          diagnostic_code: null,
+        },
+      ],
+    };
   },
   async setViewPaused(paused: boolean): Promise<void> {
     if (isDesktop) return call("set_view_paused", { paused });
@@ -521,6 +584,84 @@ export const desktopApi = {
               },
             ],
     };
+  },
+  async queryTrafficTimeline(query: TimelineQuery): Promise<TrafficSample[]> {
+    if (isDesktop) return call("query_traffic_timeline", { query });
+    const bucket =
+      query.resolution === "one_second"
+        ? 1_000
+        : query.resolution === "one_minute"
+          ? 60_000
+          : 3_600_000;
+    const count = Math.min(
+      120,
+      Math.max(1, Math.floor((query.to_ms - query.from_ms) / bucket)),
+    );
+    const snapshot = makePreviewSnapshot();
+    return Array.from({ length: count }, (_, index) => {
+      const pulse = 0.55 + Math.sin(index / 4) * 0.25;
+      const rates = {
+        down_bytes_per_second: snapshot.stats.down_bytes_per_second * pulse,
+        up_bytes_per_second:
+          snapshot.stats.up_bytes_per_second * (1.1 - pulse / 2),
+        packets_per_second: snapshot.stats.packets_per_second * pulse,
+      };
+      return {
+        timestamp_ms: query.to_ms - (count - index - 1) * bucket,
+        session_id: query.session_id,
+        process_key: query.process_key,
+        rates,
+        counters: {
+          bytes_sent: Math.round(rates.up_bytes_per_second * (bucket / 1_000)),
+          bytes_received: Math.round(
+            rates.down_bytes_per_second * (bucket / 1_000),
+          ),
+          packets_sent: 0,
+          packets_received: Math.round(
+            rates.packets_per_second * (bucket / 1_000),
+          ),
+        },
+        source: "demo",
+      };
+    });
+  },
+  async compareSessions(
+    leftSessionId: string,
+    rightSessionId: string,
+  ): Promise<SessionComparison> {
+    if (isDesktop)
+      return call("compare_sessions", { leftSessionId, rightSessionId });
+    const rows = previewDestinations.slice(0, 5).map((item, index) => ({
+      key: item[0],
+      left_count: index + 1,
+      right_count: index + 2,
+      delta: 1,
+    }));
+    return {
+      left_session_id: leftSessionId,
+      right_session_id: rightSessionId,
+      processes: rows,
+      destinations: rows.map((row, index) => ({
+        ...row,
+        key: previewDestinations[index]?.[4] ?? row.key,
+      })),
+      countries: rows.slice(0, 3),
+      ports: [{ key: "443", left_count: 8, right_count: 11, delta: 3 }],
+    };
+  },
+  async exportSessionComparison(
+    request: ComparisonExportRequest,
+  ): Promise<ExportResult> {
+    if (isDesktop)
+      return call("export_session_comparison", {
+        request: {
+          leftSessionId: request.left_session_id,
+          rightSessionId: request.right_session_id,
+          format: request.format,
+          path: request.path,
+        },
+      });
+    return { path: request.path, records: 14, bytes_written: 0 };
   },
   async getSettings(): Promise<AppSettings> {
     return isDesktop ? call("get_settings") : structuredClone(previewSettings);
@@ -643,11 +784,21 @@ export const desktopApi = {
       last_update_ms: Date.now() - 7 * 86_400_000,
       next_recommended_update_ms: Date.now() + 23 * 86_400_000,
       path: "Development preview only",
+      edition: "DBIP-City-Lite",
+      sha256: "preview-only",
       attribution: "IP geolocation by DB-IP.com, licensed under CC BY 4.0",
     };
   },
   async updateGeoDatabase(): Promise<GeoDatabaseStatus> {
     return isDesktop ? call("update_geo_database") : this.getGeoStatus();
+  },
+  async importGeoDatabase(
+    sourcePath: string,
+    kind: "city" | "asn",
+  ): Promise<GeoDatabaseStatus> {
+    return isDesktop
+      ? call("import_geo_database", { sourcePath, kind })
+      : this.getGeoStatus();
   },
   async exportView(request: ExportRequest): Promise<ExportResult> {
     if (isDesktop) return call("export_view", { request });
@@ -656,6 +807,12 @@ export const desktopApi = {
       records: makePreviewSnapshot().connections.length,
       bytes_written: 0,
     };
+  },
+  async exportSupportBundle(
+    request: SupportBundleRequest,
+  ): Promise<ExportResult> {
+    if (isDesktop) return call("export_support_bundle", { request });
+    return { path: request.path, records: 3, bytes_written: 0 };
   },
   async startRecording(request: RecordingRequest): Promise<RecordingState> {
     if (isDesktop) return call("start_recording", { request });

@@ -4,6 +4,7 @@
 /apps/desktop/dist/
 /apps/desktop/node_modules/
 /apps/desktop/src-tauri/target/
+/release/
 *.log
 *.etl
 *.pcap

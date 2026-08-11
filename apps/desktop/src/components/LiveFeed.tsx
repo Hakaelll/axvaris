@@ -264,7 +264,10 @@ export function LiveFeed({
                     <span
                       aria-label={t("Observed deviation")}
                       className="signal-mark"
-                      title={representative.unusual[0]?.reason}
+                      title={t(
+                        representative.unusual[0]?.reason ??
+                          "Observed deviation",
+                      )}
                     >
                       !
                     </span>

@@ -1,0 +1,425 @@
+use crate::{CaptureError, process::ProcessResolver};
+use ferrisetw::{
+    EventRecord, parser::Parser, provider::Provider, schema::Schema, schema_locator::SchemaLocator,
+    trace::UserTrace,
+};
+use sabicheiro_core::{
+    ConnectionKey, ConnectionState, CounterSource, Direction, Endpoint, NetworkEventKind,
+    NetworkProtocol, NormalizedNetworkEvent, TrafficCounters,
+};
+use std::{
+    net::IpAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel},
+    },
+};
+
+const ETW_QUEUE_CAPACITY: usize = 8_192;
+const DNS_TTL_MS: i64 = 3_600_000;
+
+#[derive(Debug, Clone)]
+pub struct DnsObservation {
+    pub address: IpAddr,
+    pub hostname: String,
+    pub expires_at_ms: i64,
+}
+
+#[derive(Debug)]
+enum RawEtwRecord {
+    Network(RawNetworkEvent),
+    Dns {
+        hostname: String,
+        addresses: Vec<IpAddr>,
+    },
+}
+
+#[derive(Debug)]
+struct RawNetworkEvent {
+    kind: NetworkEventKind,
+    pid: Option<u32>,
+    protocol: NetworkProtocol,
+    direction: Direction,
+    state: ConnectionState,
+    local: Endpoint,
+    remote: Endpoint,
+    traffic: TrafficCounters,
+}
+
+pub struct WindowsEventCapture {
+    _trace: UserTrace,
+    receiver: Receiver<RawEtwRecord>,
+    dropped: Arc<AtomicU64>,
+    pending: Arc<AtomicUsize>,
+    processes: ProcessResolver,
+}
+
+impl WindowsEventCapture {
+    pub fn start() -> Result<Self, CaptureError> {
+        let (sender, receiver) = sync_channel(ETW_QUEUE_CAPACITY);
+        let dropped = Arc::new(AtomicU64::new(0));
+        let pending = Arc::new(AtomicUsize::new(0));
+
+        let network_sender = sender.clone();
+        let network_dropped = Arc::clone(&dropped);
+        let network_pending = Arc::clone(&pending);
+        let network_provider = Provider::by_guid("7dd42a49-5329-4832-8dfd-43d979153a88")
+            .add_callback(move |record, schemas| {
+                network_callback(
+                    record,
+                    schemas,
+                    &network_sender,
+                    &network_dropped,
+                    &network_pending,
+                );
+            })
+            .build();
+
+        let dns_dropped = Arc::clone(&dropped);
+        let dns_pending = Arc::clone(&pending);
+        let dns_provider = Provider::by_guid("1c95126e-7eea-49a9-a3fe-a378b03ddb4d")
+            .add_callback(move |record, schemas| {
+                dns_callback(record, schemas, &sender, &dns_dropped, &dns_pending);
+            })
+            .build();
+
+        let trace = UserTrace::new()
+            .named("Sabicheiro-Network-Events".into())
+            .enable(network_provider)
+            .enable(dns_provider)
+            .start_and_process()
+            .map_err(|error| {
+                CaptureError::PermissionDenied(format!(
+                    "Windows ETW network events could not start ({error:?}); IP Helper polling remains active"
+                ))
+            })?;
+
+        Ok(Self {
+            _trace: trace,
+            receiver,
+            dropped,
+            pending,
+            processes: ProcessResolver::new(),
+        })
+    }
+
+    pub fn drain(
+        &mut self,
+        timestamp_ms: i64,
+    ) -> (Vec<NormalizedNetworkEvent>, Vec<DnsObservation>) {
+        let mut network = Vec::new();
+        let mut dns = Vec::new();
+        loop {
+            match self.receiver.try_recv() {
+                Ok(RawEtwRecord::Network(event)) => network.push(event),
+                Ok(RawEtwRecord::Dns {
+                    hostname,
+                    addresses,
+                }) => {
+                    dns.extend(addresses.into_iter().map(|address| DnsObservation {
+                        address,
+                        hostname: hostname.clone(),
+                        expires_at_ms: timestamp_ms.saturating_add(DNS_TTL_MS),
+                    }));
+                }
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+            }
+            self.pending.fetch_sub(1, Ordering::Relaxed);
+        }
+        self.processes
+            .refresh(network.iter().filter_map(|event| event.pid));
+        let events = network
+            .into_iter()
+            .map(|event| NormalizedNetworkEvent {
+                kind: event.kind,
+                key: ConnectionKey {
+                    pid: event.pid,
+                    local: event.local,
+                    remote: event.remote,
+                    protocol: event.protocol,
+                },
+                timestamp_ms,
+                process: self.processes.resolve(event.pid),
+                direction: event.direction,
+                state: event.state,
+                interface: None,
+                hostname: None,
+                domain: None,
+                geo: None,
+                asn: None,
+                traffic_delta: event.traffic,
+                counter_source: CounterSource::EtwFlow,
+            })
+            .collect();
+        (events, dns)
+    }
+
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
+    }
+
+    pub const fn capacity(&self) -> usize {
+        ETW_QUEUE_CAPACITY
+    }
+
+    pub fn pending(&self) -> usize {
+        self.pending.load(Ordering::Relaxed)
+    }
+}
+
+fn network_callback(
+    record: &EventRecord,
+    schemas: &SchemaLocator,
+    sender: &SyncSender<RawEtwRecord>,
+    dropped: &AtomicU64,
+    pending: &AtomicUsize,
+) {
+    let Ok(schema) = schemas.event_schema(record) else {
+        return;
+    };
+    let Some(event) = parse_network_event(record, &schema) else {
+        return;
+    };
+    send_bounded(sender, RawEtwRecord::Network(event), dropped, pending);
+}
+
+fn parse_network_event(record: &EventRecord, schema: &Schema) -> Option<RawNetworkEvent> {
+    let parser = Parser::create(record, schema);
+    let opcode = record.opcode();
+    let event_id = record.event_id();
+    let operation = if opcode == 0 { event_id as u8 } else { opcode };
+    let task = schema.task_name().to_ascii_lowercase();
+    let opcode_name = schema.opcode_name().to_ascii_lowercase();
+    let protocol = if task.contains("udp") || opcode_name.contains("udp") {
+        NetworkProtocol::Udp
+    } else {
+        NetworkProtocol::Tcp
+    };
+    let (kind, direction, state) = match operation {
+        10 | 26 => (
+            NetworkEventKind::Updated,
+            Direction::Outbound,
+            ConnectionState::Established,
+        ),
+        11 | 27 => (
+            NetworkEventKind::Updated,
+            Direction::Inbound,
+            ConnectionState::Established,
+        ),
+        12 | 16 | 28 | 32 => (
+            NetworkEventKind::Opened,
+            Direction::Outbound,
+            ConnectionState::Established,
+        ),
+        15 | 31 => (
+            NetworkEventKind::Opened,
+            Direction::Inbound,
+            ConnectionState::Established,
+        ),
+        13 | 17 | 29 | 33 => (
+            NetworkEventKind::Closed,
+            Direction::Unknown,
+            ConnectionState::Closed,
+        ),
+        14 | 30 => (
+            NetworkEventKind::Updated,
+            Direction::Outbound,
+            ConnectionState::Established,
+        ),
+        // Copy events duplicate send bytes and are intentionally ignored.
+        18 | 34 => return None,
+        _ => return None,
+    };
+    let source_address: IpAddr = parser.try_parse("saddr").ok()?;
+    let source_port: u16 = parser.try_parse("sport").ok()?;
+    let destination_address: IpAddr = parser.try_parse("daddr").ok()?;
+    let destination_port: u16 = parser.try_parse("dport").ok()?;
+    if source_port == 0 && destination_port == 0 {
+        return None;
+    }
+    let size: u64 = parser.try_parse::<u32>("size").unwrap_or(0).into();
+    let (local, remote) = if direction == Direction::Inbound {
+        (
+            Endpoint::new(destination_address, destination_port),
+            Endpoint::new(source_address, source_port),
+        )
+    } else {
+        (
+            Endpoint::new(source_address, source_port),
+            Endpoint::new(destination_address, destination_port),
+        )
+    };
+    let mut traffic = TrafficCounters::default();
+    if direction == Direction::Inbound && size > 0 {
+        traffic.bytes_received = size;
+        traffic.packets_received = 1;
+    } else if size > 0 {
+        traffic.bytes_sent = size;
+        traffic.packets_sent = 1;
+    }
+    let payload_pid = parser.try_parse::<u32>("PID").ok();
+    let header_pid = (record.process_id() != 0).then_some(record.process_id());
+    Some(RawNetworkEvent {
+        kind,
+        pid: payload_pid.filter(|pid| *pid != 0).or(header_pid),
+        protocol,
+        direction,
+        state,
+        local,
+        remote,
+        traffic,
+    })
+}
+
+fn dns_callback(
+    record: &EventRecord,
+    schemas: &SchemaLocator,
+    sender: &SyncSender<RawEtwRecord>,
+    dropped: &AtomicU64,
+    pending: &AtomicUsize,
+) {
+    let Ok(schema) = schemas.event_schema(record) else {
+        return;
+    };
+    let parser = Parser::create(record, &schema);
+    let status = parser
+        .try_parse::<u32>("QueryStatus")
+        .or_else(|_| parser.try_parse("Status"))
+        .unwrap_or(0);
+    if status != 0 {
+        return;
+    }
+    let Some(hostname) = parser
+        .try_parse::<String>("QueryName")
+        .ok()
+        .map(|value| value.trim_end_matches('.').to_owned())
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let addresses = parser
+        .try_parse::<String>("QueryResults")
+        .ok()
+        .map(|results| extract_addresses(&results))
+        .unwrap_or_default();
+    if addresses.is_empty() {
+        return;
+    }
+    send_bounded(
+        sender,
+        RawEtwRecord::Dns {
+            hostname,
+            addresses,
+        },
+        dropped,
+        pending,
+    );
+}
+
+fn extract_addresses(results: &str) -> Vec<IpAddr> {
+    let mut addresses = results
+        .split(|character: char| {
+            character.is_ascii_whitespace()
+                || matches!(character, ';' | ',' | '[' | ']' | '(' | ')')
+        })
+        .filter_map(|token| {
+            let token = token.trim_matches(|character: char| {
+                !(character.is_ascii_hexdigit() || matches!(character, '.' | ':'))
+            });
+            token.parse().ok()
+        })
+        .collect::<Vec<_>>();
+    addresses.sort();
+    addresses.dedup();
+    addresses
+}
+
+fn send_bounded(
+    sender: &SyncSender<RawEtwRecord>,
+    event: RawEtwRecord,
+    dropped: &AtomicU64,
+    pending: &AtomicUsize,
+) {
+    match sender.try_send(event) {
+        Ok(()) => {
+            pending.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(TrySendError::Full(_)) => {
+            dropped.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(TrySendError::Disconnected(_)) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "requires a live Windows ETW session"]
+    fn live_etw_observes_loopback_flow_counters() {
+        use std::{
+            io::{Read, Write},
+            net::{Ipv4Addr, TcpListener, TcpStream},
+            thread,
+            time::{Duration, Instant},
+        };
+
+        let mut capture = WindowsEventCapture::start().expect("start ETW event capture");
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind loopback listener");
+        let listener_address = listener.local_addr().expect("listener address");
+        let mut client = TcpStream::connect(listener_address).expect("connect loopback client");
+        let client_address = client.local_addr().expect("client address");
+        let (mut server, _) = listener.accept().expect("accept loopback client");
+        client
+            .write_all(&[0x5a; 4_096])
+            .expect("write outbound proof bytes");
+        let mut inbound = [0_u8; 4_096];
+        server
+            .read_exact(&mut inbound)
+            .expect("read outbound proof bytes");
+        server
+            .write_all(&[0xa5; 2_048])
+            .expect("write inbound proof bytes");
+        let mut outbound = [0_u8; 2_048];
+        client
+            .read_exact(&mut outbound)
+            .expect("read inbound proof bytes");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut observed = Vec::new();
+        while Instant::now() < deadline {
+            let (events, _) = capture.drain(sabicheiro_core::now_ms());
+            observed.extend(events);
+            if observed.iter().any(|event| {
+                event.key.pid == Some(std::process::id())
+                    && [event.key.local.port, event.key.remote.port]
+                        .contains(&listener_address.port())
+                    && [event.key.local.port, event.key.remote.port]
+                        .contains(&client_address.port())
+                    && (event.traffic_delta.bytes_sent > 0
+                        || event.traffic_delta.bytes_received > 0)
+            }) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        panic!(
+            "ETW started but did not report the loopback flow with byte counters; observed {} parsed events",
+            observed.len()
+        );
+    }
+
+    #[test]
+    fn dns_result_parser_extracts_ipv4_and_ipv6_without_names() {
+        assert_eq!(
+            extract_addresses("type: 5 example.test; type: 1 203.0.113.10; 2001:db8::10"),
+            vec![
+                "203.0.113.10".parse::<IpAddr>().expect("IPv4"),
+                "2001:db8::10".parse::<IpAddr>().expect("IPv6"),
+            ]
+        );
+    }
+}

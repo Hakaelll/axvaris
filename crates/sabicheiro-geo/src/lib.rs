@@ -2,6 +2,7 @@ use flate2::read::GzDecoder;
 use maxminddb::{Reader, path};
 use sabicheiro_core::{AsnInfo, GeoDatabaseStatus, GeoLocation};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, VecDeque},
     fs,
@@ -29,6 +30,13 @@ pub enum GeoError {
     DownloadTooLarge,
     #[error("downloaded database contains no usable MMDB data")]
     InvalidDatabase,
+    #[error("MMDB edition '{actual}' does not match expected {expected} data")]
+    InvalidEdition {
+        expected: &'static str,
+        actual: String,
+    },
+    #[error("imported database exceeds the 512 MiB safety limit")]
+    ImportTooLarge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -171,6 +179,12 @@ impl LocalGeoResolver {
                 .city_path
                 .as_ref()
                 .map(|path| path.to_string_lossy().into_owned()),
+            edition: metadata.map(|value| value.database_type.clone()),
+            sha256: self
+                .city_path
+                .as_deref()
+                .filter(|path| path.is_file())
+                .and_then(|path| file_sha256(path).ok()),
             attribution: "IP geolocation by DB-IP.com, licensed under CC BY 4.0".into(),
         }
     }
@@ -299,6 +313,73 @@ pub struct UpdatedDatabases {
     pub dataset_month: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GeoDatabaseKind {
+    City,
+    Asn,
+}
+
+impl GeoDatabaseKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::City => "City",
+            Self::Asn => "ASN",
+        }
+    }
+
+    const fn destination_name(self) -> &'static str {
+        match self {
+            Self::City => "dbip-city-lite.mmdb",
+            Self::Asn => "dbip-asn-lite.mmdb",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportedDatabase {
+    pub kind: GeoDatabaseKind,
+    pub path: PathBuf,
+    pub edition: String,
+    pub sha256: String,
+}
+
+pub fn import_mmdb(
+    source: impl AsRef<Path>,
+    data_directory: impl AsRef<Path>,
+    kind: GeoDatabaseKind,
+) -> Result<ImportedDatabase, GeoError> {
+    let source = source.as_ref();
+    let metadata = fs::metadata(source)?;
+    if !metadata.is_file() || metadata.len() > 512 * 1024 * 1024 {
+        return Err(GeoError::ImportTooLarge);
+    }
+    let database = fs::read(source)?;
+    let reader = Reader::from_source(database.as_slice())?;
+    if reader.metadata().node_count == 0 {
+        return Err(GeoError::InvalidDatabase);
+    }
+    let edition = reader.metadata().database_type.clone();
+    if !edition
+        .to_ascii_lowercase()
+        .contains(&kind.label().to_ascii_lowercase())
+    {
+        return Err(GeoError::InvalidEdition {
+            expected: kind.label(),
+            actual: edition,
+        });
+    }
+    fs::create_dir_all(data_directory.as_ref())?;
+    let destination = data_directory.as_ref().join(kind.destination_name());
+    install_database(&database, &destination)?;
+    Ok(ImportedDatabase {
+        kind,
+        path: destination,
+        edition,
+        sha256: format!("{:x}", Sha256::digest(&database)),
+    })
+}
+
 pub fn update_dbip_lite(data_directory: impl AsRef<Path>) -> Result<UpdatedDatabases, GeoError> {
     let data_directory = data_directory.as_ref();
     fs::create_dir_all(data_directory)?;
@@ -310,7 +391,11 @@ pub fn update_dbip_lite(data_directory: impl AsRef<Path>) -> Result<UpdatedDatab
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(180))
-        .user_agent("Sabicheiro/0.1 (+local offline GeoIP updater)")
+        .user_agent(concat!(
+            "Sabicheiro/",
+            env!("CARGO_PKG_VERSION"),
+            " (+local offline GeoIP updater)"
+        ))
         .build()?;
 
     download_and_install(&client, &city_url, &city_path)?;
@@ -355,6 +440,10 @@ fn download_and_install(
         return Err(GeoError::InvalidDatabase);
     }
 
+    install_database(&database, destination)
+}
+
+fn install_database(database: &[u8], destination: &Path) -> Result<(), GeoError> {
     let pending = destination.with_extension("mmdb.new");
     let backup = destination.with_extension("mmdb.bak");
     fs::write(&pending, database)?;
@@ -374,6 +463,11 @@ fn download_and_install(
         fs::remove_file(backup)?;
     }
     Ok(())
+}
+
+fn file_sha256(path: &Path) -> io::Result<String> {
+    let data = fs::read(path)?;
+    Ok(format!("{:x}", Sha256::digest(data)))
 }
 
 fn format_epoch_month(epoch_ms: i64) -> Option<String> {

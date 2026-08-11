@@ -1,0 +1,13 @@
+{
+  "name": "sabicheiro-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "scripts": {
+    "dev": "pnpm --dir apps/desktop dev",
+    "build": "pnpm --dir apps/desktop build",
+    "check": "pnpm --dir apps/desktop check && cargo test --workspace --all-targets --locked",
+    "lint": "pnpm --dir apps/desktop lint && cargo clippy --workspace --all-targets --locked -- -D warnings",
+    "format": "pnpm --dir apps/desktop format && cargo fmt --all",
+    "tauri": "pnpm --dir apps/desktop tauri"
+  }
+}

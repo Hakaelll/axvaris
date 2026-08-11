@@ -1,0 +1,29 @@
+[package]
+name = "sabicheiro-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "sabicheiro_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "Sabicheiro"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono.workspace = true
+sabicheiro-capture = { path = "../../../crates/sabicheiro-capture" }
+sabicheiro-core = { path = "../../../crates/sabicheiro-core" }
+sabicheiro-geo = { path = "../../../crates/sabicheiro-geo" }
+sabicheiro-storage = { path = "../../../crates/sabicheiro-storage" }
+serde.workspace = true
+serde_json.workspace = true
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+tauri = { version = "2", features = [] }
+thiserror.workspace = true

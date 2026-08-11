@@ -1,0 +1,16 @@
+[package]
+name = "sabicheiro-capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sabicheiro-core = { path = "../sabicheiro-core" }
+serde.workspace = true
+sysinfo = { version = "0.39", default-features = false, features = ["system", "network"] }
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

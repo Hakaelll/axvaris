@@ -1,0 +1,72 @@
+# Sabicheiro Operational Plan
+
+Last updated: 2026-08-10. `DONE` means the stated acceptance criterion was compiled
+and tested in the available environment. `REVIEW` means the implementation exists but
+needs visual, privilege-sensitive or Linux-native evidence; it is never used as a
+synonym for done.
+
+| ID | Title | Description | Priority | Status | Dependencies | Acceptance criteria | Related files | Technical notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| P0-01 | Repository inspection | Inspect files, AGENTS, Git, OS and toolchains | P0 | DONE | — | Baseline and available toolchains recorded | `BUILD.md` | Windows 11; Rust/MSVC/WebView2; no WSL/container runtime |
+| P1-01 | License/cost research | Verify libraries/datasets and reject paid services | P0 | DONE | P0-01 | Purpose/license/cost/redistribution plus locked audit | `DEPENDENCIES.md` | 493 Cargo + 43 pnpm packages; no undeclared/commercial-only license |
+| P2-01 | Architecture | Define platform/core/UI/security boundaries | P0 | DONE | P1-01 | Required boundaries documented against implementation | `ARCHITECTURE.md`, `NETWORK_CAPTURE.md` | Known v0.1 gaps stated explicitly |
+| P3-01 | Domain model | Typed connection/process/destination/session/event models | P0 | DONE | P2-01 | Serialization, identity and reconstruction tests pass | `crates/sabicheiro-core` | Shared semantics mirrored strictly in TypeScript |
+| P3-02 | Demo pipeline | Seeded realistic event generator | P0 | DONE | P3-01 | Same seed/time produces identical enriched events | `crates/sabicheiro-core/src/demo.rs` | Explicit Demo mode only |
+| P4-01 | Design system | Tokens, desktop layout, accessibility and motion rules | P0 | REVIEW | P2-01 | Production build passes; visual inspection at target sizes still required | `DESIGN.md`, `apps/desktop/src/styles.css` | Browser capture was unavailable; no fake screenshot committed |
+| P5-01 | Desktop shell | Tauri commands, runtime and least-privilege capability | P0 | DONE | P3-01 | Typed commands compile; native Windows executable smoke-tested | `apps/desktop/src-tauri` | `core:default` only; no frontend shell/filesystem API |
+| P6-01 | Globe/map | Persistent Three.js globe and shared SVG map data | P0 | REVIEW | P3-02,P4-01 | Local geometry, selection and adaptive grouping compile; visual QA pending | `apps/desktop/src/components/visualization`, `src/lib/routes.ts` | Unknown geo never plotted; routes capped |
+| P7-01 | Feed/inspector | Grouped feed synchronized with selection | P0 | REVIEW | P6-01 | Complete semantic sections and keyboard paths compile; interactive QA pending | `apps/desktop/src/components` | Configurable conceptual grouping, off-screen layout containment |
+| P8-01 | Windows provider | IPv4/v6 TCP/UDP owner-PID socket snapshots | P0 | DONE | P3-01 | Native table, established-peer and Unicode interface tests pass on Windows | `crates/sabicheiro-capture/src/windows.rs` | Native adapter metadata; listeners separated; UDP remote/per-flow bytes remain explicit limitations |
+| P9-01 | Linux provider | Parse socket tables and inode→PID mapping | P0 | REVIEW | P3-01 | Parser/provider tests exist; must run on real Linux and CI | `crates/sabicheiro-capture/src/linux.rs` | Source is cfg-gated and cannot execute on this Windows host |
+| P10-01 | Process attribution | PID/name/path/start-time cache | P0 | DONE | P8-01,P9-01 | Current Windows test process is attributed; missing PID stays unknown | `crates/sabicheiro-capture/src/process.rs` | Cache refresh overwrites PID reuse identity |
+| P11-01 | GeoIP/DNS | Local MMDB plus bounded async DNS caches | P1 | REVIEW | P3-01 | Scope/cache/fallback tests pass; live free-dataset download not exercised | `crates/sabicheiro-geo` | Reverse DNS opt-in/off by default; DB-IP attribution shown |
+| P12-01 | Search/filter | Global search and compact query grammar | P1 | DONE | P3-01 | Valid, combined and invalid parser tests pass | `crates/sabicheiro-core/src/filter.rs`, UI filter | Bounded/typed backend parser |
+| P13-01 | SQLite/history | Migrations, sessions, retention and reconstruction | P1 | DONE | P3-01 | v1→v2 migration, overlap, retention, baseline and recording tests pass | `crates/sabicheiro-storage` | WAL, indexed; startup/change/hourly cleanup |
+| P14-01 | Secondary views | Processes, destinations, history and top context | P1 | REVIEW | P7-01,P13-01 | Shared filters/selection compile; target-size visual QA pending | `apps/desktop/src/views`, `TopContext.tsx` | Avoids independent duplicate data stores |
+| P15-01 | Metadata export | CSV/JSON query/range/session scope | P1 | DONE | P13-01 | Escaping and output-path tests pass | storage/Tauri/dialogs | Relative paths scoped to app data; no overwrite by packet recorder |
+| P16-01 | PCAPNG | Explicit bounded recording adapters and session index | P1 | REVIEW | P8-01,P9-01 | Size/duration/rotation logic and tests compile; captured file must open in Wireshark | `crates/sabicheiro-capture/src/recording.rs` | Pktmon max four parts; dumpcap ring four; privilege QA pending |
+| P17-01 | Baselines | Explainable persistent unusual-activity heuristics | P2 | DONE | P13-01 | Deterministic/statistical and persistence tests pass | `crates/sabicheiro-core/src/baseline.rs` | Neutral signals, no AI/risk score |
+| P18-01 | Diagnostics | CPU/RAM/FPS/rates/DB/queue/drop counters | P1 | REVIEW | P5-01 | Backend counters compile and runtime starts; settings rendering needs QA | core/Tauri/Settings | Local only; capture drops remain backend-dependent |
+| P19-01 | Packaging | NSIS, AppImage and deb configuration/artifacts | P0 | REVIEW | P5-01 | Windows artifact built locally; Linux artifacts need Linux runner | Tauri config/workflows | Workflows manual-only; no paid runner was used |
+| P20-01 | Release validation | Tests, a11y, visual, privacy and package audit | P0 | REVIEW | P19-01 | Evidence table records every pass and remaining check | `docs/VALIDATION.md` | Rust/TS/license/Windows smoke pass; Linux/visual/PCAP privilege remain |
+
+## Completed reliability improvements in 0.1.1
+
+| ID | Improvement | Status | Verified result |
+| --- | --- | --- | --- |
+| R-01 | Native Unicode adapter discovery | DONE | Windows friendly names no longer pass through a legacy PowerShell code page; addresses and operational state come from the native adapter API |
+| R-02 | Remote-peer feed | DONE | Wildcard TCP listeners and bound UDP sockets are hidden by default and cannot pollute destination baselines; an explicit setting restores them for service auditing |
+| R-03 | Established socket proof | DONE | Native provider and full live-engine tests create a real TCP pair and confirm owner-PID/state/remote-peer observation through ingestion |
+| R-04 | Honest live traffic totals | DONE | The bottom strip measures aggregate interface byte/packet deltas; rows state when per-flow counters are unavailable |
+| R-05 | Stale adapter recovery | DONE | A saved interface that was renamed or previously mojibaked falls back to all interfaces and the corrected setting is persisted locally |
+
+## Future functional roadmap
+
+All items below must remain local-first and usable without subscriptions, commercial
+drivers, hosted databases or paid APIs.
+
+| ID | Future improvement | Priority | Dependencies | Acceptance criterion |
+| --- | --- | --- | --- | --- |
+| F-01 | Windows ETW network event provider | P0 | P8-01 | Observe short-lived TCP and remote UDP endpoints missed by polling, with bounded queues, measured loss and no payload capture |
+| F-02 | Per-flow byte and packet correlation | P0 | F-01 | Attribute counters to the correct PID/5-tuple with reconciliation tests; never divide aggregate interface totals between flows |
+| F-03 | Stable adapter identity and hot-plug | P1 | R-01 | Persist adapter LUID/GUID separately from its display name and recover automatically after rename, dock, VPN or Wi-Fi changes |
+| F-04 | Remote, local and listener workspaces | P1 | R-02 | Provide separate tabs and counts for remote peers, LAN/loopback traffic and listening services without mixing their semantics |
+| F-05 | DNS Client event correlation | P1 | F-01 | Associate locally observed DNS answers with connections using a bounded expiring cache; no reverse lookup or external query unless explicitly enabled |
+| F-06 | Traffic timeline and process sparklines | P1 | R-04,F-02 | Display 1 s/1 min/1 h aggregates with pause/zoom and bounded SQLite retention while preserving provenance of aggregate versus per-flow data |
+| F-07 | GeoIP onboarding and offline import | P1 | P11-01 | Explain missing geography in the empty map, verify dataset checksum/edition and support importing a free MMDB without sending observed IPs anywhere |
+| F-08 | Capture self-test panel | P1 | R-01,R-03 | Run interface, table, process-attribution, DNS and GeoIP checks and return actionable pass/warn/fail results without requiring a terminal |
+| F-09 | Rule-based local notifications | P2 | P17-01 | Let users opt into rate-limited notifications for a new process, country, ASN or port; rules remain explainable and never block traffic |
+| F-10 | Session comparison | P2 | P13-01 | Compare two saved sessions by processes, destinations, countries and connection counts with CSV/JSON export |
+| F-11 | Linux Netlink `INET_DIAG` provider | P1 | P9-01 | Replace deprecated `/proc/net` polling while retaining process attribution, IPv6 parity and permission diagnostics |
+| F-12 | Diagnostic support bundle | P2 | F-08 | Export a user-reviewed archive containing versions, settings and redacted diagnostics only; exclude payloads, raw IP history and secrets by default |
+
+## Post-0.1 hardening queue
+
+| ID | Title | Priority | Status | Acceptance criterion |
+| --- | --- | --- | --- | --- |
+| H-01 | Linux-native release proof | P0 | TODO | Run full gates and open AppImage/deb on Debian/Ubuntu x86_64 |
+| H-02 | Minimal privileged recording helper | P0 | TODO | UI remains normal user; fixed authenticated IPC; Windows elevation and Linux capabilities audited |
+| H-03 | Packet/event-to-flow counters | P1 | TODO | Real byte/packet deltas correlate without payload retention or commercial drivers |
+| H-04 | Automated visual/a11y regression | P1 | TODO | Deterministic screenshots at 1280×720/1920×1080 plus keyboard/screen-reader audit |
+| H-05 | Netlink `INET_DIAG` provider | P2 | TODO | Linux provider parity/performance tests pass without `/proc/net` dependency |
+| H-06 | Backend explanation localization | P2 | TODO | Dynamic capture and baseline explanations are localized without hiding their original diagnostic detail |

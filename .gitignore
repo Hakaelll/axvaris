@@ -1,0 +1,15 @@
+/target/
+/node_modules/
+/.pnpm-store/
+/apps/desktop/dist/
+/apps/desktop/node_modules/
+/apps/desktop/src-tauri/target/
+*.log
+*.etl
+*.pcap
+*.pcapng
+*.mmdb
+*.tsbuildinfo
+!.cargo/config.toml
+.DS_Store
+Thumbs.db

@@ -1,3 +1,4 @@
+mod correlator;
 mod differ;
 #[cfg(any(target_os = "linux", test))]
 mod inet_diag_wire;
@@ -11,13 +12,15 @@ mod windows;
 #[cfg(target_os = "windows")]
 mod windows_events;
 
+pub use correlator::{CorrelationStats, FlowCorrelator};
 pub use differ::SnapshotDiffer;
 pub use recording::RecordingController;
 #[cfg(target_os = "windows")]
 pub use windows_events::{DnsObservation, WindowsEventCapture};
 
 use sabicheiro_core::{
-    ConnectionState, Direction, Endpoint, NetworkInterface, NetworkProtocol, ProcessInfo,
+    ConnectionEvidence, ConnectionState, Direction, Endpoint, NetworkInterface, NetworkProtocol,
+    ObservationSource, ProcessInfo,
 };
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr};
@@ -54,6 +57,7 @@ pub struct ObservedSocket {
     pub direction: Direction,
     pub state: ConnectionState,
     pub interface: Option<String>,
+    pub observation_source: ObservationSource,
 }
 
 impl ObservedSocket {
@@ -77,6 +81,15 @@ impl ObservedSocket {
             };
             Endpoint::new(address, 0)
         })
+    }
+
+    pub fn evidence(&self, timestamp_ms: i64) -> ConnectionEvidence {
+        ConnectionEvidence::for_peer(
+            &self.normalized_remote(),
+            self.state,
+            self.observation_source,
+            timestamp_ms,
+        )
     }
 }
 
@@ -229,6 +242,7 @@ mod tests {
             direction: infer_direction(&local, remote.as_ref(), state),
             state,
             interface: None,
+            observation_source: ObservationSource::Unknown,
         }
     }
 

@@ -4,7 +4,7 @@ use crate::{
     infer_direction, interface_model, interfaces_from_sysinfo,
     process::ProcessResolver,
 };
-use sabicheiro_core::{ConnectionState, NetworkInterface, NetworkProtocol};
+use sabicheiro_core::{ConnectionState, NetworkInterface, NetworkProtocol, ObservationSource};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
@@ -49,6 +49,7 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
                 let pid = owners.get(&row.inode).copied();
                 let state = linux_state(row.state, row.protocol);
                 let direction = infer_direction(&row.local, row.remote.as_ref(), state);
+                let interface = interface_name(row.interface_index);
                 ObservedSocket {
                     identity: SocketIdentity {
                         pid,
@@ -59,7 +60,8 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
                     process: self.processes.resolve(pid),
                     direction,
                     state,
-                    interface: None,
+                    interface,
+                    observation_source: ObservationSource::LinuxInetDiag,
                 }
             })
             .collect())
@@ -68,6 +70,21 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
     fn interfaces(&mut self) -> Result<Vec<NetworkInterface>, CaptureError> {
         Ok(linux_interfaces().unwrap_or_else(interfaces_from_sysinfo))
     }
+}
+
+fn interface_name(index: u32) -> Option<String> {
+    if index == 0 {
+        return None;
+    }
+    let mut buffer = [0_i8; libc::IF_NAMESIZE];
+    let result = unsafe { libc::if_indextoname(index, buffer.as_mut_ptr()) };
+    if result.is_null() {
+        return Some(format!("ifindex:{index}"));
+    }
+    let name = unsafe { std::ffi::CStr::from_ptr(result) }
+        .to_string_lossy()
+        .into_owned();
+    (!name.is_empty()).then_some(name)
 }
 
 struct InetDiagSocket(std::os::fd::RawFd);
@@ -283,6 +300,11 @@ fn socket_owners(wanted: &HashSet<u64>) -> HashMap<u64, u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        net::{Ipv4Addr, Ipv6Addr, TcpListener, TcpStream, UdpSocket},
+        thread,
+        time::Duration,
+    };
 
     #[test]
     fn provider_reads_inet_diag_tables() {
@@ -302,5 +324,82 @@ mod tests {
             .find(|network_interface| network_interface.name == "eth0")
             .expect("eth0");
         assert_eq!(ethernet.addresses.len(), 2);
+    }
+
+    #[test]
+    fn native_provider_matches_controlled_tcp_udp_ipv4_fixtures_and_owner() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind TCP fixture");
+        let server_address = listener.local_addr().expect("TCP server address");
+        let client = TcpStream::connect(server_address).expect("connect TCP fixture");
+        let client_address = client.local_addr().expect("TCP client address");
+        let (server, _) = listener.accept().expect("accept TCP fixture");
+
+        let udp_server = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind UDP server");
+        let udp_client = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind UDP client");
+        let udp_server_address = udp_server.local_addr().expect("UDP server address");
+        let udp_client_address = udp_client.local_addr().expect("UDP client address");
+        udp_client
+            .connect(udp_server_address)
+            .expect("connect UDP client");
+        udp_server
+            .connect(udp_client_address)
+            .expect("connect UDP server");
+        udp_client
+            .send(b"local-linux-fixture")
+            .expect("send UDP proof");
+        let mut proof = [0_u8; 32];
+        udp_server.recv(&mut proof).expect("receive UDP proof");
+
+        let mut provider = LinuxCaptureProvider::new();
+        let sockets = provider.snapshot().expect("INET_DIAG fixture snapshot");
+        let pid = std::process::id();
+        assert!(sockets.iter().any(|socket| {
+            socket.identity.protocol == NetworkProtocol::Tcp
+                && socket.identity.pid == Some(pid)
+                && socket.identity.local.port == client_address.port()
+                && socket.identity.remote.as_ref().is_some_and(|remote| {
+                    remote.address == server_address.ip() && remote.port == server_address.port()
+                })
+        }));
+        assert!(sockets.iter().any(|socket| {
+            socket.identity.protocol == NetworkProtocol::Udp
+                && socket.identity.pid == Some(pid)
+                && socket.identity.local.port == udp_client_address.port()
+        }));
+
+        drop(server);
+        drop(client);
+        drop(listener);
+        drop(udp_server);
+        drop(udp_client);
+        thread::sleep(Duration::from_millis(20));
+        let after = provider.snapshot().expect("post-close INET_DIAG snapshot");
+        assert!(!after.iter().any(|socket| {
+            socket.identity.local.port == client_address.port()
+                || socket.identity.local.port == udp_client_address.port()
+        }));
+    }
+
+    #[test]
+    fn native_provider_reads_ipv6_when_the_local_stack_is_available() {
+        let Ok(listener) = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)) else {
+            return;
+        };
+        let address = listener.local_addr().expect("IPv6 listener address");
+        let client = TcpStream::connect(address).expect("connect IPv6 fixture");
+        let client_address = client.local_addr().expect("IPv6 client address");
+        let (server, _) = listener.accept().expect("accept IPv6 fixture");
+
+        let mut provider = LinuxCaptureProvider::new();
+        let sockets = provider.snapshot().expect("IPv6 INET_DIAG snapshot");
+        assert!(sockets.iter().any(|socket| {
+            socket.identity.protocol == NetworkProtocol::Tcp
+                && socket.identity.local.address.is_ipv6()
+                && socket.identity.local.port == client_address.port()
+                && socket.identity.pid == Some(std::process::id())
+        }));
+
+        drop(server);
+        drop(client);
     }
 }

@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Connection } from "../../types";
@@ -11,6 +11,7 @@ interface GlobeSceneProps {
   home: [number, number];
   selectedId: string | null;
   reduceMotion: boolean;
+  smartFocus?: boolean;
   onSelect: (id: string) => void;
   onFps?: (fps: number) => void;
 }
@@ -29,6 +30,14 @@ interface SceneState {
   lastFrame: number;
   frameCount: number;
   fpsStarted: number;
+  movingDots: Array<{
+    mesh: THREE.Mesh;
+    curve: THREE.QuadraticBezierCurve3;
+    phase: number;
+    speed: number;
+  }>;
+  reduceMotion: boolean;
+  trafficSignature: string;
 }
 
 function makeBorderLines(): THREE.LineSegments {
@@ -60,11 +69,13 @@ function makeBorderLines(): THREE.LineSegments {
 function disposeGroup(group: THREE.Group) {
   for (const child of [...group.children]) {
     group.remove(child);
-    const object = child as THREE.Mesh | THREE.Line;
-    object.geometry?.dispose();
-    const material = object.material;
-    if (Array.isArray(material)) material.forEach((item) => item.dispose());
-    else material?.dispose();
+    child.traverse((object) => {
+      const candidate = object as THREE.Mesh | THREE.Line;
+      candidate.geometry?.dispose();
+      const material = candidate.material;
+      if (Array.isArray(material)) material.forEach((item) => item.dispose());
+      else material?.dispose();
+    });
   }
 }
 
@@ -73,6 +84,7 @@ export const GlobeScene = memo(function GlobeScene({
   home,
   selectedId,
   reduceMotion,
+  smartFocus = true,
   onSelect,
   onFps,
 }: GlobeSceneProps) {
@@ -81,6 +93,11 @@ export const GlobeScene = memo(function GlobeScene({
   const sceneRef = useRef<SceneState | null>(null);
   const onSelectRef = useRef(onSelect);
   const onFpsRef = useRef(onFps);
+  const [tooltip, setTooltip] = useState<{
+    x: number;
+    y: number;
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -98,7 +115,7 @@ export const GlobeScene = memo(function GlobeScene({
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.append(renderer.domElement);
 
@@ -160,7 +177,28 @@ export const GlobeScene = memo(function GlobeScene({
       const id = hit ? markerIds.get(hit.object) : undefined;
       if (id) onSelectRef.current(id);
     };
+    const handlePointerMove = (event: PointerEvent) => {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+      pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hit = raycaster.intersectObjects([...markerIds.keys()], false)[0];
+      const text = hit?.object.userData.tooltip as string | undefined;
+      renderer.domElement.style.cursor = text ? "pointer" : "grab";
+      setTooltip(
+        text
+          ? {
+              x: event.clientX - bounds.left + 14,
+              y: event.clientY - bounds.top + 14,
+              text,
+            }
+          : null,
+      );
+    };
+    const handlePointerLeave = () => setTooltip(null);
     renderer.domElement.addEventListener("pointerup", handlePointer);
+    renderer.domElement.addEventListener("pointermove", handlePointerMove);
+    renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
 
     const state: SceneState = {
       renderer,
@@ -176,6 +214,9 @@ export const GlobeScene = memo(function GlobeScene({
       lastFrame: performance.now(),
       frameCount: 0,
       fpsStarted: performance.now(),
+      movingDots: [],
+      reduceMotion,
+      trafficSignature: "",
     };
     sceneRef.current = state;
     const animate = (now: number) => {
@@ -189,6 +230,13 @@ export const GlobeScene = memo(function GlobeScene({
       }
       state.lastFrame = now;
       controls.update();
+      if (!state.reduceMotion) {
+        const seconds = now / 1_000;
+        for (const dot of state.movingDots) {
+          const progress = (seconds * dot.speed + dot.phase) % 1;
+          dot.mesh.position.copy(dot.curve.getPoint(progress));
+        }
+      }
       renderer.render(scene, camera);
       state.animation = requestAnimationFrame(animate);
     };
@@ -197,6 +245,8 @@ export const GlobeScene = memo(function GlobeScene({
     return () => {
       cancelAnimationFrame(state.animation);
       renderer.domElement.removeEventListener("pointerup", handlePointer);
+      renderer.domElement.removeEventListener("pointermove", handlePointerMove);
+      renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       resizeObserver.disconnect();
       controls.dispose();
       disposeGroup(traffic);
@@ -216,8 +266,7 @@ export const GlobeScene = memo(function GlobeScene({
   useEffect(() => {
     const state = sceneRef.current;
     if (!state) return;
-    disposeGroup(state.traffic);
-    state.markerIds.clear();
+    state.reduceMotion = reduceMotion;
     const [homeX, homeY, homeZ] = spherePoint(home[1], home[0], 1.012);
     const homePoint = new THREE.Vector3(homeX, homeY, homeZ);
     const located = connections.filter((connection) => connection.geo !== null);
@@ -225,6 +274,14 @@ export const GlobeScene = memo(function GlobeScene({
       located,
       routeLevel(state.camera.position.length(), located.length),
     ).slice(0, 120);
+    const signature = `${home.join(":")}|${selectedId ?? ""}|${routes
+      .map((route) => `${route.key}:${route.count}:${route.active}`)
+      .join("|")}`;
+    if (signature === state.trafficSignature) return;
+    state.trafficSignature = signature;
+    disposeGroup(state.traffic);
+    state.markerIds.clear();
+    state.movingDots = [];
     for (const route of routes) {
       const connection = route.representative;
       const selected =
@@ -244,44 +301,107 @@ export const GlobeScene = memo(function GlobeScene({
         midpoint,
         destination,
       );
-      const geometry = new THREE.BufferGeometry().setFromPoints(
-        curve.getPoints(selected ? 44 : 28),
+      const geometry = new THREE.TubeGeometry(
+        curve,
+        selected ? 44 : 28,
+        selected ? 0.006 : route.active ? 0.0035 : 0.0022,
+        5,
+        false,
       );
-      const material = new THREE.LineBasicMaterial({
+      const material = new THREE.MeshBasicMaterial({
         color: selected ? 0xe4f222 : route.active ? 0x8f989c : 0x555b5e,
         transparent: true,
         opacity: selected ? 1 : route.active ? 0.55 : 0.2,
+        depthTest: true,
       });
-      state.traffic.add(new THREE.Line(geometry, material));
+      state.traffic.add(new THREE.Mesh(geometry, material));
 
+      const radius = selected
+        ? 0.026
+        : Math.min(0.031, 0.015 + Math.log2(route.count + 1) * 0.003);
+      const markerGroup = new THREE.Group();
+      markerGroup.position.copy(destination);
+      markerGroup.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        destination.clone().normalize(),
+      );
       const marker = new THREE.Mesh(
         new THREE.SphereGeometry(
-          selected
-            ? 0.026
-            : Math.min(0.031, 0.015 + Math.log2(route.count + 1) * 0.003),
+          radius,
           12,
           8,
         ),
         new THREE.MeshBasicMaterial({ color: selected ? 0xe4f222 : 0xb1b9bd }),
       );
-      marker.position.copy(destination);
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(radius * 1.75, 12, 8),
+        new THREE.MeshBasicMaterial({
+          color: selected ? 0xe4f222 : 0x9ca7ad,
+          transparent: true,
+          opacity: selected ? 0.16 : 0.075,
+          depthWrite: false,
+        }),
+      );
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(radius * 1.38, selected ? 0.0032 : 0.0022, 5, 24),
+        new THREE.MeshBasicMaterial({
+          color: selected ? 0xe4f222 : route.active ? 0xd6dde0 : 0x777f83,
+          transparent: true,
+          opacity: route.active ? 0.9 : 0.5,
+        }),
+      );
+      if (connection.geo?.placement === "country_centroid") {
+        ring.scale.y = 0.62;
+        ring.rotation.z = Math.PI / 4;
+      }
       const selectionTarget =
         selectedId && route.memberIds.includes(selectedId)
           ? selectedId
           : connection.id;
       marker.userData.connectionId = selectionTarget;
       marker.userData.connectionCount = route.count;
+      marker.userData.tooltip = `${connection.geo?.country_name ?? connection.domain ?? connection.key.remote.address} / AS${connection.asn?.number ?? "?"} / ${route.count} / ${connection.geo?.precision ?? "unknown"}`;
       state.markerIds.set(marker, selectionTarget);
-      state.traffic.add(marker);
+      markerGroup.add(halo, ring, marker);
+      state.traffic.add(markerGroup);
+      if (route.active && !reduceMotion) {
+        const dot = new THREE.Mesh(
+          new THREE.SphereGeometry(selected ? 0.009 : 0.006, 8, 6),
+          new THREE.MeshBasicMaterial({
+            color: selected ? 0xe4f222 : 0xd8dfe2,
+            depthTest: true,
+          }),
+        );
+        dot.position.copy(curve.getPoint((route.count % 10) / 10));
+        state.traffic.add(dot);
+        state.movingDots.push({
+          mesh: dot,
+          curve,
+          phase: (route.count % 17) / 17,
+          speed: 0.045 + (route.count % 7) * 0.004,
+        });
+      }
     }
-    const homeMarker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.022, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0xe4f222 }),
+    const homeGroup = new THREE.Group();
+    homeGroup.position.copy(homePoint);
+    homeGroup.add(
+      new THREE.Mesh(
+        new THREE.SphereGeometry(0.036, 12, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0xe4f222,
+          transparent: true,
+          opacity: 0.1,
+          depthWrite: false,
+        }),
+      ),
+      new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.022, 0),
+        new THREE.MeshBasicMaterial({ color: 0xe4f222 }),
+      ),
     );
-    homeMarker.position.copy(homePoint);
-    state.traffic.add(homeMarker);
+    state.traffic.add(homeGroup);
 
-    if (selectedId && !reduceMotion) {
+    if (selectedId && smartFocus && !reduceMotion) {
       const selected = routes.find((route) =>
         route.memberIds.includes(selectedId),
       );
@@ -292,17 +412,51 @@ export const GlobeScene = memo(function GlobeScene({
         state.controls.target.lerp(target, 0.72);
       }
     }
-  }, [connections, home, reduceMotion, selectedId]);
+  }, [connections, home, reduceMotion, selectedId, smartFocus]);
+
+  const resetCamera = () => {
+    const state = sceneRef.current;
+    if (!state) return;
+    state.camera.position.set(0, 0.32, 3.05);
+    state.controls.target.set(0, 0, 0);
+    state.controls.update();
+  };
+
+  const zoomCamera = (factor: number) => {
+    const state = sceneRef.current;
+    if (!state) return;
+    const distance = Math.min(
+      state.controls.maxDistance,
+      Math.max(state.controls.minDistance, state.camera.position.length() * factor),
+    );
+    state.camera.position.setLength(distance);
+    state.controls.update();
+  };
 
   return (
-    <div
-      aria-label={t(
-        "Interactive globe showing filtered network destinations. Use the connection feed for a keyboard-accessible alternative.",
+    <div className="globe-scene-shell">
+      <div
+        aria-label={t(
+          "Interactive globe showing filtered network destinations. Use the connection feed for a keyboard-accessible alternative.",
+        )}
+        className="globe-scene"
+        data-testid="globe-view"
+        ref={hostRef}
+        role="img"
+      />
+      <div className="globe-scene__controls" role="toolbar" aria-label={t("Globe controls")}>
+        <button aria-label={t("Zoom in")} onClick={() => zoomCamera(0.82)} type="button">+</button>
+        <button aria-label={t("Zoom out")} onClick={() => zoomCamera(1.22)} type="button">−</button>
+        <button onClick={resetCamera} type="button">{t("Reset camera")}</button>
+      </div>
+      {tooltip && (
+        <div className="globe-scene__tooltip" style={{ left: tooltip.x, top: tooltip.y }} role="status">
+          {tooltip.text}
+        </div>
       )}
-      className="globe-scene"
-      data-testid="globe-view"
-      ref={hostRef}
-      role="img"
-    />
+      <span className="sr-only">
+        {t("Rendering is capped at 120 routes with local geometry only.")}
+      </span>
+    </div>
   );
 });

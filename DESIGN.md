@@ -61,13 +61,22 @@ map. Decorative route particles remain a post-0.1 refinement.
 The same filtered model drives the 2D equirectangular map. Unknown coordinates are not
 drawn; their connections remain visible in the feed. The map uses local 50m country
 geometry and is loaded only when selected; the globe keeps a lighter local geometry.
+Both views share compound markers: bounded core, state ring, subtle halo, count badge
+and larger invisible hit target. A dashed ring denotes a country centroid; coordinate
+precision uses a continuous ring and unknown locations are never plotted.
+
+The map supports bounded wheel/button/keyboard zoom, drag/arrow-key pan, reset, frame
+selection and an expanded workspace with collapsible feed. Expansion preserves the
+viewport and selection and restores with its button or Escape. Routes crossing the
+antimeridian are split onto the shortest wrapped path.
 
 ## Components
 
 - `TopBar`: product mark, primary views, compact search, capture/record/settings.
 - `LiveFeed`: accessible buttons grouped by process + remote endpoint + protocol
   within a configurable time window; `content-visibility` bounds off-screen layout.
-- `Inspector`: process, remote, geo, network, traffic, timing, ASN and history sections.
+- `Inspector`: Evidence, Identity, Endpoint, Location, Traffic, History and Diagnostics
+  sections, with source/correlation/generation details and a semantic feed alternative.
 - `MetricStrip`: active/down/up/countries/processes/packets.
 - `CommandPalette`: searchable actions opened with Ctrl+K.
 - `QueryBar`: search plus typed filter tokens and concise error text.

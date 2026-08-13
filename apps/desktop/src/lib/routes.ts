@@ -49,7 +49,15 @@ export function groupVisualRoutes(
   const groups = new Map<string, RouteAccumulator>();
   for (const connection of connections) {
     const geo = connection.geo;
-    if (!geo) continue;
+    if (
+      !geo ||
+      geo.placement === "not_plotted" ||
+      geo.latitude === null ||
+      geo.longitude === null ||
+      !Number.isFinite(geo.latitude) ||
+      !Number.isFinite(geo.longitude)
+    )
+      continue;
     const key = groupKey(connection, level);
     const latitude = (geo.latitude * Math.PI) / 180;
     const longitude = (geo.longitude * Math.PI) / 180;

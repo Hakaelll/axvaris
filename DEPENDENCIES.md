@@ -1,6 +1,6 @@
 # Dependency and Cost Review
 
-Review date: 2026-08-11. Every required runtime feature has zero service/API cost.
+Review date: 2026-08-12. Every required runtime feature has zero service/API cost.
 Permissive-license notices are retained in release materials; DB-IP attribution is
 shown in Settings/About and release notices.
 
@@ -29,6 +29,7 @@ shown in Settings/About and release notices.
 | libc | Linux signal handling for clean dumpcap stop | MIT OR Apache-2.0 | €0 | Allowed with notice | Target-specific; no service |
 | tracing | capture debug instrumentation | MIT | €0 | Allowed with notice | No remote collector; lifecycle file logging uses only Rust std/chrono |
 | tempfile (dev) | isolated storage tests | MIT OR Apache-2.0 | €0 | Development only | Not shipped as a service |
+| mmdb-writer (dev) | deterministic synthetic City/ASN MMDB fixtures | MIT | €0 | Development only | Test data is generated locally; no public-IP truth assertions |
 | DB-IP Lite | offline IP→city/ASN dataset | CC BY 4.0 | €0 | Allowed with attribution | Monthly public download; reduced accuracy; optional update |
 | Natural Earth | globe/map geography | Public domain | €0 | Allowed | Fully local; no tile provider |
 | WebView2 | Windows webview runtime | Microsoft runtime terms | €0 | Evergreen/bootstrap permitted by Tauri | Included with supported Windows versions |
@@ -60,13 +61,14 @@ shown in Settings/About and release notices.
 
 ## Locked transitive audit
 
-The 2026-08-11 locked audit inspected every package manifest available locally:
+The 2026-08-12 locked audit inspected every package manifest available locally:
 
-- Cargo metadata: **515 packages**, zero missing license declarations. The set is
+- Cargo metadata: **519 packages**, zero missing license declarations. The set is
   composed of MIT/Apache/ISC/BSD/Zlib/Unicode/MPL-2.0 and other compatible permissive
   expressions (including CDLA-Permissive-2.0 data); no commercial-only crate appears.
-- pnpm store: **43 unique packages**, zero missing license declarations: 30 MIT, 4
-  Apache-2.0, 3 ISC, 3 Apache-2.0 OR MIT, 2 MPL-2.0 and 1 BSD-3-Clause.
+- pnpm store: **42 unique packages**, zero missing license declarations. The offline
+  audit accepts declared MIT/Apache/ISC/BSD/MPL and compatible free/open expressions;
+  no proprietary, commercial-only or unlicensed package appears.
 
 MPL components remain unmodified dependencies, and GPL system tools are invoked only
 when already installed; they are not linked into or redistributed with Sabicheiro.

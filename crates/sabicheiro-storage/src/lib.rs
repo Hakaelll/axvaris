@@ -1,9 +1,11 @@
 use rusqlite::{Connection as SqliteConnection, OptionalExtension, Transaction, params};
 use sabicheiro_core::{
     AppSettings, BaselineBook, Bookmark, Connection, ConnectionFilter, ConnectionHistoryStats,
-    CounterSource, ExportFormat, ExportRequest, ExportResult, FocusRules, HistoryEntry,
-    HistoryQuery, IgnoreRule, RecordingState, RecordingStatus, RecordingSummary, RetentionPolicy,
-    RuleKind, SessionSummary, TimelineQuery, TrafficCounters, TrafficSample, TransferRates,
+    CounterSource, DerivedGeoEnrichment, ExportFormat, ExportRedaction, ExportRequest,
+    ExportResult, FocusRules, HistoryEntry, HistoryQuery, IgnoreRule, InvestigationQuery,
+    RecordingState, RecordingStatus, RecordingSummary, RetentionPolicy, RuleKind,
+    SavedInvestigation, SessionSummary, StorageHealth, TimelineQuery, TrafficCounters,
+    TrafficSample, TransferRates,
 };
 use std::{
     fs, io,
@@ -11,8 +13,8 @@ use std::{
 };
 use thiserror::Error;
 
-const SCHEMA_VERSION: i64 = 3;
-const MAX_QUERY_LIMIT: usize = 10_000;
+const SCHEMA_VERSION: i64 = 4;
+const MAX_QUERY_LIMIT: usize = 100_000;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -30,6 +32,8 @@ pub enum StorageError {
     InvalidRule(String),
     #[error("invalid recording metadata: {0}")]
     InvalidRecording(String),
+    #[error("invalid saved investigation: {0}")]
+    InvalidInvestigation(String),
 }
 
 pub struct Storage {
@@ -88,6 +92,9 @@ impl Storage {
                 row.get::<_, Option<i64>>(0)
             })?
             .unwrap_or(0);
+        if (1..SCHEMA_VERSION).contains(&current) {
+            self.back_up_before_v4(current)?;
+        }
         if current < 1 {
             let transaction = self.connection.transaction()?;
             migration_v1(&transaction)?;
@@ -111,10 +118,33 @@ impl Storage {
             migration_v3(&transaction)?;
             transaction.execute(
                 "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
+                params![3, chrono::Utc::now().timestamp_millis()],
+            )?;
+            transaction.commit()?;
+        }
+        if current < 4 {
+            let transaction = self.connection.transaction()?;
+            migration_v4(&transaction)?;
+            transaction.execute(
+                "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
                 params![SCHEMA_VERSION, chrono::Utc::now().timestamp_millis()],
             )?;
             transaction.commit()?;
         }
+        Ok(())
+    }
+
+    fn back_up_before_v4(&self, current: i64) -> Result<(), StorageError> {
+        if current == 0 {
+            return Ok(());
+        }
+        let Some(path) = self.path.as_ref() else {
+            return Ok(());
+        };
+        self.connection
+            .execute_batch("PRAGMA wal_checkpoint(FULL);")?;
+        let backup = path.with_extension(format!("pre-v4-from-v{current}.bak"));
+        self.connection.backup(rusqlite::MAIN_DB, backup, None)?;
         Ok(())
     }
 
@@ -172,10 +202,14 @@ impl Storage {
                 "INSERT INTO connections(
                    id, session_id, first_seen_ms, last_seen_ms, process_name, pid,
                    remote_ip, remote_port, local_ip, local_port, protocol, direction,
-                   state, domain, country_code, asn, active, connection_json
+                   state, domain, country_code, asn, active, remote_scope,
+                   endpoint_role, role_reason, observation_source, correlation_quality,
+                   process_instance, interface_id, capture_generation, flow_generation,
+                   city_generation, asn_generation, connection_json
                  ) VALUES (
                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                   ?15, ?16, ?17, ?18
+                   ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26,
+                   ?27, ?28, ?29
                  )
                  ON CONFLICT(id) DO UPDATE SET
                    last_seen_ms=excluded.last_seen_ms,
@@ -186,10 +220,26 @@ impl Storage {
                    country_code=excluded.country_code,
                    asn=excluded.asn,
                    active=excluded.active,
+                   remote_scope=excluded.remote_scope,
+                   endpoint_role=excluded.endpoint_role,
+                   role_reason=excluded.role_reason,
+                   observation_source=excluded.observation_source,
+                   correlation_quality=excluded.correlation_quality,
+                   process_instance=excluded.process_instance,
+                   interface_id=excluded.interface_id,
+                   capture_generation=excluded.capture_generation,
+                   flow_generation=excluded.flow_generation,
+                   city_generation=excluded.city_generation,
+                   asn_generation=excluded.asn_generation,
                    connection_json=excluded.connection_json",
             )?;
             for connection in connections {
                 let json = serde_json::to_string(connection)?;
+                let remote_scope = serialized_name(&connection.key.remote.scope)?;
+                let endpoint_role = serialized_name(&connection.evidence.endpoint_role)?;
+                let observation_source = serialized_name(&connection.evidence.observation_source)?;
+                let correlation_quality =
+                    serialized_name(&connection.evidence.correlation_quality)?;
                 statement.execute(params![
                     connection.id,
                     session_id,
@@ -208,9 +258,29 @@ impl Storage {
                         .domain
                         .as_deref()
                         .or(connection.hostname.as_deref()),
-                    connection.geo.as_ref().map(|geo| geo.country_code.as_str()),
+                    connection
+                        .geo
+                        .as_ref()
+                        .and_then(|geo| geo.country_code.as_deref()),
                     connection.asn.as_ref().map(|asn| i64::from(asn.number)),
                     i64::from(connection.active),
+                    remote_scope,
+                    endpoint_role,
+                    connection.evidence.role_reason,
+                    observation_source,
+                    correlation_quality,
+                    connection.key.process_instance,
+                    connection.key.interface_id,
+                    to_sql_u64(connection.key.capture_generation),
+                    to_sql_u64(connection.key.flow_generation),
+                    connection
+                        .geo
+                        .as_ref()
+                        .map_or(0, |geo| to_sql_u64(geo.city_generation)),
+                    connection
+                        .asn
+                        .as_ref()
+                        .map_or(0, |asn| to_sql_u64(asn.generation)),
                     json,
                 ])?;
             }
@@ -281,6 +351,7 @@ impl Storage {
                 country_count: row.get::<_, i64>(5)?.max(0) as usize,
                 destination_count: row.get::<_, i64>(6)?.max(0) as usize,
                 recording_count: row.get::<_, i64>(7)?.max(0) as usize,
+                ephemeral: false,
                 traffic: TrafficCounters {
                     bytes_sent: from_sql_u64(row.get(8)?),
                     bytes_received: from_sql_u64(row.get(9)?),
@@ -713,6 +784,198 @@ impl Storage {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn save_investigation(
+        &self,
+        investigation: &SavedInvestigation,
+    ) -> Result<(), StorageError> {
+        validate_investigation(investigation)?;
+        let query_json = serde_json::to_string(&investigation.query)?;
+        self.connection.execute(
+            "INSERT INTO investigations(
+               id, name, query_json, notes, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+               name=excluded.name,
+               query_json=excluded.query_json,
+               notes=excluded.notes,
+               updated_at_ms=excluded.updated_at_ms",
+            params![
+                investigation.id,
+                investigation.name,
+                query_json,
+                investigation.notes,
+                investigation.created_at_ms,
+                investigation.updated_at_ms,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_investigations(&self) -> Result<Vec<SavedInvestigation>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, query_json, notes, created_at_ms, updated_at_ms
+             FROM investigations ORDER BY updated_at_ms DESC, id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })?;
+        let mut investigations = Vec::new();
+        for row in rows {
+            let (id, name, query_json, notes, created_at_ms, updated_at_ms) = row?;
+            investigations.push(SavedInvestigation {
+                id,
+                name,
+                query: serde_json::from_str(&query_json)?,
+                notes,
+                created_at_ms,
+                updated_at_ms,
+            });
+        }
+        Ok(investigations)
+    }
+
+    pub fn delete_investigation(&self, id: &str) -> Result<bool, StorageError> {
+        Ok(self
+            .connection
+            .execute("DELETE FROM investigations WHERE id=?1", params![id])?
+            > 0)
+    }
+
+    pub fn query_investigation(
+        &self,
+        query: &InvestigationQuery,
+    ) -> Result<Vec<HistoryEntry>, StorageError> {
+        let mut entries = self.query_history(&HistoryQuery {
+            from_ms: query.from_ms,
+            to_ms: query.to_ms,
+            session_id: query.session_id.clone(),
+            query: query.filter.clone(),
+            limit: MAX_QUERY_LIMIT,
+        })?;
+        if query.pinned_connection_ids.is_empty()
+            && query.pinned_destination_ips.is_empty()
+            && query.pinned_process_keys.is_empty()
+            && query.pinned_asns.is_empty()
+        {
+            return Ok(entries);
+        }
+        entries.retain(|entry| {
+            query.pinned_connection_ids.contains(&entry.connection.id)
+                || query
+                    .pinned_destination_ips
+                    .contains(&entry.connection.key.remote.address)
+                || query.pinned_process_keys.iter().any(|key| {
+                    key.eq_ignore_ascii_case(&entry.connection.process.name)
+                        || entry.connection.process.pid.is_some_and(|pid| {
+                            key.eq_ignore_ascii_case(&format!(
+                                "{}:{pid}",
+                                entry.connection.process.name
+                            ))
+                        })
+                })
+                || entry
+                    .connection
+                    .asn
+                    .as_ref()
+                    .is_some_and(|asn| query.pinned_asns.contains(&asn.number))
+        });
+        Ok(entries)
+    }
+
+    pub fn replace_geo_views(
+        &mut self,
+        session_id: &str,
+        view_kind: &str,
+        enrichments: &[DerivedGeoEnrichment],
+        city_generation: u64,
+        asn_generation: u64,
+        created_at_ms: i64,
+    ) -> Result<(), StorageError> {
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM geo_views
+             WHERE view_kind=?1 AND connection_id IN (
+               SELECT id FROM connections WHERE session_id=?2
+             )",
+            params![view_kind, session_id],
+        )?;
+        {
+            let mut statement = transaction.prepare_cached(
+                "INSERT INTO geo_views(
+                   connection_id, view_kind, city_generation, asn_generation,
+                   enrichment_json, created_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for enrichment in enrichments {
+                statement.execute(params![
+                    enrichment.connection_id,
+                    view_kind,
+                    to_sql_u64(city_generation),
+                    to_sql_u64(asn_generation),
+                    serde_json::to_string(enrichment)?,
+                    created_at_ms,
+                ])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn load_geo_views(
+        &self,
+        session_id: &str,
+        view_kind: &str,
+    ) -> Result<Vec<DerivedGeoEnrichment>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT geo_views.enrichment_json
+             FROM geo_views
+             JOIN connections ON connections.id=geo_views.connection_id
+             WHERE connections.session_id=?1 AND geo_views.view_kind=?2
+             ORDER BY connections.last_seen_ms DESC",
+        )?;
+        let rows = statement.query_map(params![session_id, view_kind], |row| {
+            row.get::<_, Option<String>>(0)
+        })?;
+        let mut enrichments = Vec::new();
+        for row in rows {
+            if let Some(json) = row? {
+                enrichments.push(serde_json::from_str(&json)?);
+            }
+        }
+        Ok(enrichments)
+    }
+
+    pub fn clear_sessions(&self) -> Result<usize, StorageError> {
+        Ok(self.connection.execute("DELETE FROM sessions", [])?)
+    }
+
+    pub fn clear_all_user_data(&self) -> Result<usize, StorageError> {
+        let mut removed = 0;
+        for table in [
+            "sessions",
+            "investigations",
+            "bookmarks",
+            "ignore_rules",
+            "settings",
+        ] {
+            removed += self
+                .connection
+                .execute(&format!("DELETE FROM {table}"), [])?;
+        }
+        self.connection.execute_batch(
+            "PRAGMA wal_checkpoint(TRUNCATE);
+             PRAGMA optimize;",
+        )?;
+        Ok(removed)
+    }
+
     pub fn export(&self, request: &ExportRequest) -> Result<ExportResult, StorageError> {
         let path = validate_export_path(&request.path, request.format)?;
         let query = HistoryQuery {
@@ -733,6 +996,7 @@ impl Storage {
                     })
             });
         }
+        apply_export_redaction(&mut entries, &request.redaction);
         let data = match request.format {
             ExportFormat::Json => serde_json::to_vec_pretty(&entries)?,
             ExportFormat::Csv => export_csv(&entries).into_bytes(),
@@ -743,6 +1007,40 @@ impl Storage {
             records: entries.len(),
             bytes_written: data.len() as u64,
         })
+    }
+
+    pub fn health_check(&self) -> Result<StorageHealth, StorageError> {
+        let detail = self
+            .connection
+            .query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0))?;
+        let (wal_busy_pages, wal_log_pages, wal_checkpointed_pages) =
+            self.connection
+                .query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?;
+        Ok(StorageHealth {
+            quick_check_ok: detail.eq_ignore_ascii_case("ok"),
+            detail,
+            wal_busy_pages,
+            wal_log_pages,
+            wal_checkpointed_pages,
+            database_size_bytes: self.database_size_bytes(),
+            checked_at_ms: chrono::Utc::now().timestamp_millis(),
+        })
+    }
+
+    pub fn optimize(&self) -> Result<(), StorageError> {
+        self.connection.execute_batch("PRAGMA optimize;")?;
+        Ok(())
+    }
+
+    pub fn compact(&self) -> Result<StorageHealth, StorageError> {
+        self.connection.execute_batch(
+            "PRAGMA wal_checkpoint(TRUNCATE);
+             VACUUM;
+             PRAGMA optimize;",
+        )?;
+        self.health_check()
     }
 
     pub fn database_size_bytes(&self) -> u64 {
@@ -851,6 +1149,43 @@ fn migration_v3(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
     )
 }
 
+fn migration_v4(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
+    transaction.execute_batch(
+        "ALTER TABLE connections ADD COLUMN remote_scope TEXT NOT NULL DEFAULT 'unknown';
+         ALTER TABLE connections ADD COLUMN endpoint_role TEXT NOT NULL DEFAULT 'unknown';
+         ALTER TABLE connections ADD COLUMN role_reason TEXT NOT NULL DEFAULT 'historical_record';
+         ALTER TABLE connections ADD COLUMN observation_source TEXT NOT NULL DEFAULT 'historical';
+         ALTER TABLE connections ADD COLUMN correlation_quality TEXT NOT NULL DEFAULT 'unavailable';
+         ALTER TABLE connections ADD COLUMN process_instance TEXT;
+         ALTER TABLE connections ADD COLUMN interface_id TEXT;
+         ALTER TABLE connections ADD COLUMN capture_generation INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE connections ADD COLUMN flow_generation INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE connections ADD COLUMN city_generation INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE connections ADD COLUMN asn_generation INTEGER NOT NULL DEFAULT 0;
+         CREATE INDEX idx_connections_scope_time
+           ON connections(remote_scope, last_seen_ms DESC);
+         CREATE INDEX idx_connections_asn_time
+           ON connections(asn, last_seen_ms DESC);
+         CREATE TABLE investigations (
+           id TEXT PRIMARY KEY,
+           name TEXT NOT NULL,
+           query_json TEXT NOT NULL,
+           notes TEXT NOT NULL DEFAULT '',
+           created_at_ms INTEGER NOT NULL,
+           updated_at_ms INTEGER NOT NULL
+         );
+         CREATE TABLE geo_views (
+           connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+           view_kind TEXT NOT NULL,
+           city_generation INTEGER NOT NULL DEFAULT 0,
+           asn_generation INTEGER NOT NULL DEFAULT 0,
+           enrichment_json TEXT,
+           created_at_ms INTEGER NOT NULL,
+           PRIMARY KEY(connection_id, view_kind, city_generation, asn_generation)
+         );",
+    )
+}
+
 fn validate_export_path(value: &str, format: ExportFormat) -> Result<PathBuf, StorageError> {
     if value.trim().is_empty() || value.as_bytes().contains(&0) {
         return Err(StorageError::InvalidExportPath(
@@ -921,12 +1256,96 @@ fn normalize_rule_value(kind: RuleKind, value: &str) -> Result<String, StorageEr
     }
 }
 
+fn validate_investigation(investigation: &SavedInvestigation) -> Result<(), StorageError> {
+    if investigation.id.is_empty()
+        || investigation.id.len() > 128
+        || !investigation
+            .id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
+    {
+        return Err(StorageError::InvalidInvestigation(
+            "id must contain 1 to 128 ASCII letters, numbers, '-' or '_'".into(),
+        ));
+    }
+    let name = investigation.name.trim();
+    if name.is_empty() || name.len() > 120 || investigation.notes.len() > 65_536 {
+        return Err(StorageError::InvalidInvestigation(
+            "name must contain 1 to 120 characters and notes at most 65536 bytes".into(),
+        ));
+    }
+    if let Some(filter) = investigation
+        .query
+        .filter
+        .as_deref()
+        .filter(|filter| !filter.trim().is_empty())
+    {
+        filter
+            .parse::<ConnectionFilter>()
+            .map_err(|error| StorageError::InvalidInvestigation(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn apply_export_redaction(entries: &mut [HistoryEntry], redaction: &ExportRedaction) {
+    for entry in entries {
+        let connection = &mut entry.connection;
+        if redaction.local_ip {
+            connection.key.local.address = match connection.key.local.observed_family {
+                sabicheiro_core::AddressFamily::Ipv4 => std::net::Ipv4Addr::UNSPECIFIED.into(),
+                sabicheiro_core::AddressFamily::Ipv6 => std::net::Ipv6Addr::UNSPECIFIED.into(),
+            };
+            connection.key.local.scope = sabicheiro_core::AddressScope::Unspecified;
+            connection.key.local.zone = None;
+        }
+        if redaction.executable_path {
+            connection.process.executable_path = None;
+        } else if redaction.user_names {
+            connection.process.executable_path = connection
+                .process
+                .executable_path
+                .as_deref()
+                .map(redact_user_path);
+        }
+        if redaction.user_names {
+            connection.process.executable = connection
+                .process
+                .executable
+                .as_deref()
+                .map(redact_user_path);
+        }
+    }
+}
+
+fn redact_user_path(value: &str) -> String {
+    let normalized = value.replace('/', "\\");
+    let lower = normalized.to_ascii_lowercase();
+    for marker in ["\\users\\", "\\home\\"] {
+        if let Some(start) = lower.find(marker) {
+            let user_start = start + marker.len();
+            let user_end = normalized[user_start..]
+                .find('\\')
+                .map_or(normalized.len(), |offset| user_start + offset);
+            let mut redacted = normalized.clone();
+            redacted.replace_range(user_start..user_end, "[redacted]");
+            return if value.contains('/') {
+                redacted.replace('\\', "/")
+            } else {
+                redacted
+            };
+        }
+    }
+    normalized
+}
+
 fn export_csv(entries: &[HistoryEntry]) -> String {
     let mut output = String::from(
-        "session_id,first_seen,last_seen,process,pid,protocol,direction,local_endpoint,remote_endpoint,domain,country,asn,bytes_down,bytes_up,packets_down,packets_up,state\n",
+        "session_id,first_seen,last_seen,process,pid,process_instance,protocol,direction,state,local_endpoint,remote_endpoint,remote_scope,endpoint_role,role_reason,observation_source,correlation_quality,interface_id,capture_generation,flow_generation,domain,country,region,city,geo_precision,placement,geo_source,geo_dataset_edition,geo_dataset_build_epoch_ms,geo_dataset_sha256,geo_matched_prefix,city_generation,asn,asn_organization,asn_dataset_edition,asn_dataset_build_epoch_ms,asn_dataset_sha256,asn_matched_prefix,asn_generation,bytes_down,bytes_up,packets_down,packets_up\n",
     );
     for entry in entries {
         let connection = &entry.connection;
+        let geo = connection.geo.as_ref();
+        let asn = connection.asn.as_ref();
         let values = [
             entry.session_id.clone(),
             connection.first_seen_ms.to_string(),
@@ -937,30 +1356,67 @@ fn export_csv(entries: &[HistoryEntry]) -> String {
                 .pid
                 .map(|pid| pid.to_string())
                 .unwrap_or_default(),
+            connection.key.process_instance.clone().unwrap_or_default(),
             connection.protocol.as_str().into(),
             format!("{:?}", connection.direction).to_lowercase(),
+            format!("{:?}", connection.state).to_lowercase(),
             connection.key.local.label(),
             connection.key.remote.label(),
+            format!("{:?}", connection.key.remote.scope).to_lowercase(),
+            format!("{:?}", connection.evidence.endpoint_role).to_lowercase(),
+            connection.evidence.role_reason.clone(),
+            format!("{:?}", connection.evidence.observation_source).to_lowercase(),
+            format!("{:?}", connection.evidence.correlation_quality).to_lowercase(),
+            connection.key.interface_id.clone().unwrap_or_default(),
+            connection.key.capture_generation.to_string(),
+            connection.key.flow_generation.to_string(),
             connection
                 .domain
                 .clone()
                 .or_else(|| connection.hostname.clone())
                 .unwrap_or_default(),
-            connection
-                .geo
-                .as_ref()
-                .map(|geo| geo.country_code.clone())
+            geo.and_then(|value| value.country_code.clone())
                 .unwrap_or_default(),
-            connection
-                .asn
-                .as_ref()
-                .map(|asn| asn.number.to_string())
+            geo.and_then(|value| value.region.clone())
+                .unwrap_or_default(),
+            geo.and_then(|value| value.city.clone()).unwrap_or_default(),
+            geo.map(|value| format!("{:?}", value.precision).to_lowercase())
+                .unwrap_or_default(),
+            geo.map(|value| format!("{:?}", value.placement).to_lowercase())
+                .unwrap_or_default(),
+            geo.map(|value| value.source.clone()).unwrap_or_default(),
+            geo.and_then(|value| value.dataset_edition.clone())
+                .unwrap_or_default(),
+            geo.and_then(|value| value.dataset_build_epoch_ms)
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            geo.and_then(|value| value.dataset_sha256.clone())
+                .unwrap_or_default(),
+            geo.and_then(|value| value.matched_prefix)
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            geo.map(|value| value.city_generation.to_string())
+                .unwrap_or_default(),
+            asn.map(|value| value.number.to_string())
+                .unwrap_or_default(),
+            asn.and_then(|value| value.organization.clone())
+                .unwrap_or_default(),
+            asn.and_then(|value| value.dataset_edition.clone())
+                .unwrap_or_default(),
+            asn.and_then(|value| value.dataset_build_epoch_ms)
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            asn.and_then(|value| value.dataset_sha256.clone())
+                .unwrap_or_default(),
+            asn.and_then(|value| value.matched_prefix)
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            asn.map(|value| value.generation.to_string())
                 .unwrap_or_default(),
             connection.traffic.bytes_received.to_string(),
             connection.traffic.bytes_sent.to_string(),
             connection.traffic.packets_received.to_string(),
             connection.traffic.packets_sent.to_string(),
-            format!("{:?}", connection.state).to_lowercase(),
         ];
         output.push_str(&values.map(|value| csv_escape(&value)).join(","));
         output.push('\n');
@@ -974,6 +1430,10 @@ fn csv_escape(value: &str) -> String {
     } else {
         value.to_owned()
     }
+}
+
+fn serialized_name(value: &impl serde::Serialize) -> Result<String, serde_json::Error> {
+    serde_json::to_string(value).map(|encoded| encoded.trim_matches('"').to_owned())
 }
 
 fn to_sql_u64(value: u64) -> i64 {
@@ -1016,8 +1476,8 @@ mod tests {
         connection.process.pid = Some(7);
         connection.protocol = NetworkProtocol::Tcp;
         connection.key.protocol = NetworkProtocol::Tcp;
-        connection.key.remote.address = "203.0.113.10".parse().expect("remote IP");
-        connection.key.remote.port = 443;
+        connection.key.remote =
+            sabicheiro_core::Endpoint::new("203.0.113.10".parse().expect("remote IP"), 443);
         connection.direction = Direction::Outbound;
         connection.state = ConnectionState::Established;
         connection.active = true;
@@ -1219,6 +1679,7 @@ mod tests {
                 from_ms: None,
                 to_ms: None,
                 query: None,
+                redaction: ExportRedaction::default(),
             })
             .expect("export");
         assert_eq!(result.records, 1);
@@ -1289,9 +1750,13 @@ mod tests {
         let storage = Storage::in_memory().expect("storage");
         let connection = sabicheiro_core::ConnectionKey {
             pid: None,
+            process_instance: None,
             local: Endpoint::new("127.0.0.1".parse().expect("local"), 50_000),
             remote: Endpoint::new("1.1.1.1".parse().expect("remote"), 443),
             protocol: NetworkProtocol::Tcp,
+            interface_id: Some("test".into()),
+            capture_generation: 1,
+            flow_generation: 1,
         };
         let mut baselines = BaselineBook::default();
         baselines.observe(BaselineObservation {
@@ -1350,5 +1815,229 @@ mod tests {
             storage.list_sessions(10).expect("sessions")[0].recording_count,
             1
         );
+    }
+
+    fn create_legacy_database(path: &Path, version: i64) {
+        let mut connection = SqliteConnection::open(path).expect("legacy database");
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (
+                   version INTEGER PRIMARY KEY,
+                   applied_at_ms INTEGER NOT NULL
+                 );",
+            )
+            .expect("migration table");
+        for candidate in 1..=version {
+            let transaction = connection.transaction().expect("legacy transaction");
+            match candidate {
+                1 => migration_v1(&transaction).expect("v1"),
+                2 => migration_v2(&transaction).expect("v2"),
+                3 => migration_v3(&transaction).expect("v3"),
+                _ => unreachable!("supported legacy schema"),
+            }
+            transaction
+                .execute(
+                    "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
+                    params![candidate, candidate * 1_000],
+                )
+                .expect("version marker");
+            transaction.commit().expect("legacy commit");
+        }
+    }
+
+    #[test]
+    fn every_file_backed_legacy_version_creates_a_readable_pre_v4_backup() {
+        for version in 1..=3 {
+            let directory = tempfile::tempdir().expect("tempdir");
+            let path = directory.path().join(format!("legacy-v{version}.sqlite3"));
+            create_legacy_database(&path, version);
+            let storage = Storage::open(&path).expect("migrate legacy database");
+            let migrated_version = storage
+                .connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("migrated version");
+            assert_eq!(migrated_version, SCHEMA_VERSION);
+            drop(storage);
+
+            let backup = path.with_extension(format!("pre-v4-from-v{version}.bak"));
+            assert!(backup.is_file());
+            let backup_connection = SqliteConnection::open(backup).expect("open backup");
+            let backup_version = backup_connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("backup version");
+            assert_eq!(backup_version, version);
+        }
+    }
+
+    #[test]
+    fn failed_v4_migration_rolls_back_schema_and_keeps_the_backup() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("migration-failure.sqlite3");
+        create_legacy_database(&path, 3);
+        let connection = SqliteConnection::open(&path).expect("legacy database");
+        connection
+            .execute_batch(
+                "ALTER TABLE connections ADD COLUMN endpoint_role TEXT NOT NULL DEFAULT 'unknown';",
+            )
+            .expect("inject migration conflict");
+        drop(connection);
+
+        assert!(Storage::open(&path).is_err());
+        assert!(path.with_extension("pre-v4-from-v3.bak").is_file());
+        let connection = SqliteConnection::open(&path).expect("failed database remains readable");
+        let version = connection
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("schema version");
+        assert_eq!(version, 3);
+        let has_remote_scope = connection
+            .prepare("SELECT remote_scope FROM connections")
+            .is_ok();
+        assert!(!has_remote_scope, "partial migration must be rolled back");
+    }
+
+    #[test]
+    fn investigations_roundtrip_and_reconstruct_the_same_connection_set() {
+        let mut storage = Storage::in_memory().expect("storage");
+        storage.start_session("s1", 1_000).expect("session");
+        storage
+            .save_connections("s1", &[sample_connection()])
+            .expect("save connection");
+        let investigation = SavedInvestigation {
+            id: "investigation-1".into(),
+            name: "Documentation destination".into(),
+            query: InvestigationQuery {
+                filter: Some("cidr:203.0.113.0/24 source:unknown".into()),
+                session_id: Some("s1".into()),
+                ..InvestigationQuery::default()
+            },
+            notes: "Local-only note".into(),
+            created_at_ms: 2_000,
+            updated_at_ms: 2_000,
+        };
+        storage
+            .save_investigation(&investigation)
+            .expect("save investigation");
+        assert_eq!(
+            storage.list_investigations().expect("list"),
+            vec![investigation.clone()]
+        );
+        let reconstructed = storage
+            .query_investigation(&investigation.query)
+            .expect("reconstruct investigation");
+        assert_eq!(reconstructed.len(), 1);
+        assert_eq!(reconstructed[0].connection.id, "connection-1");
+        assert!(
+            storage
+                .delete_investigation(&investigation.id)
+                .expect("delete")
+        );
+    }
+
+    #[test]
+    fn derived_geo_views_replace_atomically_without_overwriting_observed_fields() {
+        let mut storage = Storage::in_memory().expect("storage");
+        storage.start_session("s1", 1_000).expect("session");
+        let original = sample_connection();
+        storage
+            .save_connections("s1", std::slice::from_ref(&original))
+            .expect("save original");
+        let first = DerivedGeoEnrichment {
+            connection_id: original.id.clone(),
+            observed_geo: None,
+            observed_asn: None,
+            current_geo: Some(sabicheiro_core::GeoLocation {
+                country_code: Some("AA".into()),
+                city_generation: 2,
+                ..Default::default()
+            }),
+            current_asn: None,
+        };
+        storage
+            .replace_geo_views("s1", "current", std::slice::from_ref(&first), 2, 1, 3_000)
+            .expect("first view");
+        assert_eq!(
+            storage.load_geo_views("s1", "current").expect("first load"),
+            vec![first]
+        );
+        let second = DerivedGeoEnrichment {
+            connection_id: original.id.clone(),
+            observed_geo: None,
+            observed_asn: None,
+            current_geo: Some(sabicheiro_core::GeoLocation {
+                country_code: Some("BB".into()),
+                city_generation: 3,
+                ..Default::default()
+            }),
+            current_asn: None,
+        };
+        storage
+            .replace_geo_views("s1", "current", std::slice::from_ref(&second), 3, 1, 4_000)
+            .expect("replacement view");
+        assert_eq!(
+            storage
+                .load_geo_views("s1", "current")
+                .expect("second load"),
+            vec![second]
+        );
+        assert!(
+            storage
+                .query_history(&HistoryQuery::default())
+                .expect("observed history")[0]
+                .connection
+                .geo
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn exports_include_provenance_and_apply_each_local_redaction() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let mut storage = Storage::in_memory().expect("storage");
+        storage.start_session("s1", 1_000).expect("session");
+        let mut connection = sample_connection();
+        connection.key.local =
+            sabicheiro_core::Endpoint::new("192.168.1.44".parse().expect("local IP"), 50_000);
+        connection.process.executable_path = Some("C:\\Users\\alice\\Apps\\browser.exe".into());
+        connection.geo = Some(sabicheiro_core::GeoLocation {
+            country_code: Some("AA".into()),
+            precision: sabicheiro_core::GeoPrecision::Country,
+            source: "Fixture MMDB".into(),
+            dataset_edition: Some("Sabicheiro-City-Test".into()),
+            dataset_sha256: Some("abc123".into()),
+            city_generation: 7,
+            ..Default::default()
+        });
+        storage
+            .save_connections("s1", &[connection])
+            .expect("save connection");
+        let path = directory.path().join("redacted.json");
+        storage
+            .export(&ExportRequest {
+                format: ExportFormat::Json,
+                path: path.to_string_lossy().into_owned(),
+                session_id: None,
+                process_key: None,
+                from_ms: None,
+                to_ms: None,
+                query: None,
+                redaction: ExportRedaction {
+                    local_ip: true,
+                    executable_path: false,
+                    user_names: true,
+                },
+            })
+            .expect("redacted export");
+        let exported = fs::read_to_string(path).expect("read export");
+        assert!(!exported.contains("192.168.1.44"));
+        assert!(!exported.contains("alice"));
+        assert!(exported.contains("[redacted]"));
+        assert!(exported.contains("Fixture MMDB"));
+        assert!(exported.contains("abc123"));
     }
 }

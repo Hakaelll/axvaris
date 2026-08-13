@@ -4,8 +4,9 @@ use ferrisetw::{
     trace::UserTrace,
 };
 use sabicheiro_core::{
-    ConnectionKey, ConnectionState, CounterSource, Direction, Endpoint, NetworkEventKind,
-    NetworkProtocol, NormalizedNetworkEvent, TrafficCounters,
+    ConnectionEvidence, ConnectionKey, ConnectionState, CorrelationQuality, CounterSource,
+    Direction, Endpoint, NetworkEventKind, NetworkProtocol, NormalizedNetworkEvent,
+    ObservationSource, TrafficCounters,
 };
 use std::{
     net::IpAddr,
@@ -131,25 +132,40 @@ impl WindowsEventCapture {
             .refresh(network.iter().filter_map(|event| event.pid));
         let events = network
             .into_iter()
-            .map(|event| NormalizedNetworkEvent {
-                kind: event.kind,
-                key: ConnectionKey {
-                    pid: event.pid,
-                    local: event.local,
-                    remote: event.remote,
-                    protocol: event.protocol,
-                },
-                timestamp_ms,
-                process: self.processes.resolve(event.pid),
-                direction: event.direction,
-                state: event.state,
-                interface: None,
-                hostname: None,
-                domain: None,
-                geo: None,
-                asn: None,
-                traffic_delta: event.traffic,
-                counter_source: CounterSource::EtwFlow,
+            .map(|event| {
+                let process = self.processes.resolve(event.pid);
+                let mut evidence = ConnectionEvidence::for_peer(
+                    &event.remote,
+                    event.state,
+                    ObservationSource::WindowsEtw,
+                    timestamp_ms,
+                );
+                evidence.correlation_quality = CorrelationQuality::Approximate;
+                NormalizedNetworkEvent {
+                    kind: event.kind,
+                    key: ConnectionKey {
+                        pid: event.pid,
+                        process_instance: process.instance_id(),
+                        local: event.local,
+                        remote: event.remote,
+                        protocol: event.protocol,
+                        interface_id: None,
+                        capture_generation: 0,
+                        flow_generation: 0,
+                    },
+                    evidence,
+                    timestamp_ms,
+                    process,
+                    direction: event.direction,
+                    state: event.state,
+                    interface: None,
+                    hostname: None,
+                    domain: None,
+                    geo: None,
+                    asn: None,
+                    traffic_delta: event.traffic,
+                    counter_source: CounterSource::EtwFlow,
+                }
             })
             .collect();
         (events, dns)

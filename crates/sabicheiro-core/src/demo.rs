@@ -1,6 +1,7 @@
 use crate::{
-    AsnInfo, ConnectionKey, ConnectionState, Direction, Endpoint, GeoLocation, NetworkEventKind,
-    NetworkProtocol, NormalizedNetworkEvent, ProcessInfo, TrafficCounters,
+    AsnInfo, ConnectionEvidence, ConnectionKey, ConnectionState, Direction, Endpoint, GeoLocation,
+    GeoPrecision, NetworkEventKind, NetworkProtocol, NormalizedNetworkEvent, ObservationSource,
+    PlacementKind, ProcessInfo, TrafficCounters,
 };
 use std::{collections::HashMap, net::IpAddr};
 
@@ -217,6 +218,7 @@ fn demo_key(destination: &DemoDestination) -> ConnectionKey {
     let local_port = 40_000 + (destination.pid % 20_000) as u16;
     ConnectionKey {
         pid: Some(destination.pid),
+        process_instance: Some(format!("demo-process:{}", destination.pid)),
         local: Endpoint::new(
             "192.168.1.42".parse::<IpAddr>().expect("valid demo IP"),
             local_port,
@@ -226,6 +228,9 @@ fn demo_key(destination: &DemoDestination) -> ConnectionKey {
             destination.port,
         ),
         protocol: destination.protocol,
+        interface_id: Some("demo-wifi".into()),
+        capture_generation: 1,
+        flow_generation: u64::from(destination.pid),
     }
 }
 
@@ -238,9 +243,17 @@ fn demo_event(
 ) -> NormalizedNetworkEvent {
     let received = 18_000 + random.range(420_000);
     let sent = 2_000 + random.range(78_000);
+    let state = if kind == NetworkEventKind::Closed {
+        ConnectionState::Closed
+    } else {
+        ConnectionState::Established
+    };
+    let evidence =
+        ConnectionEvidence::for_peer(&key.remote, state, ObservationSource::Demo, timestamp_ms);
     NormalizedNetworkEvent {
         kind,
         key,
+        evidence,
         timestamp_ms,
         process: ProcessInfo {
             pid: Some(destination.pid),
@@ -251,26 +264,30 @@ fn demo_event(
             icon_data_url: None,
         },
         direction: Direction::Outbound,
-        state: if kind == NetworkEventKind::Closed {
-            ConnectionState::Closed
-        } else {
-            ConnectionState::Established
-        },
+        state,
         interface: Some("Wi-Fi".into()),
         hostname: Some(destination.domain.into()),
         domain: Some(destination.domain.into()),
         geo: Some(GeoLocation {
-            country_code: destination.country_code.into(),
-            country_name: destination.country_name.into(),
+            country_code: Some(destination.country_code.into()),
+            country_name: Some(destination.country_name.into()),
             region: None,
             city: Some(destination.city.into()),
-            latitude: destination.latitude,
-            longitude: destination.longitude,
+            latitude: Some(destination.latitude),
+            longitude: Some(destination.longitude),
             source: "Sabicheiro deterministic demo".into(),
+            precision: GeoPrecision::Coordinates,
+            placement: PlacementKind::DatabaseCoordinate,
+            dataset_kind: Some("synthetic-demo".into()),
+            dataset_edition: Some("Sabicheiro Demo 0.3".into()),
+            ..GeoLocation::default()
         }),
         asn: Some(AsnInfo {
             number: destination.asn,
-            organization: destination.organization.into(),
+            organization: Some(destination.organization.into()),
+            dataset_edition: Some("Sabicheiro Demo ASN 0.3".into()),
+            generation: 1,
+            ..AsnInfo::default()
         }),
         traffic_delta: TrafficCounters {
             bytes_sent: sent,

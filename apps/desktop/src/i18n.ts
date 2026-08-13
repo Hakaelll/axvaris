@@ -548,6 +548,363 @@ const spanish: Record<string, string> = {
   "The operation could not be completed.": "No se pudo completar la operación.",
   "The capture backend stopped. Run the self-test or select a different interface.":
     "El motor de captura se detuvo. Ejecuta la autoprueba o selecciona otra interfaz.",
+  "{changed} of {total} derived rows changed":
+    "Cambiaron {changed} de {total} filas derivadas",
+  "{count} estimated connections to {destination}":
+    "{count} conexiones estimadas con {destination}",
+  "{count} pinned connections": "{count} conexiones fijadas",
+  "{count} recurrences": "{count} recurrencias",
+  "A cancelable local job creates a derived view. Original IPs, timestamps, evidence and observed enrichment are never overwritten.":
+    "Un trabajo local cancelable crea una vista derivada. Las IP, marcas temporales, evidencias y enriquecimiento observados nunca se sobrescriben.",
+  "Accuracy radius": "Radio de precisión",
+  "Address scope": "Ámbito de dirección",
+  "All local data and settings": "Todos los datos y ajustes locales",
+  "Application logs": "Registros de la aplicación",
+  APPROXIMATE: "APROXIMADOS",
+  "Approximate local location": "Ubicación local aproximada",
+  "At capture": "Al capturar",
+  Built: "Compilada",
+  "Cancel job": "Cancelar trabajo",
+  "canonical IPs with traceable local evidence":
+    "IP canónicas con evidencia local rastreable",
+  "Capability coverage": "Cobertura de capacidades",
+  "Capture generation": "Generación de captura",
+  "Check and compact SQLite": "Comprobar y compactar SQLite",
+  "Check free City update": "Buscar actualización City gratuita",
+  "Clear pins": "Quitar fijaciones",
+  close: "cierre",
+  "Collapse feed": "Contraer feed",
+  Comfortable: "Cómodo",
+  Compact: "Compacto",
+  "Compact fits more evidence on screen; Comfortable adds breathing room without hiding fields.":
+    "Compacto muestra más evidencia en pantalla; Cómodo añade espacio sin ocultar campos.",
+  "Compare captured location with the current database":
+    "Comparar la ubicación capturada con la base actual",
+  "Copy redacted report": "Copiar informe anonimizado",
+  CORRELATED: "CORRELACIONADOS",
+  Correlation: "Correlación",
+  "Counter source": "Origen de contadores",
+  "Current database": "Base actual",
+  "Database {size} · WAL {log}/{checkpointed} pages":
+    "Base {size} · WAL {log}/{checkpointed} páginas",
+  Dataset: "Conjunto de datos",
+  "Dataset date": "Fecha del conjunto",
+  Delete: "Eliminar",
+  "Delete investigation {name}": "Eliminar investigación {name}",
+  "Delete one local category at a time. Capture must be stopped before changing retained sessions or database files.":
+    "Elimina una categoría local cada vez. La captura debe estar detenida antes de cambiar sesiones conservadas o archivos de base de datos.",
+  "Delete selected data": "Eliminar datos seleccionados",
+  "Delete this saved local investigation?":
+    "¿Eliminar esta investigación local guardada?",
+  "Destination intelligence": "Inteligencia de destinos",
+  Diagnostic: "Diagnóstico",
+  "DNS cache": "Caché DNS",
+  "Downloads happen only after this action and fetch the complete free dataset over HTTPS. Observed IPs are never sent.":
+    "Las descargas solo ocurren tras esta acción y obtienen el conjunto gratuito completo mediante HTTPS. Las IP observadas nunca se envían.",
+  dropped: "descartados",
+  Edition: "Edición",
+  endpoint: "extremo",
+  "Endpoint role": "Rol del extremo",
+  "Ephemeral capture": "Captura efímera",
+  "Estimated countries": "Países estimados",
+  "Estimated network location": "Ubicación de red estimada",
+  Evidence: "Evidencia",
+  "Evidence sequence": "Secuencia de evidencia",
+  "Expand map": "Ampliar mapa",
+  "Filter this ASN": "Filtrar este ASN",
+  "Flow generation": "Generación de flujo",
+  "Frame selection": "Encuadrar selección",
+  Generation: "Generación",
+  "GeoIP databases": "Bases de datos GeoIP",
+  "Globe controls": "Controles del globo",
+  Identity: "Identidad",
+  "Install free City database": "Instalar base City gratuita",
+  interface: "interfaz",
+  "Interface density": "Densidad de interfaz",
+  "Investigation name": "Nombre de la investigación",
+  "IPC GAPS / RESYNCS": "HUECOS IPC / RESINCRONIZACIONES",
+  "Last operation": "Última operación",
+  "Loading ASN": "Cargando ASN",
+  "LOCAL ASN PROFILE": "PERFIL ASN LOCAL",
+  "Local data category": "Categoría de datos locales",
+  "Local data controls": "Controles de datos locales",
+  "Local investigation workspaces": "Espacios de investigación locales",
+  "Local notes": "Notas locales",
+  "Map controls": "Controles del mapa",
+  "Matched prefix": "Prefijo coincidente",
+  "New live sessions stay in memory only: no connection history, baselines or session metadata are written to SQLite. This takes effect on the next capture.":
+    "Las nuevas sesiones en vivo permanecen solo en memoria: no se escribe en SQLite historial de conexiones, referencias ni metadatos de sesión. Se aplica en la próxima captura.",
+  "No active filter": "Sin filtro activo",
+  "No ASN": "Sin ASN",
+  "No local match": "Sin coincidencia local",
+  "No saved investigations yet.": "Todavía no hay investigaciones guardadas.",
+  "NON-DESTRUCTIVE GEOIP": "GEOIP NO DESTRUCTIVO",
+  "Not applicable": "No aplicable",
+  "Not exposed": "No expuesto",
+  "Not installed": "No instalada",
+  "Not provided": "No proporcionado",
+  OBSERVED: "OBSERVADO",
+  "Observed family": "Familia observada",
+  "Observed IPs": "IP observadas",
+  "OBSERVED IPS": "IP OBSERVADAS",
+  "Observed versus current GeoIP": "GeoIP observado frente al actual",
+  Offline: "Sin conexión",
+  "Open exact view": "Abrir vista exacta",
+  ORGANIZATION: "ORGANIZACIÓN",
+  ORPHANED: "HUÉRFANOS",
+  "OS source": "Fuente del SO",
+  "Permanently delete the selected local data? This cannot be undone inside Sabicheiro.":
+    "¿Eliminar permanentemente los datos locales seleccionados? No se puede deshacer dentro de Sabicheiro.",
+  "Pin visible evidence": "Fijar evidencia visible",
+  pins: "fijaciones",
+  Placement: "Colocación",
+  Precision: "Precisión",
+  "Privacy redaction": "Anonimización de privacidad",
+  process: "proceso",
+  "Process instance": "Instancia de proceso",
+  "Re-enrich selected session": "Reenriquecer sesión seleccionada",
+  Ready: "Lista",
+  Reason: "Motivo",
+  "Redact local IP addresses": "Anonimizar direcciones IP locales",
+  "Redact user names in paths": "Anonimizar nombres de usuario en rutas",
+  "Redacted self-test report": "Informe anonimizado de autoprueba",
+  "Related processes": "Procesos relacionados",
+  "Remove database": "Eliminar base de datos",
+  "Remove executable paths": "Eliminar rutas de ejecutables",
+  "Remove this local MMDB and its backup?":
+    "¿Eliminar esta MMDB local y su copia de seguridad?",
+  "Removed {count} local items from {category}.":
+    "Se eliminaron {count} elementos locales de {category}.",
+  "Rendering is capped at 120 routes with local geometry only.":
+    "El renderizado se limita a 120 rutas usando solo geometría local.",
+  Reset: "Restablecer",
+  "Reset camera": "Restablecer cámara",
+  "Restore map": "Restaurar mapa",
+  "Retained sessions": "Sesiones conservadas",
+  Rollback: "Revertir",
+  "Save investigation": "Guardar investigación",
+  "Save the active query, exact time range, session, pinned evidence and notes on this device. Nothing is synced.":
+    "Guarda en este dispositivo la consulta activa, el intervalo exacto, la sesión, la evidencia fijada y las notas. Nada se sincroniza.",
+  "SAVED INVESTIGATIONS": "INVESTIGACIONES GUARDADAS",
+  "Select one retained session to enable re-enrichment.":
+    "Selecciona una sesión conservada para habilitar el reenriquecimiento.",
+  SESSIONS: "SESIONES",
+  "Show feed": "Mostrar feed",
+  "Showing the first 100 of {count} rows.":
+    "Mostrando las primeras 100 de {count} filas.",
+  Source: "Fuente",
+  "SQLite integrity check failed": "Falló la comprobación de integridad SQLite",
+  "SQLite integrity check passed": "La comprobación de integridad SQLite pasó",
+  "The organization describes the observed network record; it does not prove ownership of a domain, service or content.":
+    "La organización describe el registro de red observado; no demuestra la propiedad de un dominio, servicio o contenido.",
+  TRAFFIC: "TRÁFICO",
+  Updated: "Actualizada",
+  Version: "Versión",
+  "Zone / interface": "Zona / interfaz",
+  "Zoom in": "Acercar",
+  "Zoom out": "Alejar",
+  pass: "correcto",
+  warn: "aviso",
+  fail: "fallo",
+  healthy: "saludable",
+  degraded: "degradado",
+  unavailable: "no disponible",
+  disabled: "desactivado",
+  queued: "en cola",
+  "{backend}; {depth}/{capacity} queued":
+    "{backend}; {depth}/{capacity} en cola",
+  "Local deterministic preview dataset":
+    "Conjunto de datos local reproducible de previsualización",
+  running: "en curso",
+  completed: "completado",
+  cancelled: "cancelado",
+  failed: "fallido",
+  capture: "captura",
+  geoip: "GeoIP",
+  dns: "DNS",
+  storage: "almacenamiento",
+  render: "renderizado",
+  backpressure: "contrapresión",
+  remote_peer: "peer remoto",
+  local_peer: "peer local",
+  listener: "listener",
+  confirmed: "confirmada",
+  correlated: "correlacionada",
+  approximate: "aproximada",
+  windows_ip_helper: "Windows IP Helper",
+  windows_etw: "Windows ETW",
+  linux_inet_diag: "Linux INET_DIAG",
+  local_dns: "DNS local",
+  local_mmdb: "MMDB local",
+  demo: "demostración",
+  historical: "histórico",
+  global: "global",
+  private: "privada",
+  loopback: "bucle local",
+  link_local: "enlace local",
+  multicast: "multicast",
+  cgnat: "CGNAT",
+  documentation: "documentación",
+  benchmark: "pruebas de rendimiento",
+  reserved: "reservada",
+  broadcast: "broadcast",
+  unspecified: "no especificada",
+  country: "país",
+  region: "región",
+  city: "ciudad",
+  coordinates: "coordenadas",
+  database_coordinate: "coordenada de base de datos",
+  country_centroid: "centroide de país",
+  not_plotted: "no representado",
+  interface_aggregate: "total de interfaz",
+  etw_flow: "flujo ETW",
+  incomplete_record: "registro incompleto",
+  historical_record: "registro histórico",
+  listener_state: "estado listener",
+  missing_remote_peer: "peer remoto ausente",
+  connected_global_peer: "peer global conectado",
+  connected_non_global_peer: "peer no global conectado",
+  orphan_etw_event: "evento ETW huérfano",
+  ip_helper_etw_correlation: "correlación IP Helper + ETW",
+  geo_ip: "bases GeoIP",
+  dns_cache: "caché DNS",
+  logs: "registros",
+  all: "todos los datos",
+  "Capture is starting and reconciling socket state":
+    "La captura está iniciándose y conciliando el estado de sockets",
+  "Wait for capture to enter the Capturing state.":
+    "Espera a que la captura entre en estado Capturando.",
+  "Capture is stopped": "La captura está detenida",
+  "Start Demo or Live capture when observation is wanted.":
+    "Inicia captura Demo o en vivo cuando quieras observar.",
+  "Run the guided capture self-test and review provider permissions.":
+    "Ejecuta la autoprueba guiada y revisa los permisos del proveedor.",
+  "No local GeoIP dataset is installed":
+    "No hay ningún conjunto GeoIP local instalado",
+  "Import free local MMDB datasets from Settings.":
+    "Importa conjuntos MMDB locales gratuitos desde Ajustes.",
+  "Rollback, remove, or re-import the affected local MMDB dataset.":
+    "Revierte, elimina o vuelve a importar el conjunto MMDB local afectado.",
+  "Local DNS enrichment is active": "El enriquecimiento DNS local está activo",
+  "The bounded DNS queue dropped requests":
+    "La cola DNS limitada descartó solicitudes",
+  "Reduce capture load or disable optional reverse DNS.":
+    "Reduce la carga de captura o desactiva el DNS inverso opcional.",
+  "Optional reverse DNS is disabled": "El DNS inverso opcional está desactivado",
+  "Enable it explicitly in Settings only when hostnames are needed.":
+    "Actívalo expresamente en Ajustes solo cuando necesites nombres de host.",
+  "SQLite quick_check passed": "SQLite quick_check pasó",
+  "SQLite integrity has not passed its latest check":
+    "La integridad SQLite no superó su última comprobación",
+  "Stop capture, export needed data, then run local maintenance.":
+    "Detén la captura, exporta los datos necesarios y ejecuta el mantenimiento local.",
+  "The UI has not reported a render sample yet":
+    "La interfaz aún no ha comunicado una muestra de renderizado",
+  "Use compact density, 2D map, or reduced motion for dense captures.":
+    "Usa densidad compacta, el mapa 2D o movimiento reducido para capturas densas.",
+  "Narrow capture scope or turn off optional DNS enrichment.":
+    "Reduce el ámbito de captura o desactiva el enriquecimiento DNS opcional.",
+  "Reconnect the network or select All interfaces, then retry.":
+    "Vuelve a conectar la red o selecciona Todas las interfaces y reintenta.",
+  "Check operating-system capture permissions and retry.":
+    "Comprueba los permisos de captura del sistema operativo y reintenta.",
+  "Run the test again; if it persists, review the documented capture permissions.":
+    "Ejecuta de nuevo la prueba; si persiste, revisa los permisos de captura documentados.",
+  "Check capture permissions and retry the guided test.":
+    "Comprueba los permisos de captura y repite la prueba guiada.",
+  "Enable reverse DNS in Settings only if hostname enrichment is wanted.":
+    "Activa el DNS inverso en Ajustes solo si deseas enriquecer nombres de host.",
+  "Import a free local City/ASN MMDB or use the explicit free dataset update.":
+    "Importa una MMDB City/ASN local gratuita o usa la actualización gratuita explícita.",
+  "UDP fixture is available in native integration tests":
+    "La fixture UDP está disponible en las pruebas de integración nativas",
+  "IPv6 availability depends on the local operating-system stack":
+    "La disponibilidad de IPv6 depende de la pila local del sistema operativo",
+  "Process instance observed": "Instancia de proceso observada",
+  "Process instance was not available": "La instancia de proceso no estaba disponible",
+  "Connection opened": "Conexión abierta",
+  "Local DNS name correlated": "Nombre DNS local correlacionado",
+  "Estimated network location enriched": "Ubicación de red estimada enriquecida",
+  "Connection closed": "Conexión cerrada",
+  "Derived view saved; original observations remain unchanged.":
+    "Vista derivada guardada; las observaciones originales permanecen sin cambios.",
+  "Derived preview view saved; observations were unchanged.":
+    "Vista derivada de previsualización guardada; las observaciones no cambiaron.",
+  "Preview job complete.": "Trabajo de previsualización completado.",
+  "Deterministic preview is capturing":
+    "La previsualización reproducible está capturando",
+  "Start Demo capture.": "Inicia la captura Demo.",
+  "Unterminated quoted value": "Valor entre comillas sin terminar",
+  "Use tcp or udp": "Usa tcp o udp",
+  "Port must be between 0 and 65535": "El puerto debe estar entre 0 y 65535",
+  "Use in, out or unknown": "Usa in, out o unknown",
+  "Enter an IPv4 or IPv6 address": "Introduce una dirección IPv4 o IPv6",
+  "Unknown connection state": "Estado de conexión desconocido",
+  "Use true or false": "Usa true o false",
+  "ASN must be a number": "El ASN debe ser un número",
+  "Enter a valid IPv4 or IPv6 CIDR prefix":
+    "Introduce un prefijo CIDR IPv4 o IPv6 válido",
+  "Unknown address scope": "Ámbito de dirección desconocido",
+  "Unknown evidence source": "Fuente de evidencia desconocida",
+  "Missing value after negation": "Falta un valor después de la negación",
+  "The status of the local GeoIP datasets could not be read.":
+    "No se pudo leer el estado de los conjuntos GeoIP locales.",
+  "The previous local GeoIP dataset could not be restored; the active dataset was kept.":
+    "No se pudo restaurar el conjunto GeoIP local anterior; se conservó el conjunto activo.",
+  "The selected local GeoIP dataset could not be removed safely.":
+    "No se pudo eliminar de forma segura el conjunto GeoIP local seleccionado.",
+  "SQLite maintenance could not complete; the database was left intact.":
+    "El mantenimiento SQLite no pudo completarse; la base quedó intacta.",
+  "Stop capture before running SQLite maintenance.":
+    "Detén la captura antes de ejecutar el mantenimiento SQLite.",
+  "Stop capture before deleting retained sessions or all local data.":
+    "Detén la captura antes de eliminar sesiones conservadas o todos los datos locales.",
+  "The selected local data could not be removed completely.":
+    "No se pudieron eliminar por completo los datos locales seleccionados.",
+  "The local investigation is missing a valid name or query.":
+    "A la investigación local le falta un nombre o una consulta válidos.",
+  "Saved investigations could not be read from local storage.":
+    "No se pudieron leer las investigaciones guardadas del almacenamiento local.",
+  "Choose a valid ASN number greater than zero.":
+    "Elige un número ASN válido mayor que cero.",
+  "The local ASN profile could not be reconstructed from retained evidence.":
+    "No se pudo reconstruir el perfil ASN local a partir de la evidencia conservada.",
+  "The selected saved connection is no longer available for its identity timeline.":
+    "La conexión guardada seleccionada ya no está disponible para su línea temporal de identidad.",
+  "Select one retained session to re-enrich.":
+    "Selecciona una sesión conservada para reenriquecerla.",
+  "This session already has an active re-enrichment job.":
+    "Esta sesión ya tiene un trabajo de reenriquecimiento activo.",
+  "The local re-enrichment job is no longer available.":
+    "El trabajo local de reenriquecimiento ya no está disponible.",
+  "The derived GeoIP view could not be loaded; original observations were unchanged.":
+    "No se pudo cargar la vista GeoIP derivada; las observaciones originales no cambiaron.",
+  "Choose two different retained sessions.":
+    "Elige dos sesiones conservadas diferentes.",
+  "The local session comparison could not be exported.":
+    "No se pudo exportar la comparación local de sesiones.",
+  "Packet recording could not continue; review the original local diagnostic.":
+    "La grabación de paquetes no pudo continuar; revisa el diagnóstico local original.",
+  "Local focus rules could not be read.":
+    "No se pudieron leer las reglas de enfoque locales.",
+  "The local focus rule is invalid.": "La regla de enfoque local no es válida.",
+  "The local history query is invalid.": "La consulta de historial local no es válida.",
+  "TCP/UDP and IPv4/IPv6 capability proof":
+    "Prueba de capacidades TCP/UDP e IPv4/IPv6",
+  "Review the capability rows; retry with the documented permissions or enable the missing local IP stack.":
+    "Revisa las filas de capacidades; reintenta con los permisos documentados o habilita la pila IP local ausente.",
+  "The current Sabicheiro process was resolved from controlled loopback sockets.":
+    "El proceso actual de Sabicheiro se identificó mediante sockets de bucle local controlados.",
+  "The native provider did not expose the controlled local endpoint":
+    "El proveedor nativo no expuso el extremo local controlado",
+  "The operating system did not expose the proof process identity":
+    "El sistema operativo no expuso la identidad del proceso de prueba",
+  "The provider did not expose an interface for this loopback row":
+    "El proveedor no expuso una interfaz para esta fila de bucle local",
+  "The close was not visible within the bounded 30 ms proof window":
+    "El cierre no fue visible dentro de la ventana acotada de 30 ms",
+  "Bound UDP rows stay local/listener evidence when the OS omits their peer":
+    "Las filas UDP enlazadas permanecen como evidencia local/listener cuando el SO omite su peer",
 };
 
 const I18nContext = createContext<Language>("en");
@@ -641,6 +998,24 @@ function translateDynamicSpanish(source: string): string | null {
   if (socketRows) {
     return `${socketRows[1]} filas TCP/UDP observadas durante una prueba local de bucle`;
   }
+  const controlledSocketRows = source.match(
+    /^(\d+) TCP\/UDP rows observed during controlled local loopback proofs$/,
+  );
+  if (controlledSocketRows) {
+    return `${controlledSocketRows[1]} filas TCP/UDP observadas durante pruebas de bucle local controladas`;
+  }
+  const exposedCapabilities = source.match(
+    /^(\d+) of (\d+) local protocol\/family fixtures exposed their endpoints$/,
+  );
+  if (exposedCapabilities) {
+    return `${exposedCapabilities[1]} de ${exposedCapabilities[2]} fixtures locales de protocolo/familia expusieron sus extremos`;
+  }
+  const fixtureUnavailable = source.match(
+    /^Local loopback fixture unavailable: (.+)$/,
+  );
+  if (fixtureUnavailable) {
+    return `Fixture de bucle local no disponible: ${fixtureUnavailable[1]}`;
+  }
   const geoChecksum = source.match(/^(.+) \/ checksum (.+)$/);
   if (geoChecksum) {
     return `${geoChecksum[1]} / suma de verificación ${geoChecksum[2]}`;
@@ -651,6 +1026,37 @@ function translateDynamicSpanish(source: string): string | null {
   if (sqliteSize) {
     return `SQLite permite escritura; el archivo actual ocupa ${sqliteSize[1]} bytes`;
   }
+  const unknownFilter = source.match(/^Unknown filter: (.+)$/);
+  if (unknownFilter) return `Filtro desconocido: ${unknownFilter[1]}`;
+  const missingFilterValue = source.match(/^Missing value for (.+)$/);
+  if (missingFilterValue) return `Falta el valor de ${missingFilterValue[1]}`;
+  const invalidFilterValue = source.match(/^([^:]+): (.+)$/);
+  const invalidFilterReason = invalidFilterValue?.[2];
+  if (invalidFilterValue && invalidFilterReason && spanish[invalidFilterReason]) {
+    return `${invalidFilterValue[1]}: ${spanish[invalidFilterReason]}`;
+  }
+  const capturing = source.match(/^(.+) is capturing$/);
+  if (capturing) return `${capturing[1]} está capturando`;
+  const geoGenerations = source.match(
+    /^City generation (\d+), ASN generation (\d+)$/,
+  );
+  if (geoGenerations) {
+    return `Generación City ${geoGenerations[1]}, generación ASN ${geoGenerations[2]}`;
+  }
+  const renderRate = source.match(/^Render rate is (\d+) FPS$/);
+  if (renderRate) return `La tasa de renderizado es ${renderRate[1]} FPS`;
+  const queuePressure = source.match(
+    /^Queue utilization (\d+)%; (\d+) enrichment jobs dropped$/,
+  );
+  if (queuePressure) {
+    return `Uso de cola ${queuePressure[1]} %; ${queuePressure[2]} trabajos de enriquecimiento descartados`;
+  }
+  const queueSlots = source.match(/^(\d+) of (\d+) bounded queue slots used$/);
+  if (queueSlots) {
+    return `${queueSlots[1]} de ${queueSlots[2]} espacios de cola limitada usados`;
+  }
+  const finalState = source.match(/^Final state: (.+)$/);
+  if (finalState) return `Estado final: ${finalState[1]}`;
   return null;
 }
 

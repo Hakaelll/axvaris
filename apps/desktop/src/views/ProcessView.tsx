@@ -36,7 +36,7 @@ export function ProcessView({
           {t("{count} observed", { count: processes.length })}
         </span>
       </header>
-      <div className="rank-list" role="list">
+      <div className="rank-list">
         <div className="rank-list__header">
           <span>{t("Process")}</span>
           <span>{t("Connections")}</span>
@@ -74,7 +74,6 @@ export function ProcessView({
               onClick={() =>
                 onFilter(`process:${JSON.stringify(process.process.name)}`)
               }
-              role="listitem"
               type="button"
             >
               <span className="rank-row__identity">

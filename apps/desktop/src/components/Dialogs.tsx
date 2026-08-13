@@ -214,6 +214,9 @@ export function ExportDialog({
   const t = useI18n();
   const [format, setFormat] = useState<"csv" | "json">("csv");
   const [path, setPath] = useState("sabicheiro-export.csv");
+  const [redactLocalIp, setRedactLocalIp] = useState(true);
+  const [redactExecutablePath, setRedactExecutablePath] = useState(true);
+  const [redactUserNames, setRedactUserNames] = useState(true);
   useEffect(() => setPath(`sabicheiro-export.${format}`), [format]);
   if (!open) return null;
   return (
@@ -278,6 +281,35 @@ export function ExportDialog({
                   : t("All visible records")}
           </strong>
         </div>
+        <fieldset className="export-redaction">
+          <legend>{t("Privacy redaction")}</legend>
+          <label>
+            <input
+              checked={redactLocalIp}
+              onChange={(event) => setRedactLocalIp(event.target.checked)}
+              type="checkbox"
+            />
+            <span>{t("Redact local IP addresses")}</span>
+          </label>
+          <label>
+            <input
+              checked={redactExecutablePath}
+              onChange={(event) =>
+                setRedactExecutablePath(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span>{t("Remove executable paths")}</span>
+          </label>
+          <label>
+            <input
+              checked={redactUserNames}
+              onChange={(event) => setRedactUserNames(event.target.checked)}
+              type="checkbox"
+            />
+            <span>{t("Redact user names in paths")}</span>
+          </label>
+        </fieldset>
         <footer>
           <button
             className="button button--secondary"
@@ -298,6 +330,11 @@ export function ExportDialog({
                 from_ms: fromMs,
                 to_ms: toMs,
                 query: query || null,
+                redaction: {
+                  local_ip: redactLocalIp,
+                  executable_path: redactExecutablePath,
+                  user_names: redactUserNames,
+                },
               })
             }
             type="button"

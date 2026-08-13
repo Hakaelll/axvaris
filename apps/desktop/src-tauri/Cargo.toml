@@ -7,7 +7,7 @@ rust-version.workspace = true
 
 [lib]
 name = "sabicheiro_desktop_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [[bin]]
 name = "Sabicheiro"

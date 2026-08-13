@@ -13,6 +13,7 @@ import type {
   CommandFailure,
   Connection,
   DashboardSnapshot,
+  DashboardUpdate,
   ExportRequest,
   FocusRules,
   GeoDatabaseStatus,
@@ -59,7 +60,17 @@ const emptySnapshot: DashboardSnapshot = {
     flow_counters_available: false,
     packet_events_observed: 0,
     dns_correlations_observed: 0,
+    correlated_capture_events: 0,
+    approximate_capture_events: 0,
+    orphan_capture_events: 0,
+    capture_generation: 0,
+    sequence_gaps: 0,
+    snapshot_resyncs: 0,
+    storage_quick_check_ok: true,
+    storage_last_check_ms: null,
+    storage_wal_pages: 0,
     last_error: null,
+    subsystems: [],
   },
   capture: {
     mode: "off",
@@ -86,6 +97,8 @@ const defaultSettings: AppSettings = {
   feed_group_window_seconds: 30,
   active_workspace: "remote",
   notification_rules: [],
+  ephemeral_capture: false,
+  ui_density: "comfortable",
 };
 
 const emptyFocusRules: FocusRules = { bookmarks: [], ignore_rules: [] };
@@ -156,7 +169,7 @@ function ignoredByRule(connection: Connection, rules: FocusRules): boolean {
       case "ip":
         return connection.key.remote.address.toLowerCase() === value;
       case "country":
-        return connection.geo?.country_code.toLowerCase() === value;
+        return connection.geo?.country_code?.toLowerCase() === value;
       case "localhost":
         return isLocalAddress(connection.key.remote.address);
     }
@@ -192,7 +205,8 @@ function summarizeProcesses(
     summary.traffic.bytes_received += connection.traffic.bytes_received;
     summary.traffic.packets_sent += connection.traffic.packets_sent;
     summary.traffic.packets_received += connection.traffic.packets_received;
-    if (connection.geo) summary.countryCodes.add(connection.geo.country_code);
+    if (connection.geo?.country_code)
+      summary.countryCodes.add(connection.geo.country_code);
     summary.countries = summary.countryCodes.size;
     summaries.set(key, summary);
   }
@@ -231,10 +245,29 @@ function summarizeDestinations(
         packets_sent: 0,
         packets_received: 0,
       },
+      ports: [],
+      first_seen_ms: connection.first_seen_ms,
+      last_seen_ms: connection.last_seen_ms,
+      recurrence: 0,
+      geo_precision: connection.geo?.precision ?? "unknown",
+      placement: connection.geo?.placement ?? "not_plotted",
       processes: new Set<string>(),
     };
     summary.active_connections += connection.active ? 1 : 0;
     summary.total_connections += connection.repeat_count;
+    if (!summary.ports.includes(connection.key.remote.port)) {
+      summary.ports.push(connection.key.remote.port);
+      summary.ports.sort((left, right) => left - right);
+    }
+    summary.first_seen_ms = Math.min(
+      summary.first_seen_ms,
+      connection.first_seen_ms,
+    );
+    summary.last_seen_ms = Math.max(
+      summary.last_seen_ms,
+      connection.last_seen_ms,
+    );
+    summary.recurrence += connection.repeat_count;
     summary.processes.add(connection.process.name);
     summary.process_names = [...summary.processes].sort();
     summary.traffic.bytes_sent += connection.traffic.bytes_sent;
@@ -250,6 +283,32 @@ function summarizeDestinations(
         right.active_connections - left.active_connections ||
         right.total_connections - left.total_connections,
     );
+}
+
+function mergeDashboardUpdate(
+  current: DashboardSnapshot,
+  update: DashboardUpdate,
+): DashboardSnapshot | null {
+  if (update.snapshot) return update.snapshot;
+  if (update.resync_required || update.base_revision !== current.revision)
+    return null;
+  const connections = new Map(
+    current.connections.map((connection) => [connection.id, connection]),
+  );
+  for (const id of update.removed_connection_ids) connections.delete(id);
+  for (const connection of update.upserted_connections)
+    connections.set(connection.id, connection);
+  return {
+    generated_at_ms: update.generated_at_ms,
+    revision: update.revision,
+    connections: [...connections.values()],
+    processes: update.processes,
+    destinations: update.destinations,
+    stats: update.stats,
+    diagnostics: update.diagnostics,
+    capture: update.capture,
+    session: update.session,
+  };
 }
 
 export function useSabicheiro() {
@@ -275,6 +334,8 @@ export function useSabicheiro() {
   const [processRateHistory, setProcessRateHistory] = useState<
     Record<string, number[]>
   >({});
+  const liveSnapshotRef = useRef<DashboardSnapshot>(emptySnapshot);
+  const ipcSequence = useRef<number | null>(null);
   const pausedRevision = useRef(0);
   const settingsRef = useRef(settings);
   const notificationReady = useRef(false);
@@ -337,8 +398,15 @@ export function useSabicheiro() {
     let cancelled = false;
     const poll = async () => {
       try {
-        const next = await desktopApi.getSnapshot();
+        const update = await desktopApi.getDashboardUpdate(ipcSequence.current);
         if (cancelled) return;
+        const next = mergeDashboardUpdate(liveSnapshotRef.current, update);
+        if (!next) {
+          ipcSequence.current = null;
+          return;
+        }
+        ipcSequence.current = update.sequence;
+        liveSnapshotRef.current = next;
         setLiveSnapshot(next);
         if (!paused) setVisualSnapshot(next);
         const processRates = new Map<string, number>();
@@ -397,7 +465,7 @@ export function useSabicheiro() {
                   Boolean(
                     connection.asn &&
                       (String(connection.asn.number) === value ||
-                        connection.asn.organization
+                        (connection.asn.organization ?? "")
                           .toLowerCase()
                           .includes(value)),
                   ));
@@ -699,6 +767,66 @@ export function useSabicheiro() {
     [],
   );
 
+  const rollbackGeo = useCallback(async (kind: "city" | "asn") => {
+    try {
+      const status = await desktopApi.rollbackGeoDatabase(kind);
+      setGeoStatus(status);
+      setError(null);
+      return status;
+    } catch (cause) {
+      setError(normalizeError(cause));
+      return null;
+    }
+  }, []);
+
+  const removeGeo = useCallback(async (kind: "city" | "asn") => {
+    try {
+      const status = await desktopApi.removeGeoDatabase(kind);
+      setGeoStatus(status);
+      setError(null);
+      return status;
+    } catch (cause) {
+      setError(normalizeError(cause));
+      return null;
+    }
+  }, []);
+
+  const compactStorage = useCallback(async () => {
+    try {
+      const health = await desktopApi.compactStorage();
+      setError(null);
+      return health;
+    } catch (cause) {
+      setError(normalizeError(cause));
+      return null;
+    }
+  }, []);
+
+  const clearLocalData = useCallback(
+    async (category: Parameters<typeof desktopApi.clearLocalData>[0]) => {
+      try {
+        const result = await desktopApi.clearLocalData(category);
+        if (category === "geo_ip" || category === "all")
+          setGeoStatus(await desktopApi.getGeoStatus());
+        if (category === "sessions" || category === "all") {
+          setSelectedId(null);
+          setTimeMachine(null);
+        }
+        if (category === "all") {
+          const defaults = await desktopApi.getSettings();
+          setSettings(defaults);
+          setFocusRules(await desktopApi.getFocusRules());
+        }
+        setError(null);
+        return result;
+      } catch (cause) {
+        setError(normalizeError(cause));
+        return null;
+      }
+    },
+    [],
+  );
+
   const runCaptureSelfTest =
     useCallback(async (): Promise<CaptureSelfTest | null> => {
       try {
@@ -852,6 +980,10 @@ export function useSabicheiro() {
     removeIgnoreRule,
     updateGeo,
     importGeo,
+    rollbackGeo,
+    removeGeo,
+    compactStorage,
+    clearLocalData,
     runCaptureSelfTest,
     exportSupportBundle,
     startRecording,

@@ -43,17 +43,19 @@ throughput in the bottom strip instead of assigning device totals to flows.
 ### Event enhancement: ETW network and DNS Client providers
 
 Sabicheiro attempts a bounded `Microsoft-Windows-Kernel-Network` and Windows DNS Client
-user trace alongside IP Helper. Parsed TCP/UDP send, receive, connect, accept,
+user trace alongside IP Helper. A bounded temporal correlator joins event and snapshot
+evidence using canonical endpoints, PID/process instance, direction and interface.
+Parsed TCP/UDP send, receive, connect, accept,
 disconnect and retransmit records add short-lived endpoints and PID/5-tuple byte and
 packet deltas without retaining payloads. Copy events are discarded to avoid double
 counting. DNS answers enter a bounded expiring correlation cache; they never trigger an
 external lookup. Queue depth, capacity, parsed packet events and drops are visible in
 Diagnostics.
 
-ETW access is policy- and privilege-sensitive. On the 2026-08-11 normal-user validation
+ETW access is policy- and privilege-sensitive. On the 2026-08-12 normal-user validation
 host Windows returned `ERROR_ACCESS_DENIED`. Sabicheiro recorded the actionable detail,
 kept IP Helper active and marked flow counters unavailable; it did not elevate the
-whole UI or invent per-flow rates. A live ETW proof therefore remains `REVIEW` in
+whole UI or invent per-flow rates. A controlled live ETW proof therefore remains `REVIEW` in
 `docs/VALIDATION.md`.
 
 ### Packet recording: Pktmon
@@ -61,7 +63,7 @@ whole UI or invent per-flow rates. A live ETW proof therefore remains `REVIEW` i
 Windows 10 build 19041+ and Windows 11 include Packet Monitor (`pktmon.exe`). Sabicheiro
 invokes the executable directly with a fixed argument vector—never through a shell—and
 captures full packets to temporary ETL before `etl2pcap` conversion. Recording is an
-explicit operation and commonly requires an elevated capture context. v0.2 does not
+explicit operation and commonly requires an elevated capture context. v0.3 does not
 install an elevation service; if the current process cannot start Pktmon, it reports a
 permission error instead of elevating the whole UI silently.
 
@@ -93,15 +95,17 @@ longer reads the deprecated `/proc/net/{tcp,udp}*` socket tables. Socket inode o
 is still mapped through `/proc/<pid>/fd`, so `hidepid` and other-user permissions can
 produce `Unknown process` without dropping the endpoint. A fixed `ip -o address show`
 command supplies interface/address metadata; selected local addresses filter the common
-snapshot. The parser and Linux target cross-compilation pass on Windows, but runtime
-permission/performance evidence still requires a real Linux host.
+snapshot. The parser and Linux target cross-compilation pass on Windows. Native Linux
+fixture tests create TCP/UDP IPv4 peers, verify inode→PID attribution and disappearance
+after close, and exercise IPv6 when the local stack supports it; executing those tests
+and collecting permission/performance evidence still requires a real Linux host.
 
 PCAPNG recording uses a locally installed `dumpcap` process on interface `any`. The
 normal setup is the distro's Wireshark capture group/capability configuration so the
 Tauri/UI process stays unprivileged. Rotation passes `files:4` and a per-file size;
 non-rotating capture uses a size autostop, and both modes accept a duration autostop.
 Sabicheiro does not silently install or redistribute dumpcap/libpcap. A separately
-packaged minimal helper is still required hardening beyond v0.2.
+packaged minimal helper remains outside the 0.3 local test release.
 
 ### Alternatives evaluated
 
@@ -138,8 +142,9 @@ destination is hidden rather than presenting the VPN server as the destination.
 - Reverse DNS is opt-in and may use the configured resolver. TLS/SNI parsing is not
   implemented; encrypted DNS/TLS remains encrypted and no MITM is attempted.
 - Windows recording elevation is not yet isolated in a dedicated minimal helper.
-- Linux `INET_DIAG` compiles for `x86_64-unknown-linux-gnu`, but provider/runtime and
-  packaging proof have not been executed on Linux; see `docs/VALIDATION.md`.
+- Linux `INET_DIAG` and its native fixture suite compile for
+  `x86_64-unknown-linux-gnu`, but provider/runtime and packaging proof have not been
+  executed on Linux; see `docs/VALIDATION.md`.
 
 ## Primary references
 

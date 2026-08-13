@@ -9,6 +9,19 @@ export type ConnectionState =
   | "unknown";
 export type CaptureMode = "off" | "demo" | "live";
 export type ViewMode = "globe" | "map";
+export type AddressFamily = "ipv4" | "ipv6";
+export type AddressScope =
+  | "global"
+  | "private"
+  | "loopback"
+  | "link_local"
+  | "multicast"
+  | "cgnat"
+  | "documentation"
+  | "benchmark"
+  | "reserved"
+  | "broadcast"
+  | "unspecified";
 export type PrimaryView =
   | "globe"
   | "processes"
@@ -23,13 +36,49 @@ export type CaptureStatus =
 export interface Endpoint {
   address: string;
   port: number;
+  observed_family: AddressFamily;
+  scope: AddressScope;
+  zone: string | null;
 }
 
 export interface ConnectionKey {
   pid: number | null;
+  process_instance: string | null;
   local: Endpoint;
   remote: Endpoint;
   protocol: NetworkProtocol;
+  interface_id: string | null;
+  capture_generation: number;
+  flow_generation: number;
+}
+
+export type EndpointRole =
+  | "remote_peer"
+  | "local_peer"
+  | "listener"
+  | "unknown";
+export type ObservationSource =
+  | "windows_ip_helper"
+  | "windows_etw"
+  | "linux_inet_diag"
+  | "local_dns"
+  | "local_mmdb"
+  | "demo"
+  | "historical"
+  | "unknown";
+export type CorrelationQuality =
+  | "confirmed"
+  | "correlated"
+  | "approximate"
+  | "unavailable";
+
+export interface ConnectionEvidence {
+  endpoint_role: EndpointRole;
+  role_reason: string;
+  observation_source: ObservationSource;
+  correlation_quality: CorrelationQuality;
+  observed_at_ms: number;
+  sequence: number;
 }
 
 export interface ProcessInfo {
@@ -42,18 +91,44 @@ export interface ProcessInfo {
 }
 
 export interface GeoLocation {
-  country_code: string;
-  country_name: string;
+  country_code: string | null;
+  country_name: string | null;
   region: string | null;
   city: string | null;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   source: string;
+  precision: GeoPrecision;
+  placement: PlacementKind;
+  accuracy_radius_km: number | null;
+  dataset_kind: string | null;
+  dataset_edition: string | null;
+  dataset_build_epoch_ms: number | null;
+  dataset_sha256: string | null;
+  matched_prefix: number | null;
+  city_generation: number;
+  asn_generation: number;
 }
+
+export type GeoPrecision =
+  | "country"
+  | "region"
+  | "city"
+  | "coordinates"
+  | "unknown";
+export type PlacementKind =
+  | "database_coordinate"
+  | "country_centroid"
+  | "not_plotted";
 
 export interface AsnInfo {
   number: number;
-  organization: string;
+  organization: string | null;
+  dataset_edition: string | null;
+  dataset_build_epoch_ms: number | null;
+  dataset_sha256: string | null;
+  matched_prefix: number | null;
+  generation: number;
 }
 
 export interface TrafficCounters {
@@ -95,6 +170,7 @@ export interface UnusualSignal {
 export interface Connection {
   id: string;
   key: ConnectionKey;
+  evidence: ConnectionEvidence;
   process: ProcessInfo;
   protocol: NetworkProtocol;
   direction: Direction;
@@ -137,6 +213,25 @@ export interface DestinationSummary {
   total_connections: number;
   process_names: string[];
   traffic: TrafficCounters;
+  ports: number[];
+  first_seen_ms: number;
+  last_seen_ms: number;
+  recurrence: number;
+  geo_precision: GeoPrecision;
+  placement: PlacementKind;
+}
+
+export interface AsnProfile {
+  number: number;
+  organization: string | null;
+  observed_ips: string[];
+  process_names: string[];
+  session_ids: string[];
+  connection_ids: string[];
+  estimated_countries: string[];
+  traffic: TrafficCounters;
+  first_seen_ms: number | null;
+  last_seen_ms: number | null;
 }
 
 export interface DashboardStats {
@@ -165,7 +260,34 @@ export interface Diagnostics {
   flow_counters_available: boolean;
   packet_events_observed: number;
   dns_correlations_observed: number;
+  correlated_capture_events: number;
+  approximate_capture_events: number;
+  orphan_capture_events: number;
+  capture_generation: number;
+  sequence_gaps: number;
+  snapshot_resyncs: number;
+  storage_quick_check_ok: boolean;
+  storage_last_check_ms: number | null;
+  storage_wal_pages: number;
   last_error: string | null;
+  subsystems: SubsystemDiagnostic[];
+}
+
+export type SubsystemStatus =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "disabled";
+
+export interface SubsystemDiagnostic {
+  subsystem: string;
+  status: SubsystemStatus;
+  since_ms: number | null;
+  message: string;
+  action: string | null;
+  queue_depth: number;
+  queue_capacity: number;
+  dropped_events: number;
 }
 
 export interface CaptureSummary {
@@ -185,6 +307,7 @@ export interface SessionSummary {
   country_count: number;
   destination_count: number;
   recording_count: number;
+  ephemeral: boolean;
   traffic: TrafficCounters;
 }
 
@@ -202,6 +325,23 @@ export interface DashboardSnapshot {
   generated_at_ms: number;
   revision: number;
   connections: Connection[];
+  processes: ProcessSummary[];
+  destinations: DestinationSummary[];
+  stats: DashboardStats;
+  diagnostics: Diagnostics;
+  capture: CaptureSummary;
+  session: SessionSummary | null;
+}
+
+export interface DashboardUpdate {
+  sequence: number;
+  base_revision: number;
+  revision: number;
+  generated_at_ms: number;
+  resync_required: boolean;
+  snapshot: DashboardSnapshot | null;
+  upserted_connections: Connection[];
+  removed_connection_ids: string[];
   processes: ProcessSummary[];
   destinations: DestinationSummary[];
   stats: DashboardStats;
@@ -267,7 +407,11 @@ export interface AppSettings {
   feed_group_window_seconds: number;
   active_workspace: ConnectionWorkspace;
   notification_rules: NotificationRule[];
+  ephemeral_capture: boolean;
+  ui_density: UiDensity;
 }
+
+export type UiDensity = "compact" | "comfortable";
 
 export type ConnectionWorkspace = "remote" | "local" | "listeners";
 export type NotificationRuleKind =
@@ -328,6 +472,25 @@ export interface GeoDatabaseStatus {
   edition: string | null;
   sha256: string | null;
   attribution: string;
+  city: GeoDatasetStatus;
+  asn: GeoDatasetStatus;
+  last_operation: string | null;
+}
+
+export interface GeoDatasetStatus {
+  kind: string;
+  installed: boolean;
+  dataset: string;
+  version: string | null;
+  build_epoch_ms: number | null;
+  last_update_ms: number | null;
+  next_recommended_update_ms: number | null;
+  path: string | null;
+  edition: string | null;
+  sha256: string | null;
+  generation: number;
+  backup_available: boolean;
+  attribution: string;
 }
 
 export type TimelineResolution = "one_second" | "one_minute" | "one_hour";
@@ -355,11 +518,89 @@ export interface SelfTestCheck {
   title: string;
   detail: string;
   diagnostic_code: string | null;
+  action: string | null;
 }
 
 export interface CaptureSelfTest {
   generated_at_ms: number;
   checks: SelfTestCheck[];
+  coverage: CaptureCapability[];
+  redacted_report: string;
+}
+
+export interface CaptureCapability {
+  protocol: NetworkProtocol;
+  family: AddressFamily;
+  endpoint: "pass" | "warn" | "fail";
+  process: "pass" | "warn" | "fail";
+  interface: "pass" | "warn" | "fail";
+  close_event: "pass" | "warn" | "fail";
+  limitation: string | null;
+}
+
+export type IdentityEventKind =
+  | "process_observed"
+  | "dns_resolved"
+  | "connection_opened"
+  | "connection_closed"
+  | "geo_enriched";
+
+export interface IdentityTimelineEvent {
+  id: string;
+  timestamp_ms: number;
+  kind: IdentityEventKind;
+  title: string;
+  detail: string;
+  source: ObservationSource;
+  confidence: CorrelationQuality;
+  connection_id: string;
+  session_id: string | null;
+}
+
+export interface InvestigationQuery {
+  filter: string | null;
+  from_ms: number | null;
+  to_ms: number | null;
+  session_id: string | null;
+  pinned_connection_ids: string[];
+  pinned_destination_ips: string[];
+  pinned_process_keys: string[];
+  pinned_asns: number[];
+}
+
+export interface SavedInvestigation {
+  id: string;
+  name: string;
+  query: InvestigationQuery;
+  notes: string;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+export interface DerivedGeoEnrichment {
+  connection_id: string;
+  observed_geo: GeoLocation | null;
+  observed_asn: AsnInfo | null;
+  current_geo: GeoLocation | null;
+  current_asn: AsnInfo | null;
+}
+
+export type ReenrichmentJobState =
+  | "queued"
+  | "running"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface ReenrichmentJobStatus {
+  id: string;
+  session_id: string;
+  state: ReenrichmentJobState;
+  processed: number;
+  total: number;
+  started_at_ms: number;
+  finished_at_ms: number | null;
+  message: string | null;
 }
 
 export interface ComparisonRow {
@@ -423,12 +664,42 @@ export interface ExportRequest {
   from_ms: number | null;
   to_ms: number | null;
   query: string | null;
+  redaction: ExportRedaction;
+}
+
+export interface ExportRedaction {
+  local_ip: boolean;
+  executable_path: boolean;
+  user_names: boolean;
 }
 
 export interface ExportResult {
   path: string;
   records: number;
   bytes_written: number;
+}
+
+export interface StorageHealth {
+  quick_check_ok: boolean;
+  detail: string;
+  wal_busy_pages: number;
+  wal_log_pages: number;
+  wal_checkpointed_pages: number;
+  database_size_bytes: number;
+  checked_at_ms: number;
+}
+
+export type LocalDataCategory =
+  | "sessions"
+  | "geo_ip"
+  | "dns_cache"
+  | "logs"
+  | "all";
+
+export interface LocalDataRemovalResult {
+  category: LocalDataCategory;
+  removed_items: number;
+  requires_capture_restart: boolean;
 }
 
 export interface CommandFailure {

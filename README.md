@@ -5,20 +5,21 @@ application that turns the network activity of one computer into an interactive,
 searchable world view. It connects processes to endpoints, destinations, local
 history and explainable behaviour signals without accounts, telemetry or a paid API.
 
-> Status: functional `0.2.0` release candidate. The Windows x86_64 application, tests,
-> production frontend and target-size UI checks pass locally. Linux `INET_DIAG` source
-> cross-compiles, but AppImage/deb launch validation still requires a Linux machine.
-> Windows ETW and packet recording remain privilege-sensitive and fall back safely.
-> Exact evidence and remaining platform checks are in
+> Status: `0.3.0` local test release (Verified Destinations). The Windows x86_64
+> application, strict test suite, production frontend, deterministic GeoIP fixtures,
+> performance baseline and NSIS/portable artifacts are validated locally. Linux
+> `INET_DIAG` source and native fixture tests cross-compile, but running those tests and
+> AppImage/deb packages still requires a Linux host. Windows ETW and packet recording
+> remain privilege-sensitive and fall back safely. Exact evidence is in
 > [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Visual evidence
 
 The deterministic demo is the reproducible visual fixture (`pnpm dev`, then **Demo
-mode**). It was inspected at 1280×720 and 1920×1080 in English and Castellano, including
-Globe, Settings, History, semantic roles and keyboard shortcuts. The review caught and
-fixed retained scroll position between views; the console remained error-free. This is
-recorded in [docs/VALIDATION.md](docs/VALIDATION.md).
+mode**). The 0.3 review covers first-run/offline state, dense 3D and 2D data, map
+zoom/pan/frame/expand/restore, inspector evidence, compact/comfortable density,
+English/Castellano, keyboard map controls and the semantic tree. The new markers,
+routes and map use only packaged geometry—there are no remote map tiles.
 
 ## Highlights
 
@@ -32,7 +33,17 @@ recorded in [docs/VALIDATION.md](docs/VALIDATION.md).
 - Process, destination and historical views backed by versioned local SQLite storage.
 - Time Machine reconstruction, 1 s/1 min/1 h traffic timelines and process sparklines.
 - Session comparison by process/destination/country/port with CSV/JSON export.
-- Search and filters such as `process:firefox country:DE port:443 state:active`.
+- Search and negated filters for IP, CIDR, ASN, scope, GeoIP, source, process, domain,
+  country, port and state, with localized syntax errors.
+- Stable process/flow identities, endpoint-role evidence and IP Helper/ETW correlation
+  quality without fabricated UDP peers, locations or traffic counters.
+- Independent City/ASN MMDB generations, atomic import/update/rollback/removal and
+  bounded asynchronous enrichment entirely off the capture path.
+- Saved local investigations, DNS/IP/process evidence timeline, ASN profile and
+  non-destructive historical re-enrichment.
+- Versioned delta IPC with sequence-gap resynchronization and bounded render payloads.
+- Ephemeral capture, granular local deletion, SQLite integrity/compact controls and
+  per-subsystem diagnostics.
 - Local bookmarks and view-only ignore rules; Sabicheiro never blocks traffic.
 - Deterministic demo mode, command palette, keyboard navigation and reduced motion.
 - Persistent English/Castellano interface selector on first run and in Settings.
@@ -46,14 +57,14 @@ recorded in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 | Platform | Observation backend | Package/validation state |
 | --- | --- | --- |
-| Windows 10/11 x86_64 | IP Helper owner-PID tables; optional ETW events; Pktmon recording | application/tests validated; NSIS release built locally |
-| Debian/Ubuntu x86_64 | Netlink `INET_DIAG` plus inode→PID; dumpcap recording | source cross-check passes; AppImage/deb runtime validation pending |
+| Windows 10/11 x86_64 | IP Helper owner-PID tables; optional ETW events; Pktmon recording | 0.3 application/tests and local NSIS/portable release validated |
+| Debian/Ubuntu x86_64 | Netlink `INET_DIAG` plus inode→PID; dumpcap recording | native fixture suite cross-compiles; AppImage/deb runtime validation requires Linux |
 | Fedora/Arch | Same source boundary; distro prerequisites differ | source compatibility only, not a verified v1 artifact |
 | ARM64 | Domain/provider boundaries are architecture-neutral | future target; no v1 artifact |
 
 ## Install
 
-Windows users can run `Sabicheiro-0.2.0-windows-x64-setup.exe`; it installs per-user,
+Windows users can run `Sabicheiro-0.3.0-windows-x64-setup.exe`; it installs per-user,
 adds a Start-menu entry and an uninstaller. Linux packages can be produced natively
 with the commands in [BUILD.md](BUILD.md); when built, mark the AppImage executable or
 install the `.deb` using the normal distro tooling.
@@ -84,7 +95,8 @@ Normal operation is local by default. There is no analytics, crash upload, track
 login, cloud database, remote backend, AI model or commercial map. Reverse DNS is off
 by default because enabling it can reveal queried IPs to the user's configured DNS
 resolver. The only built-in download is the user-triggered, free whole-dataset GeoIP
-update; individual observed IPs are never sent to DB-IP.
+update; individual observed IPs are never sent to DB-IP. No API key, subscription,
+account or paid service is used by any feature.
 
 All required application dependencies have compatible free/open-source terms, and all
 primary features have runtime cost **€0**. See [PRIVACY.md](PRIVACY.md) and

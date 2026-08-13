@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { desktopApi } from "../lib/backend";
 import { useI18n } from "../i18n";
-import type { Connection, ConnectionHistoryStats, RuleKind } from "../types";
+import type {
+  Connection,
+  ConnectionHistoryStats,
+  IdentityTimelineEvent,
+  RuleKind,
+} from "../types";
 import {
   endpointLabel,
   formatBytes,
@@ -54,6 +59,9 @@ export function ConnectionInspector({
   const destinationKind: "domain" | "ip" =
     connection.domain || connection.hostname ? "domain" : "ip";
   const [history, setHistory] = useState<ConnectionHistoryStats | null>(null);
+  const [identityTimeline, setIdentityTimeline] = useState<
+    IdentityTimelineEvent[]
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +88,26 @@ export function ConnectionInspector({
     connection.key.remote.address,
     connection.repeat_count,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIdentityTimeline([]);
+    const timer = window.setTimeout(() => {
+      void desktopApi
+        .getIdentityTimeline(connection.id, null)
+        .then((events) => {
+          if (!cancelled) setIdentityTimeline(events);
+        })
+        .catch(() => {
+          // A just-opened live row may not have reached the next SQLite batch yet.
+          // The evidence fields below remain the authoritative immediate view.
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [connection.id]);
 
   return (
     <aside aria-label={t("Connection inspector")} className="inspector">
@@ -139,7 +167,27 @@ export function ConnectionInspector({
         </section>
       ))}
       <section className="inspector-section">
-        <h3>{t("Process")}</h3>
+        <h3>{t("Evidence")}</h3>
+        <dl>
+          <Field label={t("Endpoint role")}>
+            {t(connection.evidence.endpoint_role)}
+          </Field>
+          <Field label={t("Reason")} mono>
+            {t(connection.evidence.role_reason)}
+          </Field>
+          <Field label={t("OS source")} mono>
+            {t(connection.evidence.observation_source)}
+          </Field>
+          <Field label={t("Correlation")}>
+            {t(connection.evidence.correlation_quality)}
+          </Field>
+          <Field label={t("Evidence sequence")} mono>
+            {connection.evidence.sequence || t("Unavailable")}
+          </Field>
+        </dl>
+      </section>
+      <section className="inspector-section">
+        <h3>{t("Identity")}</h3>
         <dl>
           <Field label={t("Name")}>{connection.process.name}</Field>
           <Field label={t("Executable")} mono>
@@ -148,6 +196,9 @@ export function ConnectionInspector({
           <Field label="PID" mono>
             {connection.process.pid ?? t("Unknown")}
           </Field>
+          <Field label={t("Process instance")} mono>
+            {connection.key.process_instance ?? t("Not exposed")}
+          </Field>
           <Field label={t("Path")} mono>
             {connection.process.executable_path ??
               t("Not exposed by the operating system")}
@@ -155,7 +206,7 @@ export function ConnectionInspector({
         </dl>
       </section>
       <section className="inspector-section">
-        <h3>{t("Remote")}</h3>
+        <h3>{t("Endpoint")}</h3>
         <dl>
           <Field label="IP" mono>
             {connection.key.remote.address}
@@ -172,14 +223,27 @@ export function ConnectionInspector({
               connection.key.remote.port,
             )}
           </Field>
+          <Field label={t("Address scope")}>
+            {t(connection.key.remote.scope)}
+          </Field>
+          <Field label={t("Observed family")}>
+            {connection.key.remote.observed_family.toUpperCase()}
+          </Field>
+          <Field label={t("Zone / interface")} mono>
+            {connection.key.remote.zone ??
+              connection.key.interface_id ??
+              t("Not applicable")}
+          </Field>
         </dl>
       </section>
       <section className="inspector-section">
-        <h3>{t("Geo")}</h3>
+        <h3>{t("Estimated network location")}</h3>
         <dl>
           <Field label={t("Country")}>
             {connection.geo
-              ? `${connection.geo.country_name} (${connection.geo.country_code})`
+              ? (connection.geo.country_name ??
+                connection.geo.country_code ??
+                t("Unknown"))
               : t("Unknown")}
           </Field>
           <Field label={t("Location")}>
@@ -188,19 +252,55 @@ export function ConnectionInspector({
               .join(", ") || t("Unknown")}
           </Field>
           <Field label={t("Coordinates")} mono>
-            {connection.geo
+            {connection.geo?.latitude !== null &&
+            connection.geo?.latitude !== undefined &&
+            connection.geo.longitude !== null
               ? `${connection.geo.latitude.toFixed(4)}, ${connection.geo.longitude.toFixed(4)}`
               : t("Not plotted")}
           </Field>
           <Field label={t("Network owner")}>
             {connection.asn
-              ? `AS${connection.asn.number} / ${connection.asn.organization}`
+              ? `AS${connection.asn.number}${connection.asn.organization ? ` / ${connection.asn.organization}` : ""}`
               : t("Unknown")}
+          </Field>
+          <Field label={t("Precision")}>
+            {connection.geo ? t(connection.geo.precision) : t("Unknown")}
+          </Field>
+          <Field label={t("Placement")}>
+            {connection.geo ? t(connection.geo.placement) : t("Not plotted")}
+          </Field>
+          <Field label={t("Accuracy radius")}>
+            {connection.geo?.accuracy_radius_km !== null &&
+            connection.geo?.accuracy_radius_km !== undefined
+              ? `${connection.geo.accuracy_radius_km} km`
+              : t("Not provided")}
+          </Field>
+          <Field label={t("Source")} mono>
+            {connection.geo?.source ?? t("No local match")}
+          </Field>
+          <Field label={t("Dataset")} mono>
+            {connection.geo?.dataset_edition ?? t("Unavailable")}
+          </Field>
+          <Field label={t("Dataset date")}>
+            {connection.geo?.dataset_build_epoch_ms
+              ? formatDateTime(connection.geo.dataset_build_epoch_ms)
+              : t("Unavailable")}
+          </Field>
+          <Field label={t("Matched prefix")} mono>
+            {connection.geo?.matched_prefix !== null &&
+            connection.geo?.matched_prefix !== undefined
+              ? `/${connection.geo.matched_prefix}`
+              : t("Unavailable")}
+          </Field>
+          <Field label="SHA-256" mono>
+            {connection.geo?.dataset_sha256
+              ? `${connection.geo.dataset_sha256.slice(0, 16)}…`
+              : t("Unavailable")}
           </Field>
         </dl>
       </section>
       <section className="inspector-section">
-        <h3>{t("Network")}</h3>
+        <h3>{t("Diagnostic")}</h3>
         <dl>
           <Field label={t("Protocol")}>
             {connection.protocol.toUpperCase()} / {t(connection.direction)}
@@ -221,6 +321,15 @@ export function ConnectionInspector({
             {connection.interface ?? t("System default")}
           </Field>
           <Field label={t("State")}>{t(connection.state)}</Field>
+          <Field label={t("Capture generation")} mono>
+            {connection.key.capture_generation}
+          </Field>
+          <Field label={t("Flow generation")} mono>
+            {connection.key.flow_generation}
+          </Field>
+          <Field label={t("Counter source")} mono>
+            {t(connection.counter_source)}
+          </Field>
         </dl>
       </section>
       <section className="inspector-section inspector-section--traffic">
@@ -295,6 +404,20 @@ export function ConnectionInspector({
           </Field>
           <Field label={t("Sessions")}>{history?.sessions ?? "-"}</Field>
         </dl>
+        {identityTimeline.length > 0 && (
+          <ol className="identity-timeline">
+            {identityTimeline.map((event) => (
+              <li key={event.id}>
+                <time>{formatDateTime(event.timestamp_ms)}</time>
+                <strong>{t(event.title)}</strong>
+                <span>{t(event.detail)}</span>
+                <small>
+                  {t(event.source)} / {t(event.confidence)}
+                </small>
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
       <div className="inspector__actions">
         <button
@@ -306,9 +429,9 @@ export function ConnectionInspector({
         <button onClick={() => onFilterDestination(destination)} type="button">
           {t("Filter destination")}
         </button>
-        {connection.geo && (
+        {connection.geo?.country_code && (
           <button
-            onClick={() => onFilterCountry(connection.geo!.country_code)}
+            onClick={() => onFilterCountry(connection.geo!.country_code!)}
             type="button"
           >
             {t("Show country")}

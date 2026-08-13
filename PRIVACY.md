@@ -26,6 +26,12 @@ the platform application-data directory:
 - Windows: `%APPDATA%\io.sabicheiro.desktop\` (resolved by Tauri).
 - Linux: `$XDG_DATA_HOME/io.sabicheiro.desktop/` or the platform fallback.
 
+**Ephemeral capture** can be enabled before starting a session. In that mode new live
+connection history, session metadata and behavioural baselines remain in memory and
+are not written to SQLite. Separate controls delete retained sessions, GeoIP files,
+DNS cache, local logs, or all local application data; destructive choices require a
+confirmation and capture must be stopped where database safety requires it.
+
 Database retention never deletes user-created CSV/JSON/PCAPNG files; users manage those
 files independently. Relative export names are scoped beneath the app-data `exports`
 directory, while absolute paths must point to an existing directory.
@@ -44,7 +50,9 @@ PCAP/PCAPNG files may contain sensitive data and are never uploaded automaticall
 ## Network access by Sabicheiro
 
 Core monitoring requires no Sabicheiro service. Optional **Update GeoIP database**
-downloads the public monthly DB-IP Lite archives directly after user action. No
+downloads the public monthly DB-IP Lite archives directly after user action. It gets
+the complete free dataset, never performs an IP-by-IP API query, and requires no
+account, key or subscription. No
 observed IP is sent to DB-IP; whole databases are downloaded and subsequent lookups
 remain offline. A failed update keeps the previous valid file.
 
@@ -61,9 +69,9 @@ not retain packet payloads.
 ## Explicit non-features
 
 There is no telemetry, crash-upload service, analytics SDK, advertising identifier,
-account, login, cloud sync, remote database, AI model, threat lookup API, MITM, TLS
-decryption or credential interception. Logs omit payloads and credentials and rotate
-locally.
+account, login, subscription, cloud sync, remote database, AI model, paid API, threat
+lookup API, MITM, TLS decryption or credential interception. Logs omit payloads and
+credentials and rotate locally.
 
 ## Exports
 

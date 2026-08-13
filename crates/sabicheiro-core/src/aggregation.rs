@@ -1,13 +1,16 @@
 use crate::{
     AsnInfo, BaselineBook, BaselineObservation, CaptureMode, CaptureStatus, CaptureSummary,
     Connection, ConnectionKey, ConnectionState, CounterSource, DashboardSnapshot, DashboardStats,
-    DestinationSummary, Diagnostics, GeoLocation, NetworkEventKind, NormalizedNetworkEvent,
-    ProcessInfo, ProcessSummary, SessionSummary, TrafficCounters, TransferRates,
+    DestinationSummary, Diagnostics, EndpointRole, GeoLocation, NetworkEventKind,
+    NormalizedNetworkEvent, ProcessInfo, ProcessSummary, SessionSummary, TrafficCounters,
+    TransferRates,
 };
 use std::collections::{HashMap, HashSet};
 
 const DEFAULT_VISUAL_TTL_MS: i64 = 8_000;
 const MAX_VISIBLE_CONNECTIONS: usize = 2_000;
+const MAX_IPC_PROCESSES: usize = 1_000;
+const MAX_IPC_DESTINATIONS: usize = 2_000;
 
 pub struct ConnectionAggregator {
     connections: HashMap<ConnectionKey, Connection>,
@@ -67,7 +70,8 @@ impl ConnectionAggregator {
             .unwrap_or_else(|| event.key.remote.address.to_string());
         let process_key = baseline_process_key(&event.process);
         let existed = self.connections.contains_key(&event.key);
-        let baseline_eligible = event.state != ConnectionState::Listening
+        let baseline_eligible = event.evidence.endpoint_role == EndpointRole::RemotePeer
+            && event.state != ConnectionState::Listening
             && !event.key.remote.address.is_unspecified()
             && event.key.remote.port != 0;
 
@@ -90,6 +94,7 @@ impl ConnectionAggregator {
                 Connection {
                     id,
                     key: event.key.clone(),
+                    evidence: event.evidence.clone(),
                     process: event.process.clone(),
                     protocol: event.key.protocol,
                     direction: event.direction,
@@ -141,6 +146,7 @@ impl ConnectionAggregator {
                 .saturating_sub(connection.first_seen_ms)
                 as u64;
             connection.process = event.process;
+            connection.evidence = event.evidence.clone();
             connection.direction = event.direction;
             connection.state = event.state;
             connection.interface = event.interface.or_else(|| connection.interface.clone());
@@ -173,7 +179,10 @@ impl ConnectionAggregator {
 
             match event.kind {
                 NetworkEventKind::Opened => {
-                    if existed {
+                    if existed
+                        && event.evidence.correlation_quality
+                            != crate::CorrelationQuality::Correlated
+                    {
                         connection.repeat_count = connection.repeat_count.saturating_add(1);
                     }
                     connection.active = true;
@@ -262,12 +271,12 @@ impl ConnectionAggregator {
                 .then_with(|| right.last_seen_ms.cmp(&left.last_seen_ms))
         });
 
-        let processes = summarize_processes(&connections);
-        let destinations = summarize_destinations(&connections);
+        let mut processes = summarize_processes(&connections);
+        let mut destinations = summarize_destinations(&connections);
         let country_count = connections
             .iter()
             .filter_map(|connection| connection.geo.as_ref())
-            .map(|geo| geo.country_code.as_str())
+            .filter_map(|geo| geo.country_code.as_deref())
             .collect::<HashSet<_>>()
             .len();
         let stats = DashboardStats {
@@ -294,6 +303,12 @@ impl ConnectionAggregator {
             processes: processes.len(),
             total_connections: connections.len(),
         };
+        // Aggregate totals are computed from the complete in-memory set, while the
+        // high-frequency IPC payload remains explicitly bounded. Retained history
+        // remains queryable from SQLite and is not discarded by this presentation cap.
+        connections.truncate(MAX_VISIBLE_CONNECTIONS);
+        processes.truncate(MAX_IPC_PROCESSES);
+        destinations.truncate(MAX_IPC_DESTINATIONS);
 
         DashboardSnapshot {
             generated_at_ms,
@@ -358,10 +373,12 @@ fn summarize_processes(connections: &[Connection]) -> Vec<ProcessSummary> {
         summary.active_connections += usize::from(connection.active);
         summary.traffic.add_assign(connection.traffic);
         if let Some(geo) = &connection.geo {
-            countries
-                .entry(key)
-                .or_default()
-                .insert(geo.country_code.clone());
+            if let Some(country_code) = &geo.country_code {
+                countries
+                    .entry(key)
+                    .or_default()
+                    .insert(country_code.clone());
+            }
         }
     }
     for (key, summary) in &mut summaries {
@@ -400,17 +417,44 @@ fn summarize_destinations(connections: &[Connection]) -> Vec<DestinationSummary>
                     .domain
                     .clone()
                     .or_else(|| connection.hostname.clone()),
-                country_code: connection.geo.as_ref().map(|geo| geo.country_code.clone()),
-                country_name: connection.geo.as_ref().map(|geo| geo.country_name.clone()),
+                country_code: connection
+                    .geo
+                    .as_ref()
+                    .and_then(|geo| geo.country_code.clone()),
+                country_name: connection
+                    .geo
+                    .as_ref()
+                    .and_then(|geo| geo.country_name.clone()),
                 asn: connection.asn.clone(),
                 active_connections: 0,
                 total_connections: 0,
                 process_names: Vec::new(),
                 traffic: TrafficCounters::default(),
+                ports: Vec::new(),
+                first_seen_ms: connection.first_seen_ms,
+                last_seen_ms: connection.last_seen_ms,
+                recurrence: 0,
+                geo_precision: connection
+                    .geo
+                    .as_ref()
+                    .map_or_else(Default::default, |geo| geo.precision),
+                placement: connection
+                    .geo
+                    .as_ref()
+                    .map_or_else(Default::default, |geo| geo.placement),
             });
         summary.total_connections += 1;
         summary.active_connections += usize::from(connection.active);
         summary.traffic.add_assign(connection.traffic);
+        summary.first_seen_ms = summary.first_seen_ms.min(connection.first_seen_ms);
+        summary.last_seen_ms = summary.last_seen_ms.max(connection.last_seen_ms);
+        summary.recurrence = summary
+            .recurrence
+            .saturating_add(connection.repeat_count.max(1));
+        if !summary.ports.contains(&connection.key.remote.port) {
+            summary.ports.push(connection.key.remote.port);
+            summary.ports.sort_unstable();
+        }
         processes
             .entry(key)
             .or_default()
@@ -448,10 +492,20 @@ mod tests {
             kind,
             key: ConnectionKey {
                 pid: Some(42),
+                process_instance: Some("pid:42:start:100".into()),
                 local: Endpoint::new("192.168.1.10".parse().expect("IP"), 50_000),
                 remote: Endpoint::new("1.1.1.1".parse().expect("IP"), 443),
                 protocol: NetworkProtocol::Tcp,
+                interface_id: Some("test-interface".into()),
+                capture_generation: 1,
+                flow_generation: 1,
             },
+            evidence: crate::ConnectionEvidence::for_peer(
+                &Endpoint::new("1.1.1.1".parse().expect("IP"), 443),
+                ConnectionState::Established,
+                crate::ObservationSource::Demo,
+                timestamp_ms,
+            ),
             timestamp_ms,
             process: ProcessInfo {
                 pid: Some(42),
@@ -508,6 +562,31 @@ mod tests {
             snapshot.destinations[0].domain.as_deref(),
             Some("one.one.one.one")
         );
+    }
+
+    #[test]
+    fn snapshot_keeps_complete_totals_but_bounds_high_frequency_ipc_rows() {
+        let mut aggregator = ConnectionAggregator::default();
+        for index in 0_u32..2_105 {
+            let mut item = event(NetworkEventKind::Opened, 1_000 + i64::from(index));
+            item.key.remote.address = std::net::Ipv4Addr::new(
+                11,
+                ((index >> 16) & 0xff) as u8,
+                ((index >> 8) & 0xff) as u8,
+                (index & 0xff) as u8,
+            )
+            .into();
+            item.key.flow_generation = u64::from(index) + 1;
+            item.domain = None;
+            item.hostname = None;
+            aggregator.apply(item);
+        }
+
+        let snapshot = aggregator.empty_snapshot(4_000);
+        assert_eq!(snapshot.stats.total_connections, 2_105);
+        assert_eq!(snapshot.stats.active_connections, 2_105);
+        assert_eq!(snapshot.connections.len(), MAX_VISIBLE_CONNECTIONS);
+        assert_eq!(snapshot.destinations.len(), MAX_IPC_DESTINATIONS);
     }
 
     #[test]

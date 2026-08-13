@@ -61,6 +61,7 @@ pub(crate) struct DiagSocketRow {
     pub protocol: NetworkProtocol,
     pub state: u8,
     pub inode: u64,
+    pub interface_index: u32,
 }
 
 pub(crate) fn request_bytes(family: u8, protocol: NetworkProtocol, sequence: u32) -> Vec<u8> {
@@ -138,6 +139,7 @@ pub(crate) fn parse_datagram(
                     protocol,
                     state: message.state,
                     inode: u64::from(message.inode),
+                    interface_index: message.id.interface_index,
                 });
             }
             _ => {}

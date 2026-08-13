@@ -1,6 +1,9 @@
 use flate2::read::GzDecoder;
 use maxminddb::{Reader, path};
-use sabicheiro_core::{AsnInfo, GeoDatabaseStatus, GeoLocation};
+pub use sabicheiro_core::{AddressScope, classify_address};
+use sabicheiro_core::{
+    AsnInfo, GeoDatabaseStatus, GeoDatasetStatus, GeoLocation, GeoPrecision, PlacementKind,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -15,6 +18,7 @@ use thiserror::Error;
 
 const DEFAULT_CACHE_CAPACITY: usize = 8_192;
 const MAX_COMPRESSED_DATABASE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_DATABASE_BYTES: u64 = 512 * 1024 * 1024;
 const DNS_POSITIVE_TTL_MS: i64 = 3_600_000;
 const DNS_NEGATIVE_TTL_MS: i64 = 300_000;
 
@@ -37,17 +41,10 @@ pub enum GeoError {
     },
     #[error("imported database exceeds the 512 MiB safety limit")]
     ImportTooLarge,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AddressScope {
-    Public,
-    Loopback,
-    LocalNetwork,
-    LinkLocal,
-    Multicast,
-    Unspecified,
+    #[error("decompressed database exceeds the 512 MiB safety limit")]
+    DatabaseTooLarge,
+    #[error("no validated rollback database is available for {0}")]
+    NoBackup(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,14 +52,18 @@ pub struct GeoLookup {
     pub scope: AddressScope,
     pub location: Option<GeoLocation>,
     pub asn: Option<AsnInfo>,
+    pub city_generation: u64,
+    pub asn_generation: u64,
 }
 
 impl GeoLookup {
-    fn scoped(scope: AddressScope) -> Self {
+    fn scoped(scope: AddressScope, city_generation: u64, asn_generation: u64) -> Self {
         Self {
             scope,
             location: None,
             asn: None,
+            city_generation,
+            asn_generation,
         }
     }
 }
@@ -70,9 +71,27 @@ impl GeoLookup {
 pub struct LocalGeoResolver {
     city: Option<Reader<Vec<u8>>>,
     asn: Option<Reader<Vec<u8>>>,
-    cache: BoundedCache<IpAddr, GeoLookup>,
+    cache: BoundedCache<GeoCacheKey, GeoLookup>,
     city_path: Option<PathBuf>,
     asn_path: Option<PathBuf>,
+    city_identity: Option<DatasetIdentity>,
+    asn_identity: Option<DatasetIdentity>,
+    city_generation: u64,
+    asn_generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DatasetIdentity {
+    edition: String,
+    build_epoch_ms: i64,
+    sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct GeoCacheKey {
+    address: IpAddr,
+    city_generation: u64,
+    asn_generation: u64,
 }
 
 impl LocalGeoResolver {
@@ -83,6 +102,10 @@ impl LocalGeoResolver {
             cache: BoundedCache::new(DEFAULT_CACHE_CAPACITY),
             city_path: None,
             asn_path: None,
+            city_identity: None,
+            asn_identity: None,
+            city_generation: 0,
+            asn_generation: 0,
         }
     }
 
@@ -102,12 +125,28 @@ impl LocalGeoResolver {
             .filter(|path| path.exists())
             .map(Reader::open_readfile)
             .transpose()?;
+        validate_reader_kind(city.as_ref(), GeoDatabaseKind::City)?;
+        validate_reader_kind(asn.as_ref(), GeoDatabaseKind::Asn)?;
+        let city_identity = city
+            .as_ref()
+            .zip(city_path.as_deref())
+            .map(|(reader, path)| dataset_identity(reader, path))
+            .transpose()?;
+        let asn_identity = asn
+            .as_ref()
+            .zip(asn_path.as_deref())
+            .map(|(reader, path)| dataset_identity(reader, path))
+            .transpose()?;
         Ok(Self {
             city,
             asn,
             cache: BoundedCache::new(DEFAULT_CACHE_CAPACITY),
             city_path,
             asn_path,
+            city_generation: u64::from(city_identity.is_some()),
+            asn_generation: u64::from(asn_identity.is_some()),
+            city_identity,
+            asn_identity,
         })
     }
 
@@ -118,103 +157,259 @@ impl LocalGeoResolver {
     ) -> Result<(), GeoError> {
         let city = Reader::open_readfile(city_path.as_ref())?;
         let asn = Reader::open_readfile(asn_path.as_ref())?;
+        validate_reader_kind(Some(&city), GeoDatabaseKind::City)?;
+        validate_reader_kind(Some(&asn), GeoDatabaseKind::Asn)?;
+        let city_identity = dataset_identity(&city, city_path.as_ref())?;
+        let asn_identity = dataset_identity(&asn, asn_path.as_ref())?;
         self.city = Some(city);
         self.asn = Some(asn);
         self.city_path = Some(city_path.as_ref().to_path_buf());
         self.asn_path = Some(asn_path.as_ref().to_path_buf());
+        self.city_identity = Some(city_identity);
+        self.asn_identity = Some(asn_identity);
+        self.city_generation = self.city_generation.saturating_add(1).max(1);
+        self.asn_generation = self.asn_generation.saturating_add(1).max(1);
+        self.cache.clear();
+        Ok(())
+    }
+
+    pub fn reload_kind(
+        &mut self,
+        kind: GeoDatabaseKind,
+        path: impl AsRef<Path>,
+    ) -> Result<(), GeoError> {
+        let reader = Reader::open_readfile(path.as_ref())?;
+        validate_reader_kind(Some(&reader), kind)?;
+        let identity = dataset_identity(&reader, path.as_ref())?;
+        match kind {
+            GeoDatabaseKind::City => {
+                self.city = Some(reader);
+                self.city_path = Some(path.as_ref().to_path_buf());
+                self.city_identity = Some(identity);
+                self.city_generation = self.city_generation.saturating_add(1).max(1);
+            }
+            GeoDatabaseKind::Asn => {
+                self.asn = Some(reader);
+                self.asn_path = Some(path.as_ref().to_path_buf());
+                self.asn_identity = Some(identity);
+                self.asn_generation = self.asn_generation.saturating_add(1).max(1);
+            }
+        }
         self.cache.clear();
         Ok(())
     }
 
     pub fn lookup(&mut self, address: IpAddr) -> Result<GeoLookup, GeoError> {
-        if let Some(cached) = self.cache.get(&address) {
+        let cache_key = GeoCacheKey {
+            address,
+            city_generation: self.city_generation,
+            asn_generation: self.asn_generation,
+        };
+        if let Some(cached) = self.cache.get(&cache_key) {
             return Ok(cached.clone());
         }
         let scope = classify_address(address);
-        if scope != AddressScope::Public {
-            let result = GeoLookup::scoped(scope);
-            self.cache.insert(address, result.clone());
+        if !scope.is_global() {
+            let result = GeoLookup::scoped(scope, self.city_generation, self.asn_generation);
+            self.cache.insert(cache_key, result.clone());
             return Ok(result);
         }
 
         let location = self
             .city
             .as_ref()
-            .map(|reader| decode_location(reader, address))
+            .map(|reader| {
+                decode_location(
+                    reader,
+                    address,
+                    self.city_identity.as_ref(),
+                    self.city_generation,
+                    self.asn_generation,
+                )
+            })
             .transpose()?
             .flatten();
         let asn = self
             .asn
             .as_ref()
-            .map(|reader| decode_asn(reader, address))
+            .map(|reader| {
+                decode_asn(
+                    reader,
+                    address,
+                    self.asn_identity.as_ref(),
+                    self.asn_generation,
+                )
+            })
             .transpose()?
             .flatten();
         let result = GeoLookup {
             scope,
             location,
             asn,
+            city_generation: self.city_generation,
+            asn_generation: self.asn_generation,
         };
-        self.cache.insert(address, result.clone());
+        self.cache.insert(cache_key, result.clone());
         Ok(result)
     }
 
     pub fn status(&self) -> GeoDatabaseStatus {
-        let metadata = self.city.as_ref().map(|reader| reader.metadata());
-        let build_epoch = metadata.map(|value| value.build_epoch as i64 * 1_000);
+        let city = dataset_status(
+            GeoDatabaseKind::City,
+            self.city.as_ref(),
+            self.city_path.as_deref(),
+            self.city_identity.as_ref(),
+            self.city_generation,
+        );
+        let asn = dataset_status(
+            GeoDatabaseKind::Asn,
+            self.asn.as_ref(),
+            self.asn_path.as_deref(),
+            self.asn_identity.as_ref(),
+            self.asn_generation,
+        );
         GeoDatabaseStatus {
-            installed: self.city.is_some(),
-            dataset: metadata
-                .map(|value| value.database_type.clone())
-                .unwrap_or_else(|| "DB-IP City Lite (not installed)".into()),
-            version: build_epoch.and_then(format_epoch_month),
-            last_update_ms: self
-                .city_path
-                .as_ref()
-                .and_then(|path| fs::metadata(path).ok())
-                .and_then(|metadata| metadata.modified().ok())
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64),
-            next_recommended_update_ms: build_epoch.map(|value| value + 32 * 86_400_000),
-            path: self
-                .city_path
-                .as_ref()
-                .map(|path| path.to_string_lossy().into_owned()),
-            edition: metadata.map(|value| value.database_type.clone()),
-            sha256: self
-                .city_path
-                .as_deref()
-                .filter(|path| path.is_file())
-                .and_then(|path| file_sha256(path).ok()),
+            installed: city.installed,
+            dataset: city.dataset.clone(),
+            version: city.version.clone(),
+            last_update_ms: city.last_update_ms,
+            next_recommended_update_ms: city.next_recommended_update_ms,
+            path: city.path.clone(),
+            edition: city.edition.clone(),
+            sha256: city.sha256.clone(),
             attribution: "IP geolocation by DB-IP.com, licensed under CC BY 4.0".into(),
+            city,
+            asn,
+            last_operation: None,
         }
     }
+
+    pub const fn generations(&self) -> (u64, u64) {
+        (self.city_generation, self.asn_generation)
+    }
+}
+
+fn dataset_status(
+    kind: GeoDatabaseKind,
+    reader: Option<&Reader<Vec<u8>>>,
+    path: Option<&Path>,
+    identity: Option<&DatasetIdentity>,
+    generation: u64,
+) -> GeoDatasetStatus {
+    let build_epoch_ms = identity.map(|value| value.build_epoch_ms);
+    let last_update_ms = path
+        .and_then(|path| fs::metadata(path).ok())
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64);
+    GeoDatasetStatus {
+        kind: kind.label().to_ascii_lowercase(),
+        installed: reader.is_some(),
+        dataset: identity
+            .map(|value| value.edition.clone())
+            .unwrap_or_else(|| format!("{} MMDB (not installed)", kind.label())),
+        version: build_epoch_ms.and_then(format_epoch_month),
+        build_epoch_ms,
+        last_update_ms,
+        next_recommended_update_ms: build_epoch_ms.map(|value| value + 32 * 86_400_000),
+        path: path.map(|path| path.to_string_lossy().into_owned()),
+        edition: identity.map(|value| value.edition.clone()),
+        sha256: identity.map(|value| value.sha256.clone()),
+        generation,
+        backup_available: path.is_some_and(|path| path.with_extension("mmdb.bak").is_file()),
+        attribution: "IP geolocation by DB-IP.com, licensed under CC BY 4.0".into(),
+    }
+}
+
+fn validate_reader_kind<S: AsRef<[u8]>>(
+    reader: Option<&Reader<S>>,
+    kind: GeoDatabaseKind,
+) -> Result<(), GeoError> {
+    let Some(reader) = reader else {
+        return Ok(());
+    };
+    let metadata = reader.metadata();
+    if metadata.node_count == 0 || metadata.database_type.trim().is_empty() {
+        return Err(GeoError::InvalidDatabase);
+    }
+    if !metadata
+        .database_type
+        .to_ascii_lowercase()
+        .contains(&kind.label().to_ascii_lowercase())
+    {
+        return Err(GeoError::InvalidEdition {
+            expected: kind.label(),
+            actual: metadata.database_type.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn dataset_identity(reader: &Reader<Vec<u8>>, path: &Path) -> Result<DatasetIdentity, GeoError> {
+    let build_epoch_ms = reader.metadata().build_epoch.min(i64::MAX as u64 / 1_000) as i64 * 1_000;
+    Ok(DatasetIdentity {
+        edition: reader.metadata().database_type.clone(),
+        build_epoch_ms,
+        sha256: file_sha256(path)?,
+    })
 }
 
 fn decode_location(
     reader: &Reader<Vec<u8>>,
     address: IpAddr,
+    identity: Option<&DatasetIdentity>,
+    city_generation: u64,
+    asn_generation: u64,
 ) -> Result<Option<GeoLocation>, maxminddb::MaxMindDbError> {
     let lookup = reader.lookup(address)?;
-    let country_code: Option<String> = lookup.decode_path(&path!["country", "iso_code"])?;
+    if !lookup.has_data() {
+        return Ok(None);
+    }
+    let country_code: Option<String> = lookup
+        .decode_path(&path!["country", "iso_code"])?
+        .filter(|value: &String| {
+            value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+        .map(|value| value.to_ascii_uppercase());
     let country_name: Option<String> = lookup
         .decode_path(&path!["country", "names", "en"])?
-        .or_else(|| country_code.clone());
+        .and_then(clean_text);
     let latitude: Option<f64> = lookup.decode_path(&path!["location", "latitude"])?;
     let longitude: Option<f64> = lookup.decode_path(&path!["location", "longitude"])?;
-    let (Some(country_code), Some(country_name), Some(latitude), Some(longitude)) =
-        (country_code, country_name, latitude, longitude)
-    else {
-        return Ok(None);
-    };
-    if !latitude.is_finite()
-        || !longitude.is_finite()
-        || !(-90.0..=90.0).contains(&latitude)
-        || !(-180.0..=180.0).contains(&longitude)
+    let coordinates = latitude.zip(longitude).filter(|(latitude, longitude)| {
+        latitude.is_finite()
+            && longitude.is_finite()
+            && (-90.0..=90.0).contains(latitude)
+            && (-180.0..=180.0).contains(longitude)
+    });
+    let region = lookup
+        .decode_path(&path!["subdivisions", 0, "names", "en"])?
+        .and_then(clean_text);
+    let city = lookup
+        .decode_path(&path!["city", "names", "en"])?
+        .and_then(clean_text);
+    let accuracy_radius_km = lookup.decode_path(&path!["location", "accuracy_radius"])?;
+    if country_code.is_none()
+        && country_name.is_none()
+        && region.is_none()
+        && city.is_none()
+        && coordinates.is_none()
     {
         return Ok(None);
     }
-    let region = lookup.decode_path(&path!["subdivisions", 0, "names", "en"])?;
-    let city = lookup.decode_path(&path!["city", "names", "en"])?;
+    let precision = if coordinates.is_some() {
+        GeoPrecision::Coordinates
+    } else if city.is_some() {
+        GeoPrecision::City
+    } else if region.is_some() {
+        GeoPrecision::Region
+    } else if country_code.is_some() || country_name.is_some() {
+        GeoPrecision::Country
+    } else {
+        GeoPrecision::Unknown
+    };
+    let matched_prefix = lookup.network().ok().map(|network| network.prefix());
+    let (latitude, longitude) = coordinates.unzip();
     Ok(Some(GeoLocation {
         country_code,
         country_name,
@@ -223,39 +418,54 @@ fn decode_location(
         latitude,
         longitude,
         source: "DB-IP Lite local MMDB".into(),
+        precision,
+        placement: if latitude.is_some() && longitude.is_some() {
+            PlacementKind::DatabaseCoordinate
+        } else {
+            PlacementKind::NotPlotted
+        },
+        accuracy_radius_km,
+        dataset_kind: Some("city".into()),
+        dataset_edition: identity.map(|value| value.edition.clone()),
+        dataset_build_epoch_ms: identity.map(|value| value.build_epoch_ms),
+        dataset_sha256: identity.map(|value| value.sha256.clone()),
+        matched_prefix,
+        city_generation,
+        asn_generation,
     }))
 }
 
 fn decode_asn(
     reader: &Reader<Vec<u8>>,
     address: IpAddr,
+    identity: Option<&DatasetIdentity>,
+    generation: u64,
 ) -> Result<Option<AsnInfo>, maxminddb::MaxMindDbError> {
     let lookup = reader.lookup(address)?;
+    if !lookup.has_data() {
+        return Ok(None);
+    }
     let number: Option<u32> = lookup.decode_path(&path!["autonomous_system_number"])?;
-    let organization: Option<String> =
-        lookup.decode_path(&path!["autonomous_system_organization"])?;
+    let organization: Option<String> = lookup
+        .decode_path(&path!["autonomous_system_organization"])?
+        .and_then(clean_text);
     Ok(number.map(|number| AsnInfo {
         number,
-        organization: organization.unwrap_or_else(|| "Unknown organization".into()),
+        organization,
+        dataset_edition: identity.map(|value| value.edition.clone()),
+        dataset_build_epoch_ms: identity.map(|value| value.build_epoch_ms),
+        dataset_sha256: identity.map(|value| value.sha256.clone()),
+        matched_prefix: lookup.network().ok().map(|network| network.prefix()),
+        generation,
     }))
 }
 
-pub fn classify_address(address: IpAddr) -> AddressScope {
-    if address.is_unspecified() {
-        return AddressScope::Unspecified;
-    }
-    if address.is_loopback() {
-        return AddressScope::Loopback;
-    }
-    if address.is_multicast() {
-        return AddressScope::Multicast;
-    }
-    match address {
-        IpAddr::V4(address) if address.is_private() => AddressScope::LocalNetwork,
-        IpAddr::V4(address) if address.is_link_local() => AddressScope::LinkLocal,
-        IpAddr::V6(address) if address.is_unique_local() => AddressScope::LocalNetwork,
-        IpAddr::V6(address) if address.is_unicast_link_local() => AddressScope::LinkLocal,
-        _ => AddressScope::Public,
+fn clean_text(value: String) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.chars().take(256).collect())
     }
 }
 
@@ -398,8 +608,8 @@ pub fn update_dbip_lite(data_directory: impl AsRef<Path>) -> Result<UpdatedDatab
         ))
         .build()?;
 
-    download_and_install(&client, &city_url, &city_path)?;
-    if let Err(error) = download_and_install(&client, &asn_url, &asn_path) {
+    download_and_install(&client, &city_url, &city_path, GeoDatabaseKind::City)?;
+    if let Err(error) = download_and_install(&client, &asn_url, &asn_path, GeoDatabaseKind::Asn) {
         // City data remains useful. Do not remove a previously valid ASN database.
         if !asn_path.exists() {
             return Err(error);
@@ -416,6 +626,7 @@ fn download_and_install(
     client: &reqwest::blocking::Client,
     url: &str,
     destination: &Path,
+    kind: GeoDatabaseKind,
 ) -> Result<(), GeoError> {
     let mut response = client.get(url).send()?.error_for_status()?;
     if response
@@ -434,11 +645,18 @@ fn download_and_install(
     }
     let mut decoder = GzDecoder::new(compressed.as_slice());
     let mut database = Vec::new();
-    decoder.read_to_end(&mut database)?;
+    decoder
+        .by_ref()
+        .take(MAX_DATABASE_BYTES + 1)
+        .read_to_end(&mut database)?;
+    if database.len() as u64 > MAX_DATABASE_BYTES {
+        return Err(GeoError::DatabaseTooLarge);
+    }
     let reader = Reader::from_source(database.as_slice())?;
     if reader.metadata().node_count == 0 {
         return Err(GeoError::InvalidDatabase);
     }
+    validate_reader_kind(Some(&reader), kind)?;
 
     install_database(&database, destination)
 }
@@ -447,10 +665,10 @@ fn install_database(database: &[u8], destination: &Path) -> Result<(), GeoError>
     let pending = destination.with_extension("mmdb.new");
     let backup = destination.with_extension("mmdb.bak");
     fs::write(&pending, database)?;
-    if backup.exists() {
-        fs::remove_file(&backup)?;
-    }
     if destination.exists() {
+        if backup.exists() {
+            fs::remove_file(&backup)?;
+        }
         fs::rename(destination, &backup)?;
     }
     if let Err(error) = fs::rename(&pending, destination) {
@@ -459,10 +677,65 @@ fn install_database(database: &[u8], destination: &Path) -> Result<(), GeoError>
         }
         return Err(error.into());
     }
-    if backup.exists() {
-        fs::remove_file(backup)?;
-    }
     Ok(())
+}
+
+pub fn rollback_mmdb(
+    data_directory: impl AsRef<Path>,
+    kind: GeoDatabaseKind,
+) -> Result<ImportedDatabase, GeoError> {
+    let destination = data_directory.as_ref().join(kind.destination_name());
+    let backup = destination.with_extension("mmdb.bak");
+    if !backup.is_file() {
+        return Err(GeoError::NoBackup(kind.label()));
+    }
+    let backup_data = fs::read(&backup)?;
+    let reader = Reader::from_source(backup_data.as_slice())?;
+    validate_reader_kind(Some(&reader), kind)?;
+    let edition = reader.metadata().database_type.clone();
+    let rollback = destination.with_extension("mmdb.rollback");
+    if rollback.exists() {
+        fs::remove_file(&rollback)?;
+    }
+    if destination.exists() {
+        fs::rename(&destination, &rollback)?;
+    }
+    if let Err(error) = fs::rename(&backup, &destination) {
+        if rollback.exists() {
+            let _ = fs::rename(&rollback, &destination);
+        }
+        return Err(error.into());
+    }
+    if rollback.exists() {
+        fs::rename(&rollback, &backup)?;
+    }
+    Ok(ImportedDatabase {
+        kind,
+        path: destination,
+        edition,
+        sha256: format!("{:x}", Sha256::digest(&backup_data)),
+    })
+}
+
+pub fn remove_mmdb(
+    data_directory: impl AsRef<Path>,
+    kind: GeoDatabaseKind,
+) -> Result<bool, GeoError> {
+    let destination = data_directory.as_ref().join(kind.destination_name());
+    let candidates = [
+        destination.clone(),
+        destination.with_extension("mmdb.bak"),
+        destination.with_extension("mmdb.new"),
+        destination.with_extension("mmdb.rollback"),
+    ];
+    let mut removed = false;
+    for candidate in candidates {
+        if candidate.is_file() {
+            fs::remove_file(candidate)?;
+            removed = true;
+        }
+    }
+    Ok(removed)
 }
 
 fn file_sha256(path: &Path) -> io::Result<String> {
@@ -517,16 +790,174 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mmdb_writer::{Writer, ipnet::IpNet};
+    use serde::Serialize;
+    use std::{collections::BTreeMap, time::SystemTime};
+
+    #[derive(Serialize)]
+    struct FixtureNames {
+        names: BTreeMap<String, String>,
+    }
+
+    #[derive(Serialize)]
+    struct FixtureCountry {
+        iso_code: Option<String>,
+        names: BTreeMap<String, String>,
+    }
+
+    #[derive(Serialize)]
+    struct FixtureLocation {
+        latitude: Option<f64>,
+        longitude: Option<f64>,
+        accuracy_radius: Option<u16>,
+    }
+
+    #[derive(Serialize)]
+    struct FixtureCity {
+        country: Option<FixtureCountry>,
+        subdivisions: Vec<FixtureNames>,
+        city: Option<FixtureNames>,
+        location: Option<FixtureLocation>,
+    }
+
+    #[derive(Serialize)]
+    struct FixtureAsn {
+        autonomous_system_number: u32,
+        autonomous_system_organization: Option<String>,
+    }
+
+    fn names(value: &str) -> BTreeMap<String, String> {
+        [("en".into(), value.into())].into()
+    }
+
+    fn fixture_city(
+        country: Option<(&str, &str)>,
+        region: Option<&str>,
+        city: Option<&str>,
+        coordinates: Option<(f64, f64)>,
+    ) -> FixtureCity {
+        FixtureCity {
+            country: country.map(|(code, name)| FixtureCountry {
+                iso_code: Some(code.into()),
+                names: names(name),
+            }),
+            subdivisions: region
+                .map(|value| {
+                    vec![FixtureNames {
+                        names: names(value),
+                    }]
+                })
+                .unwrap_or_default(),
+            city: city.map(|value| FixtureNames {
+                names: names(value),
+            }),
+            location: coordinates.map(|(latitude, longitude)| FixtureLocation {
+                latitude: Some(latitude),
+                longitude: Some(longitude),
+                accuracy_radius: Some(12),
+            }),
+        }
+    }
+
+    fn writer(database_type: &str) -> Writer {
+        Writer::builder(database_type)
+            .build_epoch(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+            .build()
+    }
+
+    fn write_city_fixture(path: &Path, city_name: &str) {
+        let mut writer = writer("Sabicheiro-City-Test");
+        writer
+            .insert(
+                "8.8.0.0/16".parse::<IpNet>().expect("base network"),
+                &fixture_city(Some(("AA", "Exampleland")), Some("North"), None, None),
+            )
+            .expect("base city record");
+        writer
+            .insert(
+                "8.8.8.0/24".parse::<IpNet>().expect("specific network"),
+                &fixture_city(
+                    Some(("AA", "Exampleland")),
+                    Some("Central"),
+                    Some(city_name),
+                    Some((12.5, -44.25)),
+                ),
+            )
+            .expect("specific city record");
+        writer
+            .insert(
+                "9.9.9.0/24"
+                    .parse::<IpNet>()
+                    .expect("invalid coordinate network"),
+                &fixture_city(
+                    Some(("BB", "Partialia")),
+                    None,
+                    Some("Invalid Point"),
+                    Some((120.0, f64::INFINITY)),
+                ),
+            )
+            .expect("invalid coordinate record");
+        writer
+            .insert(
+                "11.0.0.0/24".parse::<IpNet>().expect("partial network"),
+                &fixture_city(Some(("CC", "Country Only")), None, None, None),
+            )
+            .expect("partial record");
+        writer
+            .insert(
+                "2606:4700::/32".parse::<IpNet>().expect("IPv6 network"),
+                &fixture_city(
+                    Some(("DD", "Version Six")),
+                    Some("IPv6 Region"),
+                    Some("IPv6 City"),
+                    Some((-12.0, 80.0)),
+                ),
+            )
+            .expect("IPv6 record");
+        fs::write(path, writer.to_bytes().expect("city MMDB bytes")).expect("city fixture");
+    }
+
+    fn write_asn_fixture(path: &Path) {
+        let mut writer = writer("Sabicheiro-ASN-Test");
+        writer
+            .insert(
+                "8.8.0.0/16".parse::<IpNet>().expect("ASN base network"),
+                &FixtureAsn {
+                    autonomous_system_number: 64_500,
+                    autonomous_system_organization: Some("Example Network".into()),
+                },
+            )
+            .expect("ASN base record");
+        writer
+            .insert(
+                "8.8.8.0/24".parse::<IpNet>().expect("ASN specific network"),
+                &FixtureAsn {
+                    autonomous_system_number: 64_501,
+                    autonomous_system_organization: None,
+                },
+            )
+            .expect("ASN specific record");
+        writer
+            .insert(
+                "2606:4700::/32".parse::<IpNet>().expect("ASN IPv6 network"),
+                &FixtureAsn {
+                    autonomous_system_number: 64_502,
+                    autonomous_system_organization: Some("Example IPv6 Network".into()),
+                },
+            )
+            .expect("ASN IPv6 record");
+        fs::write(path, writer.to_bytes().expect("ASN MMDB bytes")).expect("ASN fixture");
+    }
 
     #[test]
     fn address_scope_never_geolocates_private_ranges() {
         assert_eq!(
             classify_address("192.168.1.1".parse().expect("IP")),
-            AddressScope::LocalNetwork
+            AddressScope::Private
         );
         assert_eq!(
             classify_address("fd00::1".parse().expect("IP")),
-            AddressScope::LocalNetwork
+            AddressScope::Private
         );
         assert_eq!(
             classify_address("127.0.0.1".parse().expect("IP")),
@@ -534,7 +965,7 @@ mod tests {
         );
         assert_eq!(
             classify_address("1.1.1.1".parse().expect("IP")),
-            AddressScope::Public
+            AddressScope::Global
         );
     }
 
@@ -544,7 +975,7 @@ mod tests {
         let lookup = resolver
             .lookup("10.0.0.1".parse().expect("IP"))
             .expect("lookup");
-        assert_eq!(lookup.scope, AddressScope::LocalNetwork);
+        assert_eq!(lookup.scope, AddressScope::Private);
         assert!(lookup.location.is_none());
     }
 
@@ -583,5 +1014,151 @@ mod tests {
             Some("cached.example")
         );
         assert_eq!(resolver.resolve(negative, 9_999), None);
+    }
+
+    #[test]
+    fn synthetic_mmdb_fixture_covers_prefixes_families_partial_and_invalid_data() {
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let city = directory.path().join("city.mmdb");
+        let asn = directory.path().join("asn.mmdb");
+        write_city_fixture(&city, "Specific City");
+        write_asn_fixture(&asn);
+        let mut resolver = LocalGeoResolver::open(Some(&city), Some(&asn)).expect("resolver");
+
+        let exact = resolver
+            .lookup("8.8.8.8".parse().expect("specific IP"))
+            .expect("specific lookup");
+        let location = exact.location.expect("specific location");
+        assert_eq!(location.city.as_deref(), Some("Specific City"));
+        assert_eq!(location.matched_prefix, Some(24));
+        assert_eq!(location.precision, GeoPrecision::Coordinates);
+        assert_eq!(location.coordinates(), Some((12.5, -44.25)));
+        let exact_asn = exact.asn.expect("specific ASN");
+        assert_eq!(exact_asn.number, 64_501);
+        assert!(exact_asn.organization.is_none());
+        assert_eq!(exact_asn.matched_prefix, Some(24));
+
+        let longest_prefix = resolver
+            .lookup("8.8.9.9".parse().expect("base IP"))
+            .expect("base lookup");
+        assert_eq!(
+            longest_prefix
+                .location
+                .as_ref()
+                .and_then(|value| value.country_name.as_deref()),
+            Some("Exampleland")
+        );
+        assert!(
+            longest_prefix
+                .location
+                .as_ref()
+                .and_then(|value| value.matched_prefix)
+                .is_some_and(|prefix| prefix >= 16)
+        );
+        assert_eq!(longest_prefix.asn.expect("base ASN").number, 64_500);
+
+        let invalid = resolver
+            .lookup("9.9.9.9".parse().expect("invalid coordinate IP"))
+            .expect("invalid coordinate lookup")
+            .location
+            .expect("partial invalid location");
+        assert_eq!(invalid.precision, GeoPrecision::City);
+        assert_eq!(invalid.placement, PlacementKind::NotPlotted);
+        assert!(invalid.coordinates().is_none());
+
+        let partial = resolver
+            .lookup("11.0.0.1".parse().expect("partial IP"))
+            .expect("partial lookup")
+            .location
+            .expect("partial location");
+        assert_eq!(partial.precision, GeoPrecision::Country);
+        assert!(partial.coordinates().is_none());
+
+        let ipv6 = resolver
+            .lookup("2606:4700::1234".parse().expect("IPv6 IP"))
+            .expect("IPv6 lookup");
+        assert_eq!(
+            ipv6.location.and_then(|value| value.city),
+            Some("IPv6 City".into())
+        );
+        assert_eq!(ipv6.asn.expect("IPv6 ASN").number, 64_502);
+
+        let no_match = resolver
+            .lookup("12.0.0.1".parse().expect("unmatched IP"))
+            .expect("unmatched lookup");
+        assert!(no_match.location.is_none());
+        assert!(no_match.asn.is_none());
+    }
+
+    #[test]
+    fn reload_invalidates_cache_and_advances_only_the_changed_generation() {
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let city_one = directory.path().join("city-one.mmdb");
+        let city_two = directory.path().join("city-two.mmdb");
+        let asn = directory.path().join("asn.mmdb");
+        write_city_fixture(&city_one, "First City");
+        write_city_fixture(&city_two, "Second City");
+        write_asn_fixture(&asn);
+        let mut resolver = LocalGeoResolver::open(Some(&city_one), Some(&asn)).expect("resolver");
+        let first = resolver
+            .lookup("8.8.8.8".parse().expect("IP"))
+            .expect("first lookup");
+        assert_eq!(
+            first.location.and_then(|value| value.city),
+            Some("First City".into())
+        );
+        assert_eq!(first.city_generation, 1);
+        assert_eq!(first.asn_generation, 1);
+
+        resolver
+            .reload_kind(GeoDatabaseKind::City, &city_two)
+            .expect("city reload");
+        let second = resolver
+            .lookup("8.8.8.8".parse().expect("IP"))
+            .expect("second lookup");
+        assert_eq!(
+            second.location.and_then(|value| value.city),
+            Some("Second City".into())
+        );
+        assert_eq!(second.city_generation, 2);
+        assert_eq!(second.asn_generation, 1);
+    }
+
+    #[test]
+    fn import_rejects_wrong_or_truncated_editions_and_rollback_preserves_active_data() {
+        let directory = tempfile::tempdir().expect("fixture directory");
+        let city_one = directory.path().join("city-one.mmdb");
+        let city_two = directory.path().join("city-two.mmdb");
+        let asn = directory.path().join("asn.mmdb");
+        let truncated = directory.path().join("truncated.mmdb");
+        let installed = directory.path().join("installed");
+        write_city_fixture(&city_one, "First City");
+        write_city_fixture(&city_two, "Second City");
+        write_asn_fixture(&asn);
+        fs::write(&truncated, b"not an MMDB").expect("truncated fixture");
+
+        assert!(matches!(
+            import_mmdb(&asn, &installed, GeoDatabaseKind::City),
+            Err(GeoError::InvalidEdition { .. })
+        ));
+        assert!(import_mmdb(&truncated, &installed, GeoDatabaseKind::City).is_err());
+        let first =
+            import_mmdb(&city_one, &installed, GeoDatabaseKind::City).expect("first import");
+        let first_hash = first.sha256;
+        import_mmdb(&city_two, &installed, GeoDatabaseKind::City).expect("second import");
+        let restored = rollback_mmdb(&installed, GeoDatabaseKind::City).expect("rollback");
+        assert_eq!(restored.sha256, first_hash);
+        let mut resolver =
+            LocalGeoResolver::open(Some(&restored.path), Option::<&Path>::None).expect("resolver");
+        assert_eq!(
+            resolver
+                .lookup("8.8.8.8".parse().expect("IP"))
+                .expect("restored lookup")
+                .location
+                .and_then(|value| value.city),
+            Some("First City".into())
+        );
+        assert!(remove_mmdb(&installed, GeoDatabaseKind::City).expect("remove"));
+        assert!(!restored.path.exists());
     }
 }

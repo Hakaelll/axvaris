@@ -43,7 +43,11 @@ export function MetricStrip({ snapshot }: { snapshot: DashboardSnapshot }) {
       </div>
       <div
         className="metric-strip__health"
-        title={`${diagnostics.backend}; ${diagnostics.capture_queue_depth}/${diagnostics.capture_queue_capacity} queued`}
+        title={t("{backend}; {depth}/{capacity} queued", {
+          backend: diagnostics.backend,
+          depth: diagnostics.capture_queue_depth,
+          capacity: diagnostics.capture_queue_capacity,
+        })}
       >
         <span
           className={diagnostics.dropped_capture_events > 0 ? "is-warning" : ""}

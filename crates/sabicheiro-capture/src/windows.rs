@@ -2,7 +2,9 @@ use crate::{
     CaptureError, NetworkCaptureProvider, ObservedSocket, SocketIdentity, infer_direction,
     interfaces_from_sysinfo, process::ProcessResolver,
 };
-use sabicheiro_core::{ConnectionState, Endpoint, NetworkInterface, NetworkProtocol};
+use sabicheiro_core::{
+    ConnectionState, Endpoint, NetworkInterface, NetworkProtocol, ObservationSource,
+};
 use std::{
     ffi::{CStr, c_void},
     mem::size_of,
@@ -387,6 +389,7 @@ fn observed(
         direction,
         state,
         interface: None,
+        observation_source: ObservationSource::WindowsIpHelper,
     }
 }
 

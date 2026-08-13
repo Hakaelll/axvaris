@@ -30,11 +30,14 @@ Quality gates:
 
 ```text
 pnpm build
+node scripts/check-repository.mjs
+node scripts/audit-licenses.mjs
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 rustup target add x86_64-unknown-linux-gnu
-cargo check -p sabicheiro-capture --target x86_64-unknown-linux-gnu --locked
+cargo check -p sabicheiro-core -p sabicheiro-capture --all-targets \
+  --target x86_64-unknown-linux-gnu --locked
 ```
 
 ## Windows 10/11 x86_64
@@ -50,8 +53,8 @@ The output is under `target/release/bundle/nsis/`. Tauri names the setup executa
 from the configured product; the release workflow normalizes it to
 `Sabicheiro-Setup.exe`. MSI is optional and may require the Windows VBSCRIPT feature.
 The NSIS configuration installs per-user and supplies Start-menu/uninstall entries.
-The local `0.2.0` handoff also copies the installer, portable executable, checksums and
-release notes into `release/Sabicheiro-0.2.0-windows-x64/`.
+The local `0.3.0` handoff copies the installer, portable executable, checksums and
+release notes into `release/Sabicheiro-0.3.0-windows-x64/`.
 
 ## Debian/Ubuntu x86_64
 
@@ -72,7 +75,7 @@ install the distro Wireshark/dumpcap package and configure its capture group or 
 capabilities according to distro policy; do not run the whole UI as root.
 
 Tauri desktop bundles are native builds and are not cross-compiled from Windows. The
-included GitHub Actions matrix performs the Linux package build on a Linux runner;
+included manual GitHub Actions matrix performs the Linux package build on a Linux runner;
 the same commands remain runnable locally without CI.
 
 ## GeoIP data
@@ -90,10 +93,13 @@ Before a release:
 cargo metadata --locked --format-version 1
 pnpm licenses list --prod --long
 pnpm licenses list --dev --long
+node scripts/audit-licenses.mjs
 ```
 
 Reject paid/commercial-only/network-service dependencies, update `DEPENDENCIES.md`, and
-ship required MIT/Apache/ISC/BSD/CC notices. Never bundle Npcap.
+ship required MIT/Apache/ISC/BSD/CC notices. `audit-licenses.mjs` reads only locked
+local Cargo metadata and the pnpm store; it makes no registry or API call. Never bundle
+Npcap.
 
 ## CI
 
@@ -104,9 +110,12 @@ use **only** `workflow_dispatch`: nothing consumes hosted-runner quota automatic
 GitHub-hosted Actions can become billable after an account/repository quota is
 exhausted, so it is never a zero-cost runtime/build requirement. For a guaranteed €0
 workflow, run these commands locally or dispatch them on a compatible self-hosted
-runner. No workflow was triggered as part of the 2026-08-09 local validation.
+runner. No workflow was triggered as part of the 2026-08-12 local validation.
 
 ## Release verification
+
+Generated Tauri schemas under `apps/desktop/src-tauri/gen/` are intentionally ignored;
+Tauri regenerates them during development/build and they must not be committed.
 
 After packaging, record artifact size and SHA-256, launch the native executable as a
 normal user, exercise Demo and Live modes, and verify install/uninstall. Linux artifacts

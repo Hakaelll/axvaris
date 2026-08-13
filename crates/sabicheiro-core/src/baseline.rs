@@ -77,7 +77,10 @@ impl BaselineBook {
         }
 
         if let Some(geo) = observation.geo {
-            if baseline.samples >= 3 && !baseline.countries.contains(&geo.country_code) {
+            let country_code = geo.country_code.as_deref();
+            if baseline.samples >= 3
+                && country_code.is_some_and(|code| !baseline.countries.contains(code))
+            {
                 let mut typical = baseline.countries.iter().cloned().collect::<Vec<_>>();
                 typical.sort();
                 signals.push(UnusualSignal {
@@ -85,13 +88,17 @@ impl BaselineBook {
                     title: "Unusual for this process".into(),
                     reason: format!(
                         "First observed connection from {} to {}.",
-                        observation.process_key, geo.country_name
+                        observation.process_key,
+                        geo.country_label()
+                            .unwrap_or_else(|| "an unknown country".into())
                     ),
                     typical: (!typical.is_empty())
                         .then(|| format!("Previously observed: {}", typical.join(", "))),
                 });
             }
-            baseline.countries.insert(geo.country_code.clone());
+            if let Some(country_code) = country_code {
+                baseline.countries.insert(country_code.to_owned());
+            }
         }
 
         let remote_port = observation.connection.remote.port;
@@ -193,9 +200,13 @@ mod tests {
     fn key(port: u16) -> ConnectionKey {
         ConnectionKey {
             pid: Some(4),
+            process_instance: Some("pid:4:start:1".into()),
             local: Endpoint::new("127.0.0.1".parse().expect("IP"), 40_000),
             remote: Endpoint::new("1.1.1.1".parse().expect("IP"), port),
             protocol: NetworkProtocol::Tcp,
+            interface_id: Some("test".into()),
+            capture_generation: 1,
+            flow_generation: u64::from(port),
         }
     }
 

@@ -3,6 +3,9 @@ import { useI18n } from "../i18n";
 import type {
   HistoryQuery,
   HistoryResponse,
+  DerivedGeoEnrichment,
+  ReenrichmentJobStatus,
+  SavedInvestigation,
   SessionComparison,
   TimelineResolution,
   TrafficSample,
@@ -11,6 +14,7 @@ import { formatBytes, formatDateTime, formatDuration } from "../lib/format";
 import { desktopApi } from "../lib/backend";
 
 interface HistoryViewProps {
+  currentQuery: string;
   loadHistory: (
     query?: Partial<HistoryQuery>,
   ) => Promise<HistoryResponse | null>;
@@ -24,6 +28,7 @@ interface HistoryViewProps {
     fromMs: number | null,
     toMs: number | null,
   ) => void;
+  onQueryChange: (query: string) => void;
 }
 
 const ranges = [
@@ -34,9 +39,11 @@ const ranges = [
 ] as const;
 
 export function HistoryView({
+  currentQuery,
   loadHistory,
   onReconstruct,
   onExport,
+  onQueryChange,
 }: HistoryViewProps) {
   const t = useI18n();
   const [history, setHistory] = useState<HistoryResponse | null>(null);
@@ -57,15 +64,37 @@ export function HistoryView({
   const [comparisonExported, setComparisonExported] = useState<string | null>(
     null,
   );
+  const [investigations, setInvestigations] = useState<SavedInvestigation[]>([]);
+  const [investigationName, setInvestigationName] = useState("");
+  const [investigationNotes, setInvestigationNotes] = useState("");
+  const [pinnedConnectionIds, setPinnedConnectionIds] = useState<string[]>([]);
+  const [investigationWindow, setInvestigationWindow] = useState<{
+    from_ms: number | null;
+    to_ms: number | null;
+  } | null>(null);
+  const [reenrichmentJob, setReenrichmentJob] =
+    useState<ReenrichmentJobStatus | null>(null);
+  const [geoView, setGeoView] = useState<DerivedGeoEnrichment[]>([]);
+
+  useEffect(() => {
+    void desktopApi.listInvestigations().then(setInvestigations);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const fromMs =
-      selectedSession || range.milliseconds === null
+    const fromMs = investigationWindow
+      ? investigationWindow.from_ms
+      : selectedSession || range.milliseconds === null
         ? null
         : Date.now() - range.milliseconds;
-    void loadHistory({ from_ms: fromMs, session_id: selectedSession }).then(
+    void loadHistory({
+      from_ms: fromMs,
+      to_ms: investigationWindow?.to_ms ?? null,
+      session_id: selectedSession,
+      query: currentQuery || null,
+      limit: 100_000,
+    }).then(
       (result) => {
         if (!cancelled) {
           setHistory(result);
@@ -76,7 +105,32 @@ export function HistoryView({
     return () => {
       cancelled = true;
     };
-  }, [loadHistory, range, selectedSession]);
+  }, [currentQuery, investigationWindow, loadHistory, range, selectedSession]);
+
+  useEffect(() => {
+    if (
+      !reenrichmentJob ||
+      (reenrichmentJob.state !== "queued" &&
+        reenrichmentJob.state !== "running")
+    )
+      return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void desktopApi.getReenrichmentJob(reenrichmentJob.id).then((status) => {
+        if (cancelled) return;
+        setReenrichmentJob(status);
+        if (status.state === "completed") {
+          void desktopApi
+            .getSessionGeoView(status.session_id)
+            .then((view) => !cancelled && setGeoView(view));
+        }
+      });
+    }, 500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [reenrichmentJob?.id, reenrichmentJob?.state]);
 
   const bounds = useMemo(() => {
     const entries = history?.entries ?? [];
@@ -192,6 +246,80 @@ export function HistoryView({
             connection.first_seen_ms <= cursorMs &&
             connection.last_seen_ms >= cursorMs,
         ).length;
+  const pinnedEntries = (history?.entries ?? []).filter(({ connection }) =>
+    pinnedConnectionIds.includes(connection.id),
+  );
+  const saveInvestigation = async () => {
+    const name = investigationName.trim();
+    if (!name) return;
+    const saved = await desktopApi.saveInvestigation({
+      id: "",
+      name,
+      notes: investigationNotes.trim(),
+      query: {
+        filter: currentQuery || null,
+        from_ms: bounds?.start ?? null,
+        to_ms: bounds?.end ?? null,
+        session_id: selectedSession,
+        pinned_connection_ids: pinnedConnectionIds,
+        pinned_destination_ips: [
+          ...new Set(
+            pinnedEntries.map(
+              ({ connection }) => connection.key.remote.address,
+            ),
+          ),
+        ],
+        pinned_process_keys: [
+          ...new Set(
+            pinnedEntries.flatMap(({ connection }) =>
+              connection.key.process_instance
+                ? [connection.key.process_instance]
+                : [],
+            ),
+          ),
+        ],
+        pinned_asns: [
+          ...new Set(
+            pinnedEntries.flatMap(({ connection }) =>
+              connection.asn ? [connection.asn.number] : [],
+            ),
+          ),
+        ],
+      },
+      created_at_ms: 0,
+      updated_at_ms: 0,
+    });
+    setInvestigations((items) => [
+      saved,
+      ...items.filter((item) => item.id !== saved.id),
+    ]);
+    setInvestigationName("");
+    setInvestigationNotes("");
+  };
+  const openInvestigation = (investigation: SavedInvestigation) => {
+    setSelectedSession(investigation.query.session_id);
+    setRange(ranges[3]);
+    setInvestigationWindow({
+      from_ms: investigation.query.from_ms,
+      to_ms: investigation.query.to_ms,
+    });
+    setPinnedConnectionIds(investigation.query.pinned_connection_ids);
+    setInvestigationName(investigation.name);
+    setInvestigationNotes(investigation.notes);
+    onQueryChange(investigation.query.filter ?? "");
+  };
+  const deleteInvestigation = async (id: string) => {
+    if (!window.confirm(t("Delete this saved local investigation?"))) return;
+    if (await desktopApi.deleteInvestigation(id))
+      setInvestigations((items) => items.filter((item) => item.id !== id));
+  };
+  const startReenrichment = async () => {
+    if (!selectedSession) return;
+    setGeoView([]);
+    setReenrichmentJob(
+      await desktopApi.startSessionReenrichment(selectedSession),
+    );
+  };
 
   return (
     <section className="data-view history-view">
@@ -215,6 +343,7 @@ export function HistoryView({
                 onClick={() => {
                   setRange(item);
                   setSelectedSession(null);
+                  setInvestigationWindow(null);
                 }}
                 type="button"
               >
@@ -237,6 +366,110 @@ export function HistoryView({
           </button>
         </div>
       </header>
+      <section className="investigation-panel">
+        <header>
+          <div>
+            <span className="eyebrow">{t("SAVED INVESTIGATIONS")}</span>
+            <h2>{t("Local investigation workspaces")}</h2>
+            <p>
+              {t(
+                "Save the active query, exact time range, session, pinned evidence and notes on this device. Nothing is synced.",
+              )}
+            </p>
+          </div>
+          <code>{currentQuery || t("No active filter")}</code>
+        </header>
+        <div className="investigation-panel__editor">
+          <input
+            aria-label={t("Investigation name")}
+            onChange={(event) => setInvestigationName(event.target.value)}
+            placeholder={t("Investigation name")}
+            value={investigationName}
+          />
+          <textarea
+            aria-label={t("Local notes")}
+            onChange={(event) => setInvestigationNotes(event.target.value)}
+            placeholder={t("Local notes")}
+            rows={2}
+            value={investigationNotes}
+          />
+          <div>
+            <button
+              className="button button--secondary"
+              disabled={(history?.entries.length ?? 0) === 0}
+              onClick={() =>
+                setPinnedConnectionIds(
+                  (history?.entries ?? []).map(
+                    ({ connection }) => connection.id,
+                  ),
+                )
+              }
+              type="button"
+            >
+              {t("Pin visible evidence")}
+            </button>
+            <button
+              className="button button--secondary"
+              disabled={pinnedConnectionIds.length === 0}
+              onClick={() => setPinnedConnectionIds([])}
+              type="button"
+            >
+              {t("Clear pins")}
+            </button>
+            <button
+              className="button button--primary"
+              disabled={!investigationName.trim()}
+              onClick={() => void saveInvestigation()}
+              type="button"
+            >
+              {t("Save investigation")}
+            </button>
+          </div>
+          <small>
+            {t("{count} pinned connections", {
+              count: pinnedConnectionIds.length,
+            })}
+          </small>
+        </div>
+        <div className="investigation-list">
+          {investigations.map((investigation) => (
+            <article key={investigation.id}>
+              <div>
+                <strong>{investigation.name}</strong>
+                <small>
+                  {formatDateTime(investigation.updated_at_ms)} · {investigation.query.pinned_connection_ids.length} {t("pins")}
+                </small>
+                <code>
+                  {investigation.query.filter ?? t("No active filter")}
+                </code>
+                {investigation.notes && <p>{investigation.notes}</p>}
+              </div>
+              <span>
+                <button
+                  className="button button--secondary"
+                  onClick={() => openInvestigation(investigation)}
+                  type="button"
+                >
+                  {t("Open exact view")}
+                </button>
+                <button
+                  aria-label={t("Delete investigation {name}", {
+                    name: investigation.name,
+                  })}
+                  className="button button--danger"
+                  onClick={() => void deleteInvestigation(investigation.id)}
+                  type="button"
+                >
+                  {t("Delete")}
+                </button>
+              </span>
+            </article>
+          ))}
+          {investigations.length === 0 && (
+            <p className="list-empty">{t("No saved investigations yet.")}</p>
+          )}
+        </div>
+      </section>
       <section className="traffic-timeline-panel">
         <header>
           <div>
@@ -389,7 +622,10 @@ export function HistoryView({
           <button
             aria-pressed={selectedSession === null}
             className={`history-session${selectedSession === null ? " is-selected" : ""}`}
-            onClick={() => setSelectedSession(null)}
+            onClick={() => {
+              setSelectedSession(null);
+              setInvestigationWindow(null);
+            }}
             type="button"
           >
             <span className="session-dot" />
@@ -407,7 +643,12 @@ export function HistoryView({
               aria-pressed={selectedSession === session.id}
               className={`history-session${selectedSession === session.id ? " is-selected" : ""}`}
               key={session.id}
-              onClick={() => setSelectedSession(session.id)}
+              onClick={() => {
+                setSelectedSession(session.id);
+                setInvestigationWindow(null);
+                setReenrichmentJob(null);
+                setGeoView([]);
+              }}
               type="button"
             >
               <span className="session-dot" />
@@ -497,6 +738,124 @@ export function HistoryView({
           )}
         </div>
       </div>
+      <section className="reenrichment-panel">
+        <header>
+          <div>
+            <span className="eyebrow">{t("NON-DESTRUCTIVE GEOIP")}</span>
+            <h2>{t("Compare captured location with the current database")}</h2>
+            <p>
+              {t(
+                "A cancelable local job creates a derived view. Original IPs, timestamps, evidence and observed enrichment are never overwritten.",
+              )}
+            </p>
+          </div>
+          <div>
+            <button
+              className="button button--primary"
+              disabled={
+                !selectedSession ||
+                reenrichmentJob?.state === "queued" ||
+                reenrichmentJob?.state === "running"
+              }
+              onClick={() => void startReenrichment()}
+              type="button"
+            >
+              {t("Re-enrich selected session")}
+            </button>
+            {(reenrichmentJob?.state === "queued" ||
+              reenrichmentJob?.state === "running") && (
+              <button
+                className="button button--secondary"
+                onClick={() =>
+                  void desktopApi.cancelReenrichmentJob(reenrichmentJob.id)
+                }
+                type="button"
+              >
+                {t("Cancel job")}
+              </button>
+            )}
+          </div>
+        </header>
+        {!selectedSession && (
+          <p className="list-empty">
+            {t("Select one retained session to enable re-enrichment.")}
+          </p>
+        )}
+        {reenrichmentJob && (
+          <div className="reenrichment-progress" role="status">
+            <span>
+              <strong>{t(reenrichmentJob.state)}</strong>
+              <small>
+                {reenrichmentJob.processed}/{reenrichmentJob.total}
+              </small>
+            </span>
+            <progress
+              max={Math.max(1, reenrichmentJob.total)}
+              value={reenrichmentJob.processed}
+            />
+            {reenrichmentJob.message && <p>{t(reenrichmentJob.message)}</p>}
+          </div>
+        )}
+        {geoView.length > 0 && (
+          <div className="geo-view-comparison">
+            <header>
+              <strong>{t("Observed versus current GeoIP")}</strong>
+              <small>
+                {t("{changed} of {total} derived rows changed", {
+                  changed: geoView.filter(
+                    (item) =>
+                      item.observed_geo?.country_code !==
+                        item.current_geo?.country_code ||
+                      item.observed_geo?.city !== item.current_geo?.city ||
+                      item.observed_asn?.number !== item.current_asn?.number,
+                  ).length,
+                  total: geoView.length,
+                })}
+              </small>
+            </header>
+            <div role="table">
+              {geoView.slice(0, 100).map((item) => (
+                <div key={item.connection_id} role="row">
+                  <code>{item.connection_id}</code>
+                  <span>
+                    <small>{t("At capture")}</small>
+                    <strong>
+                      {item.observed_geo?.city ??
+                        item.observed_geo?.country_name ??
+                        t("Unknown")}
+                    </strong>
+                    <em>
+                      {item.observed_asn
+                        ? `AS${item.observed_asn.number}`
+                        : t("No ASN")}
+                    </em>
+                  </span>
+                  <span>
+                    <small>{t("Current database")}</small>
+                    <strong>
+                      {item.current_geo?.city ??
+                        item.current_geo?.country_name ??
+                        t("Unknown")}
+                    </strong>
+                    <em>
+                      {item.current_asn
+                        ? `AS${item.current_asn.number}`
+                        : t("No ASN")}
+                    </em>
+                  </span>
+                </div>
+              ))}
+            </div>
+            {geoView.length > 100 && (
+              <small>
+                {t("Showing the first 100 of {count} rows.", {
+                  count: geoView.length,
+                })}
+              </small>
+            )}
+          </div>
+        )}
+      </section>
       <section className="session-comparison">
         <header>
           <div>

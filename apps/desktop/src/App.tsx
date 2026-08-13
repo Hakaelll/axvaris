@@ -65,6 +65,42 @@ const localizedFailureMessages: Record<string, string> = {
     "The free GeoIP update could not be installed. You can retry or import an MMDB offline.",
   geo_import_failed:
     "The MMDB import failed edition, checksum or filesystem validation.",
+  geo_status_unavailable:
+    "The status of the local GeoIP datasets could not be read.",
+  geo_rollback_failed:
+    "The previous local GeoIP dataset could not be restored; the active dataset was kept.",
+  geo_remove_failed:
+    "The selected local GeoIP dataset could not be removed safely.",
+  storage_maintenance_failed:
+    "SQLite maintenance could not complete; the database was left intact.",
+  storage_busy: "Stop capture before running SQLite maintenance.",
+  capture_must_stop:
+    "Stop capture before deleting retained sessions or all local data.",
+  local_data_remove_failed:
+    "The selected local data could not be removed completely.",
+  investigation_invalid:
+    "The local investigation is missing a valid name or query.",
+  investigation_unavailable:
+    "Saved investigations could not be read from local storage.",
+  asn_profile_invalid: "Choose a valid ASN number greater than zero.",
+  asn_profile_unavailable:
+    "The local ASN profile could not be reconstructed from retained evidence.",
+  timeline_not_found:
+    "The selected saved connection is no longer available for its identity timeline.",
+  reenrichment_invalid: "Select one retained session to re-enrich.",
+  reenrichment_active:
+    "This session already has an active re-enrichment job.",
+  reenrichment_not_found: "The local re-enrichment job is no longer available.",
+  reenrichment_unavailable:
+    "The derived GeoIP view could not be loaded; original observations were unchanged.",
+  comparison_invalid: "Choose two different retained sessions.",
+  comparison_export_failed:
+    "The local session comparison could not be exported.",
+  recording_failed:
+    "Packet recording could not continue; review the original local diagnostic.",
+  focus_rules_unavailable: "Local focus rules could not be read.",
+  focus_rule_invalid: "The local focus rule is invalid.",
+  history_query_invalid: "The local history query is invalid.",
   export_failed:
     "The local export could not be written. Choose a new filename or writable folder.",
   support_bundle_failed: "The redacted support bundle could not be created.",
@@ -92,6 +128,7 @@ export default function App() {
     fromMs: number | null;
     toMs: number | null;
   }>({ sessionId: null, fromMs: null, toMs: null });
+  const [mapExpanded, setMapExpanded] = useState(false);
   const mainStageRef = useRef<HTMLElement>(null);
   const home = useMemo<[number, number]>(
     () => [app.settings.home_latitude, app.settings.home_longitude],
@@ -169,6 +206,7 @@ export default function App() {
         event.preventDefault();
         document.querySelector<HTMLInputElement>(".query-box input")?.focus();
       } else if (event.key === "Escape") {
+        setMapExpanded(false);
         app.setSelectedId(null);
         app.setCommandPaletteOpen(false);
         app.setRecordDialogOpen(false);
@@ -217,7 +255,7 @@ export default function App() {
   return (
     <I18nProvider value={language}>
       <div
-        className={`app-shell${app.settings.reduce_motion ? " reduce-motion" : ""}`}
+        className={`app-shell density--${app.settings.ui_density}${app.settings.reduce_motion ? " reduce-motion" : ""}`}
       >
         <TopBar
           capture={app.snapshot.capture}
@@ -237,7 +275,7 @@ export default function App() {
           ref={mainStageRef}
         >
           {app.primaryView === "globe" && (
-            <div className="observatory">
+            <div className={`observatory${mapExpanded ? " is-map-expanded" : ""}`}>
               <section className="visual-canvas">
                 <div className="visual-canvas__heading">
                   <div>
@@ -308,10 +346,9 @@ export default function App() {
                         home={home}
                         onFps={reportFps}
                         onSelect={app.setSelectedId}
-                        reduceMotion={
-                          app.settings.reduce_motion || !app.settings.auto_focus
-                        }
+                        reduceMotion={app.settings.reduce_motion}
                         selectedId={app.selectedId}
+                        smartFocus={app.settings.auto_focus}
                       />
                     </Suspense>
                   ) : (
@@ -325,7 +362,9 @@ export default function App() {
                     >
                       <MapView
                         connections={app.snapshot.connections}
+                        expanded={mapExpanded}
                         home={home}
+                        onExpandedChange={setMapExpanded}
                         onSelect={app.setSelectedId}
                         selectedId={app.selectedId}
                       />
@@ -351,7 +390,10 @@ export default function App() {
                     app.settings.active_workspace === "remote" &&
                     app.snapshot.connections.length > 0 &&
                     !app.snapshot.connections.some(
-                      (connection) => connection.geo,
+                      (connection) =>
+                        connection.geo?.placement !== "not_plotted" &&
+                        connection.geo?.latitude !== null &&
+                        connection.geo?.longitude !== null,
                     ) && (
                       <div className="geo-empty-guidance">
                         <strong>{t("Geography is not available yet")}</strong>
@@ -485,8 +527,10 @@ export default function App() {
           )}
           {app.primaryView === "history" && (
             <HistoryView
+              currentQuery={app.query}
               loadHistory={app.loadHistory}
               onExport={openExport}
+              onQueryChange={app.setQuery}
               onReconstruct={(atMs, sessionId, preferredId) =>
                 void app.enterTimeMachine(atMs, sessionId, preferredId)
               }
@@ -501,14 +545,18 @@ export default function App() {
               onAddIgnoreRule={(kind, value) =>
                 void app.addIgnoreRule(kind, value)
               }
+              onClearLocalData={app.clearLocalData}
               onClearSession={app.clearSession}
+              onCompactStorage={app.compactStorage}
               onExportSupportBundle={app.exportSupportBundle}
               onImportGeo={app.importGeo}
+              onRemoveGeo={app.removeGeo}
               onRemoveBookmark={(id) => void app.removeBookmark(id)}
               onRemoveIgnoreRule={(id) => void app.removeIgnoreRule(id)}
               onToggleIgnoreRule={(id, enabled) =>
                 void app.setIgnoreRuleEnabled(id, enabled)
               }
+              onRollbackGeo={app.rollbackGeo}
               onRunSelfTest={app.runCaptureSelfTest}
               onUpdate={app.updateSettings}
               onUpdateGeo={app.updateGeo}

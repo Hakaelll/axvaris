@@ -1,4 +1,7 @@
-use crate::{Connection, ConnectionState, Direction, NetworkProtocol};
+use crate::{
+    AddressScope, Connection, ConnectionState, Direction, NetworkProtocol, ObservationSource,
+    canonicalize_address,
+};
 use std::{fmt, net::IpAddr, str::FromStr};
 use thiserror::Error;
 
@@ -15,6 +18,11 @@ pub enum FilterTerm {
     State(ConnectionState),
     FirstSeen(bool),
     Asn(u32),
+    Cidr(IpAddr, u8),
+    Scope(AddressScope),
+    Geo(String),
+    Source(ObservationSource),
+    Not(Box<FilterTerm>),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,8 +47,17 @@ impl FromStr for ConnectionFilter {
         let tokens = tokenize(input)?;
         let mut terms = Vec::with_capacity(tokens.len());
         for token in tokens {
+            let (negated, token) = token
+                .strip_prefix(['-', '!'])
+                .filter(|value| !value.is_empty())
+                .map_or((false, token.as_str()), |value| (true, value));
             let Some((field, value)) = token.split_once(':') else {
-                terms.push(FilterTerm::Text(token.to_lowercase()));
+                let term = FilterTerm::Text(token.to_lowercase());
+                terms.push(if negated {
+                    FilterTerm::Not(Box::new(term))
+                } else {
+                    term
+                });
                 continue;
             };
             if value.is_empty() {
@@ -74,9 +91,25 @@ impl FromStr for ConnectionFilter {
                     FilterTerm::FirstSeen(parse_bool(&lower).ok_or_else(|| invalid(field, value))?)
                 }
                 "asn" => FilterTerm::Asn(value.parse().map_err(|_| invalid(field, value))?),
+                "cidr" => {
+                    let (address, prefix) =
+                        parse_cidr(value).ok_or_else(|| invalid(field, value))?;
+                    FilterTerm::Cidr(address, prefix)
+                }
+                "scope" => {
+                    FilterTerm::Scope(parse_scope(&lower).ok_or_else(|| invalid(field, value))?)
+                }
+                "geo" => FilterTerm::Geo(lower),
+                "source" => {
+                    FilterTerm::Source(parse_source(&lower).ok_or_else(|| invalid(field, value))?)
+                }
                 _ => return Err(FilterError::UnknownField(field.into())),
             };
-            terms.push(term);
+            terms.push(if negated {
+                FilterTerm::Not(Box::new(term))
+            } else {
+                term
+            });
         }
         Ok(Self { terms })
     }
@@ -84,36 +117,119 @@ impl FromStr for ConnectionFilter {
 
 impl ConnectionFilter {
     pub fn matches(&self, connection: &Connection) -> bool {
-        self.terms.iter().all(|term| match term {
-            FilterTerm::Text(value) => searchable_text(connection).contains(value),
-            FilterTerm::Process(value) => connection.process.name.to_lowercase().contains(value),
-            FilterTerm::Country(value) => connection.geo.as_ref().is_some_and(|geo| {
-                geo.country_code.eq_ignore_ascii_case(value)
-                    || geo
-                        .country_name
-                        .to_lowercase()
-                        .contains(&value.to_lowercase())
-            }),
-            FilterTerm::Protocol(protocol) => connection.protocol == *protocol,
-            FilterTerm::Port(port) => {
-                connection.key.local.port == *port || connection.key.remote.port == *port
-            }
-            FilterTerm::Direction(direction) => connection.direction == *direction,
-            FilterTerm::Ip(ip) => {
-                connection.key.local.address == *ip || connection.key.remote.address == *ip
-            }
-            FilterTerm::Domain(value) => connection
-                .domain
+        self.terms.iter().all(|term| matches_term(term, connection))
+    }
+}
+
+fn matches_term(term: &FilterTerm, connection: &Connection) -> bool {
+    match term {
+        FilterTerm::Text(value) => searchable_text(connection).contains(value),
+        FilterTerm::Process(value) => connection.process.name.to_lowercase().contains(value),
+        FilterTerm::Country(value) => connection.geo.as_ref().is_some_and(|geo| {
+            geo.country_code
                 .as_deref()
-                .or(connection.hostname.as_deref())
-                .is_some_and(|domain| domain.to_lowercase().contains(value)),
-            FilterTerm::State(state) => connection.state == *state,
-            FilterTerm::FirstSeen(value) => connection.first_seen_destination == *value,
-            FilterTerm::Asn(number) => connection
-                .asn
-                .as_ref()
-                .is_some_and(|asn| asn.number == *number),
-        })
+                .is_some_and(|code| code.eq_ignore_ascii_case(value))
+                || geo
+                    .country_name
+                    .as_deref()
+                    .is_some_and(|name| name.to_lowercase().contains(&value.to_lowercase()))
+        }),
+        FilterTerm::Protocol(protocol) => connection.protocol == *protocol,
+        FilterTerm::Port(port) => {
+            connection.key.local.port == *port || connection.key.remote.port == *port
+        }
+        FilterTerm::Direction(direction) => connection.direction == *direction,
+        FilterTerm::Ip(ip) => {
+            connection.key.local.address == *ip || connection.key.remote.address == *ip
+        }
+        FilterTerm::Domain(value) => connection
+            .domain
+            .as_deref()
+            .or(connection.hostname.as_deref())
+            .is_some_and(|domain| domain.to_lowercase().contains(value)),
+        FilterTerm::State(state) => connection.state == *state,
+        FilterTerm::FirstSeen(value) => connection.first_seen_destination == *value,
+        FilterTerm::Asn(number) => connection
+            .asn
+            .as_ref()
+            .is_some_and(|asn| asn.number == *number),
+        FilterTerm::Cidr(network, prefix) => {
+            cidr_contains(*network, *prefix, connection.key.local.address)
+                || cidr_contains(*network, *prefix, connection.key.remote.address)
+        }
+        FilterTerm::Scope(scope) => connection.key.remote.scope == *scope,
+        FilterTerm::Geo(value) => connection.geo.as_ref().is_some_and(|geo| {
+            geo.country_code
+                .iter()
+                .chain(geo.country_name.iter())
+                .chain(geo.region.iter())
+                .chain(geo.city.iter())
+                .any(|field| field.to_lowercase().contains(value))
+        }),
+        FilterTerm::Source(source) => connection.evidence.observation_source == *source,
+        FilterTerm::Not(inner) => !matches_term(inner, connection),
+    }
+}
+
+fn parse_cidr(value: &str) -> Option<(IpAddr, u8)> {
+    let (address, prefix) = value.split_once('/')?;
+    let address = canonicalize_address(address.parse().ok()?);
+    let prefix: u8 = prefix.parse().ok()?;
+    let maximum = if address.is_ipv4() { 32 } else { 128 };
+    (prefix <= maximum).then_some((address, prefix))
+}
+
+fn cidr_contains(network: IpAddr, prefix: u8, address: IpAddr) -> bool {
+    let address = canonicalize_address(address);
+    match (network, address) {
+        (IpAddr::V4(network), IpAddr::V4(address)) => {
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - u32::from(prefix))
+            };
+            u32::from(network) & mask == u32::from(address) & mask
+        }
+        (IpAddr::V6(network), IpAddr::V6(address)) => {
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u128::MAX << (128 - u32::from(prefix))
+            };
+            u128::from(network) & mask == u128::from(address) & mask
+        }
+        _ => false,
+    }
+}
+
+fn parse_scope(value: &str) -> Option<AddressScope> {
+    match value {
+        "global" | "public" => Some(AddressScope::Global),
+        "private" | "lan" => Some(AddressScope::Private),
+        "loopback" | "localhost" => Some(AddressScope::Loopback),
+        "link_local" | "link-local" => Some(AddressScope::LinkLocal),
+        "multicast" => Some(AddressScope::Multicast),
+        "cgnat" => Some(AddressScope::Cgnat),
+        "documentation" => Some(AddressScope::Documentation),
+        "benchmark" => Some(AddressScope::Benchmark),
+        "reserved" => Some(AddressScope::Reserved),
+        "broadcast" => Some(AddressScope::Broadcast),
+        "unspecified" => Some(AddressScope::Unspecified),
+        _ => None,
+    }
+}
+
+fn parse_source(value: &str) -> Option<ObservationSource> {
+    match value {
+        "windows_ip_helper" | "ip_helper" => Some(ObservationSource::WindowsIpHelper),
+        "windows_etw" | "etw" => Some(ObservationSource::WindowsEtw),
+        "linux_inet_diag" | "inet_diag" | "netlink" => Some(ObservationSource::LinuxInetDiag),
+        "local_dns" | "dns" => Some(ObservationSource::LocalDns),
+        "local_mmdb" | "mmdb" | "geoip" => Some(ObservationSource::LocalMmdb),
+        "demo" => Some(ObservationSource::Demo),
+        "historical" | "history" => Some(ObservationSource::Historical),
+        "unknown" => Some(ObservationSource::Unknown),
+        _ => None,
     }
 }
 
@@ -183,13 +299,13 @@ fn searchable_text(connection: &Connection) -> String {
         values.push(hostname.clone());
     }
     if let Some(geo) = &connection.geo {
-        values.push(geo.country_code.clone());
-        values.push(geo.country_name.clone());
+        values.extend(geo.country_code.iter().cloned());
+        values.extend(geo.country_name.iter().cloned());
         values.extend(geo.city.iter().cloned());
     }
     if let Some(asn) = &connection.asn {
         values.push(asn.number.to_string());
-        values.push(asn.organization.clone());
+        values.extend(asn.organization.iter().cloned());
     }
     values.join(" ").to_lowercase()
 }
@@ -227,13 +343,16 @@ mod tests {
         connection.process.name = "Firefox".into();
         connection.key.remote.port = 443;
         connection.geo = Some(GeoLocation {
-            country_code: "US".into(),
-            country_name: "United States".into(),
+            country_code: Some("US".into()),
+            country_name: Some("United States".into()),
             region: None,
             city: Some("New York".into()),
-            latitude: 40.7,
-            longitude: -74.0,
+            latitude: Some(40.7),
+            longitude: Some(-74.0),
             source: "test".into(),
+            precision: crate::GeoPrecision::Coordinates,
+            placement: crate::PlacementKind::DatabaseCoordinate,
+            ..GeoLocation::default()
         });
         assert!(
             "process:fire country:US port:443 new"
@@ -241,5 +360,45 @@ mod tests {
                 .expect("filter")
                 .matches(&connection)
         );
+    }
+
+    #[test]
+    fn matches_cidr_scope_geo_source_and_negation() {
+        let mut connection = Connection::placeholder(0);
+        connection.key.remote = crate::Endpoint::new(
+            "203.0.114.8".parse().expect("globally routable fixture"),
+            443,
+        );
+        connection.evidence.observation_source = ObservationSource::WindowsIpHelper;
+        connection.geo = Some(GeoLocation {
+            country_code: Some("ES".into()),
+            country_name: Some("Spain".into()),
+            city: Some("Madrid".into()),
+            ..GeoLocation::default()
+        });
+        assert!(
+            "cidr:203.0.114.0/24 scope:global geo:madrid source:ip_helper -port:80"
+                .parse::<ConnectionFilter>()
+                .expect("advanced filter")
+                .matches(&connection)
+        );
+        assert!(
+            "!geo:paris"
+                .parse::<ConnectionFilter>()
+                .expect("negative filter")
+                .matches(&connection)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_cidr_prefix_and_source() {
+        assert!(matches!(
+            "cidr:10.0.0.0/33".parse::<ConnectionFilter>(),
+            Err(FilterError::InvalidValue { .. })
+        ));
+        assert!(matches!(
+            "source:cloud".parse::<ConnectionFilter>(),
+            Err(FilterError::InvalidValue { .. })
+        ));
     }
 }

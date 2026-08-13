@@ -14,6 +14,7 @@ redistribution decision for primary components are in `DEPENDENCIES.md`.
 - SQLite: public domain; `rusqlite` is MIT.
 - `maxminddb`: ISC.
 - `ferrisetw` and `sha2`: MIT OR Apache-2.0.
+- `mmdb-writer`: MIT, development-only synthetic MMDB fixture generation.
 - DB-IP City Lite / ASN Lite database, when installed by the user: CC BY 4.0.
   **IP geolocation by DB-IP.com** — <https://db-ip.com/db/lite.php>.
 
@@ -25,7 +26,7 @@ source dependencies.
 
 ## Audit snapshot
 
-On 2026-08-11, local package manifests reported 515 Cargo packages and 43 pnpm
+On 2026-08-12, local package manifests reported 519 Cargo packages and 42 pnpm
 packages, with no missing license declaration and no commercial-only dependency. See
 `DEPENDENCIES.md` for the category totals and source references.
 

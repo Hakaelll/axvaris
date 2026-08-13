@@ -44,8 +44,11 @@ NetworkCaptureProvider ──► NormalizedNetworkEvent
 ## Core event pipeline
 
 Snapshot providers produce immutable `ObservedSocket` values and `SnapshotDiffer`
-emits `Opened`, `Updated` or `Closed` normalized events. On Windows, a separate bounded
-ETW path can emit event-driven TCP/UDP and DNS observations; every traffic counter
+emits `Opened`, `Updated` or `Closed` normalized events. Canonical addresses retain
+observed family and zone separately; every endpoint includes role, reason and source,
+and every flow includes process instance, interface and capture generation. On Windows,
+a bounded correlator joins IP Helper snapshots with ETW TCP/UDP/DNS observations using
+PID, canonical tuple, interface, direction and a finite time window; every traffic counter
 carries `CounterSource` provenance (`interface_aggregate`, `etw_flow`, `demo` or
 `unavailable`). The aggregator keys flows by process, local/remote endpoint and
 protocol, coalesces repeated events, retains closed flows for an eight-second visual
@@ -65,7 +68,10 @@ local process resources. PCAPNG recording is an explicit independent path.
 ## Tauri IPC
 
 The frontend receives serializable view models, not database handles or filesystem
-access. Commands are purpose-specific: capture/snapshot/self-test, history/timeline,
+access. High-frequency updates are revisioned deltas with a monotonic sequence; a
+client gap forces a complete resynchronization. Full statistics are computed before
+the render payload is capped at 2,000 connections, 1,000 processes and 2,000
+destinations. Commands are purpose-specific: capture/snapshot/self-test, history/timeline,
 session comparison, metadata export, recording, focus rules, reconstruction, GeoIP
 update/offline import, redacted support bundle and settings. Inputs use typed enums,
 bounded values and validated/scoped paths. There is no arbitrary shell command or
@@ -97,21 +103,26 @@ loaded lazily by the desktop layer and are never required for an event to surviv
 
 ## DNS and GeoIP
 
-Enrichment runs off the capture critical path. The feed displays the IP immediately.
-GeoIP reads local DB-IP Lite-compatible City/ASN MMDBs and uses a bounded cache.
+Enrichment runs off the capture critical path through bounded worker queues. The feed
+displays the IP immediately. GeoIP reads independently replaceable local DB-IP
+Lite-compatible City/ASN MMDBs and caches by canonical address plus City/ASN generation.
 Offline imports enforce a 512 MiB cap, validate MMDB edition, compute SHA-256 and use
 an atomic local replacement. Private, loopback, multicast and unspecified addresses
 are classified locally. Reverse DNS is disabled by default; when the user opts in,
 public misses are queued to the configured system resolver with positive/negative
 TTLs. Windows DNS Client answers can be correlated passively when ETW is available.
-Unknown public IPs remain unknown.
+Unknown public IPs remain unknown. Historical re-enrichment builds a separate derived
+view and replaces it atomically only if the job completes against the same dataset
+generations; observed fields are immutable.
 
 ## Storage
 
 SQLite uses WAL mode, foreign keys, sequential versioned migrations and indexes on
-timestamps, session, process, remote IP, domain and country. Schema v3 stores
+timestamps, session, process, remote IP, domain and country. Schema v4 stores
 connection/session data, one-second traffic samples with source provenance, bookmarks,
-ignore rules, statistical baselines and recording metadata. Queries aggregate traffic
+ignore rules, statistical baselines, investigations, endpoint/evidence provenance,
+derived GeoIP views and recording metadata. Migrations from v1–v3 are transactional,
+keep a readable backup and roll back on failure. Queries aggregate traffic
 to 1 s/1 min/1 h buckets. Normal observation persists metadata only. Retention cleanup
 runs at startup, after a retention change and hourly while the app is active. Paths
 come from Tauri's platform app-data directory (`AppData` on Windows, XDG data on Linux).
@@ -125,7 +136,9 @@ Routes group by country, region/city or destination according to zoom/density, w
 marker size communicating grouped count.
 
 All critical globe facts also exist in the semantic feed/inspector. The SVG map is the
-non-WebGL fallback. Remote, local and listener workspaces filter the same evidence
+interactive non-WebGL fallback, with bounded zoom/pan, framing, antimeridian-safe routes
+and an expanded layout that preserves selection and viewport. Remote, local and listener
+workspaces filter the same evidence
 array. Core navigation, failures, self-tests and dynamic baseline explanations route
 through the English/Spanish catalog; original low-level diagnostics remain available
 in an expandable detail.

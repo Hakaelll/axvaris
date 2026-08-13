@@ -15,3 +15,7 @@ sabicheiro-core = { path = "../sabicheiro-core" }
 serde.workspace = true
 sha2 = "0.10"
 thiserror.workspace = true
+
+[dev-dependencies]
+mmdb-writer = "0.1.0"
+tempfile = "3"

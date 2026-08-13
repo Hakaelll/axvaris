@@ -7,7 +7,9 @@ import type {
   ConnectionHistoryStats,
   Connection,
   ComparisonExportRequest,
+  DashboardUpdate,
   DashboardSnapshot,
+  DerivedGeoEnrichment,
   DestinationSummary,
   ExportRequest,
   ExportResult,
@@ -15,17 +17,25 @@ import type {
   GeoDatabaseStatus,
   HistoryQuery,
   HistoryResponse,
+  IdentityTimelineEvent,
+  InvestigationQuery,
+  LocalDataCategory,
+  LocalDataRemovalResult,
   NetworkInterface,
   ProcessSummary,
+  ReenrichmentJobStatus,
   RecordingRequest,
   RecordingState,
   RetentionPolicy,
   RuleKind,
+  SavedInvestigation,
   SessionComparison,
+  StorageHealth,
   SupportBundleRequest,
   TimelineQuery,
   TrafficSample,
   TrafficCounters,
+  AsnProfile,
 } from "../types";
 
 declare global {
@@ -178,6 +188,7 @@ const previewDestinations = [
 let previewMode: CaptureMode = "off";
 let previewPaused = false;
 let previewStarted = Date.now();
+let previewSequence = 0;
 let previewSettings: AppSettings = {
   retention: "seven_days",
   reduce_motion: false,
@@ -193,8 +204,11 @@ let previewSettings: AppSettings = {
   feed_group_window_seconds: 30,
   active_workspace: "remote",
   notification_rules: [],
+  ephemeral_capture: false,
+  ui_density: "comfortable",
 };
 let previewFocusRules: FocusRules = { bookmarks: [], ignore_rules: [] };
+let previewInvestigations: SavedInvestigation[] = [];
 let previewRuleId = 1;
 let previewRecording: RecordingState = {
   status: "idle",
@@ -246,9 +260,33 @@ function previewConnections(now: number): Connection[] {
       id: `preview-${index}`,
       key: {
         pid,
-        local: { address: "192.168.1.42", port: 45000 + index * 137 },
-        remote: { address: ip, port },
+        process_instance: `pid:${pid}:start:${previewStarted - 7_200_000}`,
+        local: {
+          address: "192.168.1.42",
+          port: 45000 + index * 137,
+          observed_family: "ipv4",
+          scope: "private",
+          zone: null,
+        },
+        remote: {
+          address: ip,
+          port,
+          observed_family: "ipv4",
+          scope: "global",
+          zone: null,
+        },
         protocol,
+        interface_id: "wifi",
+        capture_generation: 1,
+        flow_generation: index + 1,
+      },
+      evidence: {
+        endpoint_role: "remote_peer",
+        role_reason: "connected_global_peer",
+        observation_source: "demo",
+        correlation_quality: "confirmed",
+        observed_at_ms: firstSeen,
+        sequence: index + 1,
       },
       process: {
         pid,
@@ -272,8 +310,26 @@ function previewConnections(now: number): Connection[] {
         latitude,
         longitude,
         source: "Sabicheiro deterministic development preview",
+        precision: "coordinates",
+        placement: "database_coordinate",
+        accuracy_radius_km: 24,
+        dataset_kind: "city",
+        dataset_edition: "Sabicheiro-City-Preview",
+        dataset_build_epoch_ms: 1_776_000_000_000,
+        dataset_sha256: "preview-only",
+        matched_prefix: 24,
+        city_generation: 1,
+        asn_generation: 1,
       },
-      asn: { number: asn, organization },
+      asn: {
+        number: asn,
+        organization,
+        dataset_edition: "Sabicheiro-ASN-Preview",
+        dataset_build_epoch_ms: 1_776_000_000_000,
+        dataset_sha256: "preview-only",
+        matched_prefix: 24,
+        generation: 1,
+      },
       traffic: {
         bytes_sent: Math.round(upRate * (44 + index * 11)),
         bytes_received: Math.round(downRate * (44 + index * 11)),
@@ -320,7 +376,8 @@ function summarizeProcesses(connections: Connection[]): ProcessSummary[] {
     current.traffic.bytes_received += connection.traffic.bytes_received;
     current.traffic.packets_sent += connection.traffic.packets_sent;
     current.traffic.packets_received += connection.traffic.packets_received;
-    if (connection.geo) current.countrySet.add(connection.geo.country_code);
+    if (connection.geo?.country_code)
+      current.countrySet.add(connection.geo.country_code);
     current.countries = current.countrySet.size;
     values.set(key, current);
   }
@@ -346,6 +403,12 @@ function summarizeDestinations(
     total_connections: connection.repeat_count,
     process_names: [connection.process.name],
     traffic: connection.traffic,
+    ports: [connection.key.remote.port],
+    first_seen_ms: connection.first_seen_ms,
+    last_seen_ms: connection.last_seen_ms,
+    recurrence: connection.repeat_count,
+    geo_precision: connection.geo?.precision ?? "unknown",
+    placement: connection.geo?.placement ?? "not_plotted",
   }));
 }
 
@@ -402,7 +465,41 @@ function makePreviewSnapshot(): DashboardSnapshot {
       packet_events_observed:
         previewMode === "off" ? 0 : Math.floor((now - previewStarted) / 120),
       dns_correlations_observed: previewMode === "off" ? 0 : 8,
+      correlated_capture_events: previewMode === "off" ? 0 : 128,
+      approximate_capture_events: 0,
+      orphan_capture_events: 0,
+      capture_generation: previewMode === "off" ? 0 : 1,
+      sequence_gaps: 0,
+      snapshot_resyncs: 0,
+      storage_quick_check_ok: true,
+      storage_last_check_ms: now,
+      storage_wal_pages: 0,
       last_error: null,
+      subsystems: [
+        {
+          subsystem: "capture",
+          status: previewMode === "off" ? "disabled" : "healthy",
+          since_ms: previewStarted,
+          message:
+            previewMode === "off"
+              ? "Capture is stopped"
+              : "Deterministic preview is capturing",
+          action: previewMode === "off" ? "Start Demo capture." : null,
+          queue_depth: 0,
+          queue_capacity: 0,
+          dropped_events: 0,
+        },
+        {
+          subsystem: "storage",
+          status: "healthy",
+          since_ms: previewStarted,
+          message: "SQLite quick_check passed",
+          action: null,
+          queue_depth: 0,
+          queue_capacity: 0,
+          dropped_events: 0,
+        },
+      ],
     },
     capture: {
       mode: previewMode,
@@ -423,6 +520,7 @@ function makePreviewSnapshot(): DashboardSnapshot {
             country_count: countries.size,
             destination_count: destinations.length,
             recording_count: previewRecording.started_at_ms === null ? 0 : 1,
+            ephemeral: previewSettings.ephemeral_capture,
             traffic: connections.reduce<TrafficCounters>(
               (total, connection) => ({
                 bytes_sent: total.bytes_sent + connection.traffic.bytes_sent,
@@ -495,6 +593,31 @@ export const desktopApi = {
   async getSnapshot(): Promise<DashboardSnapshot> {
     return isDesktop ? call("get_snapshot") : makePreviewSnapshot();
   },
+  async getDashboardUpdate(
+    afterSequence: number | null,
+  ): Promise<DashboardUpdate> {
+    if (isDesktop) return call("get_dashboard_update", { afterSequence });
+    const snapshot = makePreviewSnapshot();
+    const expected = previewSequence;
+    previewSequence += 1;
+    const resync = afterSequence !== expected;
+    return {
+      sequence: previewSequence,
+      base_revision: Math.max(0, snapshot.revision - 1),
+      revision: snapshot.revision,
+      generated_at_ms: snapshot.generated_at_ms,
+      resync_required: resync,
+      snapshot: resync ? snapshot : null,
+      upserted_connections: resync ? [] : snapshot.connections,
+      removed_connection_ids: [],
+      processes: snapshot.processes,
+      destinations: snapshot.destinations,
+      stats: snapshot.stats,
+      diagnostics: snapshot.diagnostics,
+      capture: snapshot.capture,
+      session: snapshot.session,
+    };
+  },
   async setCaptureState(
     mode: CaptureMode,
     selectedInterface: string | null,
@@ -522,6 +645,7 @@ export const desktopApi = {
           title: "Network interfaces are discoverable",
           detail: "Development preview adapter is available.",
           diagnostic_code: null,
+          action: null,
         },
         {
           id: "socket_table",
@@ -529,6 +653,7 @@ export const desktopApi = {
           title: "Socket tables are readable",
           detail: "Development preview uses deterministic local data.",
           diagnostic_code: null,
+          action: null,
         },
         {
           id: "dns",
@@ -536,6 +661,7 @@ export const desktopApi = {
           title: "Passive DNS correlation is active",
           detail: "Preview hostnames are deterministic and local.",
           diagnostic_code: null,
+          action: null,
         },
         {
           id: "geoip",
@@ -543,8 +669,21 @@ export const desktopApi = {
           title: "Local GeoIP database is ready",
           detail: "Development preview dataset.",
           diagnostic_code: null,
+          action: null,
         },
       ],
+      coverage: ["tcp", "udp"].flatMap((protocol) =>
+        ["ipv4", "ipv6"].map((family) => ({
+          protocol: protocol as "tcp" | "udp",
+          family: family as "ipv4" | "ipv6",
+          endpoint: "pass" as const,
+          process: "pass" as const,
+          interface: "pass" as const,
+          close_event: "pass" as const,
+          limitation: null,
+        })),
+      ),
+      redacted_report: "preview: PASS - deterministic local fixture",
     };
   },
   async setViewPaused(paused: boolean): Promise<void> {
@@ -584,6 +723,120 @@ export const desktopApi = {
               },
             ],
     };
+  },
+  async saveInvestigation(
+    investigation: SavedInvestigation,
+  ): Promise<SavedInvestigation> {
+    if (isDesktop) return call("save_investigation", { investigation });
+    const saved = {
+      ...structuredClone(investigation),
+      id: investigation.id || `investigation-${Date.now()}`,
+      created_at_ms: investigation.created_at_ms || Date.now(),
+      updated_at_ms: Date.now(),
+    };
+    previewInvestigations = [
+      saved,
+      ...previewInvestigations.filter((item) => item.id !== saved.id),
+    ];
+    return structuredClone(saved);
+  },
+  async listInvestigations(): Promise<SavedInvestigation[]> {
+    return isDesktop
+      ? call("list_investigations")
+      : structuredClone(previewInvestigations);
+  },
+  async deleteInvestigation(id: string): Promise<boolean> {
+    if (isDesktop) return call("delete_investigation", { id });
+    const previous = previewInvestigations.length;
+    previewInvestigations = previewInvestigations.filter(
+      (item) => item.id !== id,
+    );
+    return previous !== previewInvestigations.length;
+  },
+  async queryInvestigation(query: InvestigationQuery) {
+    if (isDesktop)
+      return call<HistoryResponse["entries"]>("query_investigation", { query });
+    const history = await this.queryHistory({
+      from_ms: query.from_ms,
+      to_ms: query.to_ms,
+      session_id: query.session_id,
+      query: query.filter,
+      limit: 100_000,
+    });
+    return history.entries;
+  },
+  async getAsnProfile(
+    number: number,
+    query: HistoryQuery | null = null,
+  ): Promise<AsnProfile> {
+    if (isDesktop) return call("get_asn_profile", { number, query });
+    const connections = makePreviewSnapshot().connections.filter(
+      (connection) => connection.asn?.number === number,
+    );
+    return {
+      number,
+      organization: connections[0]?.asn?.organization ?? null,
+      observed_ips: [...new Set(connections.map((item) => item.key.remote.address))],
+      process_names: [...new Set(connections.map((item) => item.process.name))],
+      session_ids: [`preview-session-${previewStarted}`],
+      connection_ids: connections.map((item) => item.id),
+      estimated_countries: [
+        ...new Set(
+          connections.flatMap((item) => item.geo?.country_name ?? []),
+        ),
+      ],
+      traffic: connections.reduce<TrafficCounters>(
+        (total, connection) => ({
+          bytes_sent: total.bytes_sent + connection.traffic.bytes_sent,
+          bytes_received: total.bytes_received + connection.traffic.bytes_received,
+          packets_sent: total.packets_sent + connection.traffic.packets_sent,
+          packets_received:
+            total.packets_received + connection.traffic.packets_received,
+        }),
+        zeroTraffic(),
+      ),
+      first_seen_ms: connections.length
+        ? Math.min(...connections.map((item) => item.first_seen_ms))
+        : null,
+      last_seen_ms: connections.length
+        ? Math.max(...connections.map((item) => item.last_seen_ms))
+        : null,
+    };
+  },
+  async getIdentityTimeline(
+    connectionId: string,
+    sessionId: string | null,
+  ): Promise<IdentityTimelineEvent[]> {
+    if (isDesktop)
+      return call("get_identity_timeline", { connectionId, sessionId });
+    const connection = makePreviewSnapshot().connections.find(
+      (item) => item.id === connectionId,
+    );
+    if (!connection) return [];
+    return [
+      {
+        id: `${connection.id}-opened`,
+        timestamp_ms: connection.first_seen_ms,
+        kind: "connection_opened",
+        title: "Connection opened",
+        detail: connection.evidence.role_reason,
+        source: connection.evidence.observation_source,
+        confidence: connection.evidence.correlation_quality,
+        connection_id: connection.id,
+        session_id: sessionId,
+      },
+      {
+        id: `${connection.id}-geo`,
+        timestamp_ms: connection.last_seen_ms,
+        kind: "geo_enriched",
+        title: "Estimated network location enriched",
+        detail: connection.geo?.country_name ?? "Unknown",
+        source: "local_mmdb",
+        confidence: "correlated",
+        connection_id: connection.id,
+        session_id: sessionId,
+      },
+    ];
   },
   async queryTrafficTimeline(query: TimelineQuery): Promise<TrafficSample[]> {
     if (isDesktop) return call("query_traffic_timeline", { query });
@@ -775,6 +1028,80 @@ export const desktopApi = {
       )
       .map((connection) => ({ ...connection, active: true }));
   },
+  async startSessionReenrichment(
+    sessionId: string,
+  ): Promise<ReenrichmentJobStatus> {
+    if (isDesktop) return call("start_session_reenrichment", { sessionId });
+    const total = makePreviewSnapshot().connections.length;
+    return {
+      id: `reenrichment-${Date.now()}`,
+      session_id: sessionId,
+      state: "completed",
+      processed: total,
+      total,
+      started_at_ms: Date.now(),
+      finished_at_ms: Date.now(),
+      message: "Derived preview view saved; observations were unchanged.",
+    };
+  },
+  async getReenrichmentJob(id: string): Promise<ReenrichmentJobStatus> {
+    if (isDesktop) return call("get_reenrichment_job", { id });
+    return {
+      id,
+      session_id: `preview-session-${previewStarted}`,
+      state: "completed",
+      processed: makePreviewSnapshot().connections.length,
+      total: makePreviewSnapshot().connections.length,
+      started_at_ms: Date.now(),
+      finished_at_ms: Date.now(),
+      message: "Preview job complete.",
+    };
+  },
+  async cancelReenrichmentJob(id: string): Promise<boolean> {
+    return isDesktop ? call("cancel_reenrichment_job", { id }) : true;
+  },
+  async getSessionGeoView(
+    sessionId: string,
+  ): Promise<DerivedGeoEnrichment[]> {
+    if (isDesktop) return call("get_session_geo_view", { sessionId });
+    return makePreviewSnapshot().connections.map((connection) => ({
+      connection_id: connection.id,
+      observed_geo: connection.geo,
+      observed_asn: connection.asn,
+      current_geo: connection.geo,
+      current_asn: connection.asn,
+    }));
+  },
+  async getStorageHealth(): Promise<StorageHealth> {
+    if (isDesktop) return call("get_storage_health");
+    return {
+      quick_check_ok: true,
+      detail: "ok",
+      wal_busy_pages: 0,
+      wal_log_pages: 0,
+      wal_checkpointed_pages: 0,
+      database_size_bytes: 2_281_472,
+      checked_at_ms: Date.now(),
+    };
+  },
+  async compactStorage(): Promise<StorageHealth> {
+    return isDesktop ? call("compact_storage") : this.getStorageHealth();
+  },
+  async clearLocalData(
+    category: LocalDataCategory,
+  ): Promise<LocalDataRemovalResult> {
+    if (isDesktop) return call("clear_local_data", { category });
+    if (category === "sessions" || category === "all") previewStarted = Date.now();
+    if (category === "all") {
+      previewInvestigations = [];
+      previewFocusRules = { bookmarks: [], ignore_rules: [] };
+    }
+    return {
+      category,
+      removed_items: 1,
+      requires_capture_restart: category === "sessions" || category === "all",
+    };
+  },
   async getGeoStatus(): Promise<GeoDatabaseStatus> {
     if (isDesktop) return call("get_geo_database_status");
     return {
@@ -787,6 +1114,37 @@ export const desktopApi = {
       edition: "DBIP-City-Lite",
       sha256: "preview-only",
       attribution: "IP geolocation by DB-IP.com, licensed under CC BY 4.0",
+      city: {
+        kind: "city",
+        installed: true,
+        dataset: "Sabicheiro-City-Preview",
+        version: "2026-08",
+        build_epoch_ms: 1_776_000_000_000,
+        last_update_ms: Date.now() - 7 * 86_400_000,
+        next_recommended_update_ms: Date.now() + 23 * 86_400_000,
+        path: "Development preview only",
+        edition: "Sabicheiro-City-Preview",
+        sha256: "preview-only",
+        generation: 1,
+        backup_available: true,
+        attribution: "Local deterministic preview dataset",
+      },
+      asn: {
+        kind: "asn",
+        installed: true,
+        dataset: "Sabicheiro-ASN-Preview",
+        version: "2026-08",
+        build_epoch_ms: 1_776_000_000_000,
+        last_update_ms: Date.now() - 7 * 86_400_000,
+        next_recommended_update_ms: Date.now() + 23 * 86_400_000,
+        path: "Development preview only",
+        edition: "Sabicheiro-ASN-Preview",
+        sha256: "preview-only",
+        generation: 1,
+        backup_available: true,
+        attribution: "Local deterministic preview dataset",
+      },
+      last_operation: null,
     };
   },
   async updateGeoDatabase(): Promise<GeoDatabaseStatus> {
@@ -798,6 +1156,16 @@ export const desktopApi = {
   ): Promise<GeoDatabaseStatus> {
     return isDesktop
       ? call("import_geo_database", { sourcePath, kind })
+      : this.getGeoStatus();
+  },
+  async rollbackGeoDatabase(kind: "city" | "asn"): Promise<GeoDatabaseStatus> {
+    return isDesktop
+      ? call("rollback_geo_database", { kind })
+      : this.getGeoStatus();
+  },
+  async removeGeoDatabase(kind: "city" | "asn"): Promise<GeoDatabaseStatus> {
+    return isDesktop
+      ? call("remove_geo_database", { kind })
       : this.getGeoStatus();
   },
   async exportView(request: ExportRequest): Promise<ExportResult> {

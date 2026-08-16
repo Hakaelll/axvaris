@@ -5,6 +5,8 @@ import type {
   CaptureMode,
   CaptureSummary,
   ConnectionHistoryStats,
+  ConnectionAnnotation,
+  ConnectionContextResponse,
   Connection,
   ComparisonExportRequest,
   DashboardUpdate,
@@ -13,15 +15,21 @@ import type {
   DestinationSummary,
   ExportRequest,
   ExportResult,
+  ExecutableInspectionStatus,
   FocusRules,
   GeoDatabaseStatus,
   HistoryQuery,
   HistoryResponse,
   IdentityTimelineEvent,
   InvestigationQuery,
+  ImportedSabiBundle,
+  ListenerSnapshot,
   LocalDataCategory,
   LocalDataRemovalResult,
   NetworkInterface,
+  NetworkProfile,
+  NotificationState,
+  OfflineCatalogIdentity,
   ProcessSummary,
   ReenrichmentJobStatus,
   RecordingRequest,
@@ -29,6 +37,10 @@ import type {
   RetentionPolicy,
   RuleKind,
   SavedInvestigation,
+  SabiExportRequest,
+  LocalNotificationRecord,
+  LocalRule,
+  RuleMatch,
   SessionComparison,
   StorageHealth,
   SupportBundleRequest,
@@ -36,6 +48,7 @@ import type {
   TrafficSample,
   TrafficCounters,
   AsnProfile,
+  TodayCardState,
 } from "../types";
 
 declare global {
@@ -196,6 +209,7 @@ let previewSettings: AppSettings = {
   show_local_traffic: false,
   show_listening_sockets: false,
   reverse_dns_enabled: false,
+  offline_enforced: false,
   selected_interface: null,
   home_latitude: 40.4168,
   home_longitude: -3.7038,
@@ -204,11 +218,31 @@ let previewSettings: AppSettings = {
   feed_group_window_seconds: 30,
   active_workspace: "remote",
   notification_rules: [],
+  notification_quiet_hours_enabled: false,
+  notification_quiet_start_minute: 1320,
+  notification_quiet_end_minute: 420,
   ephemeral_capture: false,
   ui_density: "comfortable",
+  operation_profile: "visible",
+  autostart_enabled: false,
+  handshake_metadata_enabled: false,
+  enhanced_contrast: false,
+  text_scale_percent: 100,
 };
 let previewFocusRules: FocusRules = { bookmarks: [], ignore_rules: [] };
 let previewInvestigations: SavedInvestigation[] = [];
+let previewLocalRules: LocalRule[] = [];
+let previewLocalNotifications: LocalNotificationRecord[] = [];
+let previewTodayCards: TodayCardState[] = [];
+let previewNetworkProfiles: NetworkProfile[] = [
+  {
+    id: "network-preview-home",
+    display_name: "Home",
+    vpn_observed: false,
+    created_at_ms: previewStarted,
+    sensitive_fields_redacted: true,
+  },
+];
 let previewRuleId = 1;
 let previewRecording: RecordingState = {
   status: "idle",
@@ -295,6 +329,13 @@ function previewConnections(now: number): Connection[] {
         executable_path: `C:\\Program Files\\${executable}`,
         started_at_ms: previewStarted - 7_200_000,
         icon_data_url: null,
+        parent_pid: null,
+        parent_instance: null,
+        user_id: "preview-user",
+        session_id: 1,
+        cgroup: null,
+        network_namespace: null,
+        executable_revision_id: `preview-revision-${executable}`,
       },
       protocol,
       direction: "outbound",
@@ -733,6 +774,7 @@ export const desktopApi = {
       id: investigation.id || `investigation-${Date.now()}`,
       created_at_ms: investigation.created_at_ms || Date.now(),
       updated_at_ms: Date.now(),
+      autosave_revision: investigation.autosave_revision + 1,
     };
     previewInvestigations = [
       saved,
@@ -764,6 +806,185 @@ export const desktopApi = {
       limit: 100_000,
     });
     return history.entries;
+  },
+  async saveLocalRule(rule: LocalRule): Promise<LocalRule> {
+    if (isDesktop) return call("save_local_rule", { rule });
+    previewLocalRules = [
+      structuredClone(rule),
+      ...previewLocalRules.filter((item) => item.id !== rule.id),
+    ];
+    return structuredClone(rule);
+  },
+  async listLocalRules(): Promise<LocalRule[]> {
+    return isDesktop ? call("list_local_rules") : structuredClone(previewLocalRules);
+  },
+  async deleteLocalRule(id: string): Promise<boolean> {
+    if (isDesktop) return call("delete_local_rule", { id });
+    const previous = previewLocalRules.length;
+    previewLocalRules = previewLocalRules.filter((item) => item.id !== id);
+    return previous !== previewLocalRules.length;
+  },
+  async previewLocalRule(
+    rule: LocalRule,
+    query: HistoryQuery,
+  ): Promise<RuleMatch[]> {
+    if (isDesktop) return call("preview_local_rule", { rule, query });
+    return makePreviewSnapshot().connections
+      .filter((connection) =>
+        rule.conditions.every((condition) =>
+          condition.field === "port"
+            ? connection.key.remote.port === condition.value
+            : condition.field === "process"
+              ? connection.process.name.toLowerCase() === condition.value.toLowerCase()
+              : true,
+        ),
+      )
+      .map((connection) => ({
+        rule_id: rule.id,
+        rule_version: rule.version,
+        connection_id: connection.id,
+        matched: true,
+        reasons: ["Development preview match"],
+        actions: rule.actions,
+      }));
+  },
+  async listLocalNotifications(limit = 200): Promise<LocalNotificationRecord[]> {
+    return isDesktop
+      ? call("list_notifications", { limit })
+      : structuredClone(previewLocalNotifications.slice(0, limit));
+  },
+  async updateLocalNotification(
+    id: string,
+    notificationState: NotificationState,
+    snoozedUntilMs: number | null,
+  ): Promise<boolean> {
+    if (isDesktop)
+      return call("update_notification_state", {
+        id,
+        notificationState,
+        snoozedUntilMs,
+      });
+    const item = previewLocalNotifications.find((entry) => entry.id === id);
+    if (!item) return false;
+    item.state = notificationState;
+    item.snoozed_until_ms = snoozedUntilMs;
+    return true;
+  },
+  async listNetworkProfiles(): Promise<NetworkProfile[]> {
+    if (isDesktop) return call("list_network_profiles");
+    return structuredClone(previewNetworkProfiles);
+  },
+  async renameNetworkProfile(
+    id: string,
+    displayName: string | null,
+  ): Promise<NetworkProfile> {
+    if (isDesktop)
+      return call("rename_network_profile", { id, displayName });
+    const profile = (await this.listNetworkProfiles()).find(
+      (item) => item.id === id,
+    );
+    if (!profile) throw new Error("Network profile not found");
+    const updated = { ...profile, display_name: displayName?.trim() || null };
+    previewNetworkProfiles = [
+      updated,
+      ...previewNetworkProfiles.filter((item) => item.id !== id),
+    ];
+    return structuredClone(updated);
+  },
+  async saveTodayCardState(card: TodayCardState): Promise<TodayCardState> {
+    if (isDesktop) return call("save_today_card_state", { card });
+    previewTodayCards = [
+      structuredClone(card),
+      ...previewTodayCards.filter((item) => item.id !== card.id),
+    ];
+    return structuredClone(card);
+  },
+  async listTodayCardStates(): Promise<TodayCardState[]> {
+    return isDesktop
+      ? call("list_today_card_states")
+      : structuredClone(previewTodayCards);
+  },
+  async listConnectionAnnotations(limit = 10_000): Promise<ConnectionAnnotation[]> {
+    return isDesktop ? call("list_connection_annotations", { limit }) : [];
+  },
+  async captureListenerSnapshot(): Promise<ListenerSnapshot> {
+    if (isDesktop) return call("capture_listener_snapshot");
+    return {
+      id: 1,
+      session_id: `preview-session-${previewStarted}`,
+      observed_at_ms: Date.now(),
+      snapshot_sha256: "preview-listener-snapshot",
+      listeners: [],
+    };
+  },
+  async listListenerSnapshots(limit = 100): Promise<ListenerSnapshot[]> {
+    return isDesktop ? call("list_listener_snapshots", { limit }) : [];
+  },
+  async getConnectionContext(connectionId: string): Promise<ConnectionContextResponse> {
+    if (isDesktop) return call("get_connection_context", { connectionId });
+    const connection = makePreviewSnapshot().connections.find(
+      (item) => item.id === connectionId,
+    );
+    if (!connection) throw new Error("Connection not found");
+    return {
+      connectionId,
+      dns: connection.domain
+        ? {
+            confirmed: {
+              answer_id: `preview-dns-${connection.id}`,
+              query_name: connection.domain,
+              quality: "confirmed",
+              reason: "Same preview process instance and valid TTL",
+            },
+            candidates: [],
+            limitation: null,
+          }
+        : null,
+      path: {
+        id: `preview-route-${connection.id}`,
+        destination_prefix: connection.key.remote.address,
+        prefix_length: 32,
+        gateway_pseudonym: "gateway-preview",
+        interface_id: connection.interface,
+        metric: 25,
+        network_generation: 1,
+        profile_id: "network-preview-home",
+        kind: "gateway",
+        observed_at_ms: connection.last_seen_ms,
+        source: "demo",
+        quality: "snapshot_only",
+        limitation: "Development preview route snapshot.",
+      },
+      listener: null,
+      serviceHint: {
+        observed_port: connection.key.remote.port,
+        observed_protocol: connection.protocol,
+        service_name: connection.key.remote.port === 443 ? "https" : "unknown",
+        description: "Common local catalog hint",
+        wording: "Habitual service; observed endpoint remains primary evidence.",
+        catalog: {
+          name: "IANA service names (preview)",
+          snapshot_date: "2026-08-13",
+          source: "IANA",
+          license: "IANA licensing terms",
+          sha256: "preview",
+        },
+      },
+      registrableDomain: connection.domain,
+    };
+  },
+  async getOfflineCatalogs(): Promise<OfflineCatalogIdentity[]> {
+    return isDesktop
+      ? call("get_offline_catalogs")
+      : [
+          {
+            name: "IANA service names (preview)",
+            snapshot_date: "2026-08-13",
+            source: "IANA",
+            license: "IANA licensing terms",
+            sha256: "preview",
+          },
+        ];
   },
   async getAsnProfile(
     number: number,
@@ -1060,6 +1281,48 @@ export const desktopApi = {
   async cancelReenrichmentJob(id: string): Promise<boolean> {
     return isDesktop ? call("cancel_reenrichment_job", { id }) : true;
   },
+  async startExecutableInspection(
+    processInstance: string,
+    maximumMegabytes = 256,
+  ): Promise<ExecutableInspectionStatus> {
+    if (isDesktop)
+      return call("start_executable_inspection", {
+        processInstance,
+        maximumMegabytes,
+      });
+    const connection = makePreviewSnapshot().connections.find(
+      (item) => item.key.process_instance === processInstance,
+    );
+    const now = Date.now();
+    return {
+      id: `preview-executable-${now}`,
+      process_instance: processInstance,
+      state: "completed",
+      identity: {
+        process_instance: processInstance,
+        path: connection?.process.executable_path ?? "preview executable path unavailable",
+        revision_id: connection?.process.executable_revision_id ?? `preview-revision-${now}`,
+        size_bytes: 0,
+        modified_at_ms: null,
+        sha256: null,
+        signature_status: "unsupported",
+        package: null,
+        format: "preview",
+        computed_at_ms: now,
+        limitation: "Development preview does not read or hash a local executable.",
+      },
+      started_at_ms: now,
+      finished_at_ms: now,
+      message: "Development preview identity completed without filesystem access.",
+    };
+  },
+  async getExecutableInspection(id: string): Promise<ExecutableInspectionStatus> {
+    if (isDesktop) return call("get_executable_inspection", { id });
+    throw new Error("Preview executable inspection already completed");
+  },
+  async cancelExecutableInspection(id: string): Promise<boolean> {
+    return isDesktop ? call("cancel_executable_inspection", { id }) : true;
+  },
   async getSessionGeoView(
     sessionId: string,
   ): Promise<DerivedGeoEnrichment[]> {
@@ -1095,6 +1358,9 @@ export const desktopApi = {
     if (category === "all") {
       previewInvestigations = [];
       previewFocusRules = { bookmarks: [], ignore_rules: [] };
+      previewLocalRules = [];
+      previewLocalNotifications = [];
+      previewTodayCards = [];
     }
     return {
       category,
@@ -1174,6 +1440,48 @@ export const desktopApi = {
       path: request.path,
       records: makePreviewSnapshot().connections.length,
       bytes_written: 0,
+    };
+  },
+  async exportSabi(request: SabiExportRequest): Promise<ExportResult> {
+    if (isDesktop) return call("export_sabi", { request });
+    return {
+      path: request.path,
+      records: makePreviewSnapshot().connections.length,
+      bytes_written: 0,
+    };
+  },
+  async importSabi(path: string): Promise<ImportedSabiBundle> {
+    if (isDesktop) return call("import_sabi", { path });
+    const investigation = previewInvestigations[0];
+    if (!investigation) throw new Error("Create an investigation first");
+    return {
+      source_path: path,
+      read_only: true,
+      manifest: {
+        schema_version: 1,
+        app_version: "preview",
+        created_at_ms: Date.now(),
+        investigation_id: investigation.id,
+        query: investigation.query,
+        from_ms: investigation.query.from_ms,
+        to_ms: investigation.query.to_ms,
+        redaction: {
+          local_ip: true,
+          executable_path: true,
+          user_names: true,
+        },
+        dataset_sha256: ["preview"],
+        entry_sha256: {},
+      },
+      investigation: structuredClone(investigation),
+      connections: (await this.queryHistory({
+        from_ms: investigation.query.from_ms,
+        to_ms: investigation.query.to_ms,
+        session_id: investigation.query.session_id,
+        query: investigation.query.filter,
+        limit: 100_000,
+      })).entries,
+      timeline: [],
     };
   },
   async exportSupportBundle(

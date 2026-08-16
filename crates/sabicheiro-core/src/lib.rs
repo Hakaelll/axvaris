@@ -1,14 +1,26 @@
 mod aggregation;
 mod baseline;
+mod catalog;
+mod context;
 mod demo;
+mod evidence;
 mod filter;
 mod models;
+mod network_action;
+mod notifications;
+mod rules;
 
 pub use aggregation::ConnectionAggregator;
 pub use baseline::{BaselineBook, BaselineObservation};
+pub use catalog::*;
+pub use context::*;
 pub use demo::DemoGenerator;
+pub use evidence::*;
 pub use filter::{ConnectionFilter, FilterError, FilterTerm};
 pub use models::*;
+pub use network_action::*;
+pub use notifications::*;
+pub use rules::*;
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()

@@ -7,6 +7,28 @@ Sabicheiro is a local-first, single-host observability tool. The product model i
 Platform-specific records are normalized immediately; neither the core nor the UI
 contains Windows/Linux branches.
 
+The 0.4 evidence pipeline makes observation and projection separate boundaries:
+
+```text
+provider -> sequencer/clock -> immutable evidence journal -> deterministic fusion
+              |                         |                         |
+              v                         v                         v
+       capabilities/gaps          SQLite v5 / replay       connection projection
+                                                                |
+                              +---------------------------------+------------------+
+                              v                                 v                  v
+                       DNS/route/process                  rules/Today       bounded delta IPC
+                       causal context                    notifications             |
+                                                                                  v
+                                                    Today / Live / Investigate /
+                                                    Exposure / Data & Health
+```
+
+Every provider has a versioned descriptor, monotonic/UTC clock anchor, generation,
+sequence, watermark and drop count. A gap invalidates only provenance fields that
+depend on the lost capability. Fusion is idempotent and keeps ambiguous candidates;
+it never chooses a process, DNS name, route or peer merely to fill an unknown field.
+
 ```text
 OS socket/packet source
         │
@@ -31,13 +53,14 @@ NetworkCaptureProvider ──► NormalizedNetworkEvent
 
 ## Workspace
 
-- `crates/sabicheiro-core`: typed domain models, aggregation, filters, session
-  reconstruction, baselines and deterministic demo generator.
-- `crates/sabicheiro-capture`: capture-provider trait implementations, OS socket
-  snapshots, interface discovery, process attribution and recording boundaries.
+- `crates/sabicheiro-core`: evidence/provenance models, context, typed rules,
+  notifications, boolean filters, aggregation, offline catalogs and demo fixtures.
+- `crates/sabicheiro-capture`: capture providers, truth harness, sequencing/fusion,
+  bounded queues, supervision, process/executable/route context, optional helper and
+  recording boundaries.
 - `crates/sabicheiro-geo`: bounded local MMDB/DNS caches and private/LAN handling.
-- `crates/sabicheiro-storage`: versioned SQLite migrations, retention, history and
-  CSV/JSON export.
+- `crates/sabicheiro-storage`: SQLite v5 journal/projections, replay hashes, product
+  state, tiered retention/FTS, recovery, `.sabi` data and CSV/JSON export.
 - `apps/desktop/src-tauri`: narrow Tauri commands and runtime orchestration.
 - `apps/desktop/src`: React presentation, Three.js scene and local UI state.
 
@@ -75,7 +98,10 @@ destinations. Commands are purpose-specific: capture/snapshot/self-test, history
 session comparison, metadata export, recording, focus rules, reconstruction, GeoIP
 update/offline import, redacted support bundle and settings. Inputs use typed enums,
 bounded values and validated/scoped paths. There is no arbitrary shell command or
-general filesystem capability exposed to the webview.
+general filesystem capability exposed to the webview. Product APIs cover rule
+versions/dry-runs, Today state, notification state, network profiles, annotations,
+listener snapshots, connection context, executable inspection jobs, handshake audit
+and verified `.sabi` import/export.
 
 The Tauri capability file grants only core window/event functionality required by
 the webview. Privileged capture/recording remains behind the Rust boundary.
@@ -118,18 +144,26 @@ generations; observed fields are immutable.
 ## Storage
 
 SQLite uses WAL mode, foreign keys, sequential versioned migrations and indexes on
-timestamps, session, process, remote IP, domain and country. Schema v4 stores
+timestamps, session, process, remote IP, domain and country. The legacy v4 layer stores
 connection/session data, one-second traffic samples with source provenance, bookmarks,
 ignore rules, statistical baselines, investigations, endpoint/evidence provenance,
-derived GeoIP views and recording metadata. Migrations from v1–v3 are transactional,
+derived GeoIP views and recording metadata. Migrations from v1–v4 are transactional,
 keep a readable backup and roll back on failure. Queries aggregate traffic
 to 1 s/1 min/1 h buckets. Normal observation persists metadata only. Retention cleanup
 runs at startup, after a retention change and hourly while the app is active. Paths
 come from Tauri's platform app-data directory (`AppData` on Windows, XDG data on Linux).
 
+Schema v5 adds immutable provider observations/cursors/gaps, projection versions and
+hashes, rule/version/match records, annotations, grouped notifications, network
+profiles, Today cards, exposure snapshots, handshake/network-action audits and
+investigation workspace state. Read-only `.sabi` imports are isolated from this
+database. Retention estimates and deletes in bounded tiers; salvage always writes a
+new destination and never overwrites the original.
+
 ## Frontend and visualization
 
-React owns selection, navigation, filters and accessibility. `GlobeScene` owns one
+React owns selection, navigation, filters and accessibility. Primary navigation is
+Today, Live, Investigate, Exposure and Data & Health. `GlobeScene` owns one
 persistent renderer/scene/camera; traffic geometry is capped and rebuilt from the
 current filtered snapshot. Both 3D and 2D views consume the same connection array.
 Routes group by country, region/city or destination according to zoom/density, with
@@ -147,12 +181,17 @@ in an expandable detail.
 
 1. The webview is unprivileged and has no general filesystem/shell capability.
 2. The desktop Rust process validates capture settings, query grammar and export path.
-3. Any future privileged helper must accept a fixed versioned protocol, operate on a
-   pre-opened/validated destination and expose no command execution.
+3. The optional Windows helper accepts a fixed versioned, size/rate/time-bounded
+   operation set over a named pipe with nonce and native client-PID binding. It accepts
+   no shell, URL or arbitrary path. Native elevated deployment remains a review gate.
 4. Packet payload is discarded unless the user explicitly starts a recording.
 5. Logs contain metadata and errors, never payloads, credentials or DNS contents.
 6. The support ZIP is assembled from an explicit allow-list and excludes raw IP
    history, payloads, recordings and secrets.
+7. Optional egress requires a typed broker grant for either a fixed DB-IP download or
+   the configured system resolver. Offline-enforced mode rejects both.
+8. `.sabi` entries have exact path/size/count bounds plus CRC and manifest SHA-256 and
+   are opened read-only; rule actions cannot block traffic, execute code or start PCAP.
 
 ## Failure model
 

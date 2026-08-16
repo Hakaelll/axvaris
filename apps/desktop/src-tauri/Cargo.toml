@@ -24,6 +24,7 @@ sabicheiro-geo = { path = "../../../crates/sabicheiro-geo" }
 sabicheiro-storage = { path = "../../../crates/sabicheiro-storage" }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 thiserror.workspace = true

@@ -20,20 +20,32 @@ use std::{
 const ETW_QUEUE_CAPACITY: usize = 8_192;
 const DNS_TTL_MS: i64 = 3_600_000;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DnsObservation {
     pub address: IpAddr,
     pub hostname: String,
+    pub canonical_name: Option<String>,
+    pub ttl_seconds: u32,
+    pub resolver: Option<String>,
+    pub process_instance: Option<String>,
+    pub observed_at_ms: i64,
     pub expires_at_ms: i64,
 }
 
 #[derive(Debug)]
 enum RawEtwRecord {
     Network(RawNetworkEvent),
-    Dns {
-        hostname: String,
-        addresses: Vec<IpAddr>,
-    },
+    Dns(RawDnsEvent),
+}
+
+#[derive(Debug)]
+struct RawDnsEvent {
+    hostname: String,
+    canonical_name: Option<String>,
+    addresses: Vec<IpAddr>,
+    ttl_seconds: u32,
+    resolver: Option<String>,
+    pid: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -110,26 +122,41 @@ impl WindowsEventCapture {
         timestamp_ms: i64,
     ) -> (Vec<NormalizedNetworkEvent>, Vec<DnsObservation>) {
         let mut network = Vec::new();
-        let mut dns = Vec::new();
+        let mut raw_dns = Vec::new();
         loop {
             match self.receiver.try_recv() {
                 Ok(RawEtwRecord::Network(event)) => network.push(event),
-                Ok(RawEtwRecord::Dns {
-                    hostname,
-                    addresses,
-                }) => {
-                    dns.extend(addresses.into_iter().map(|address| DnsObservation {
-                        address,
-                        hostname: hostname.clone(),
-                        expires_at_ms: timestamp_ms.saturating_add(DNS_TTL_MS),
-                    }));
-                }
+                Ok(RawEtwRecord::Dns(event)) => raw_dns.push(event),
                 Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             }
             self.pending.fetch_sub(1, Ordering::Relaxed);
         }
-        self.processes
-            .refresh(network.iter().filter_map(|event| event.pid));
+        self.processes.refresh(
+            network
+                .iter()
+                .filter_map(|event| event.pid)
+                .chain(raw_dns.iter().filter_map(|event| event.pid)),
+        );
+        let dns = raw_dns
+            .into_iter()
+            .flat_map(|event| {
+                let process_instance = self.processes.resolve(event.pid).instance_id();
+                let ttl_ms = i64::from(event.ttl_seconds).saturating_mul(1_000);
+                event
+                    .addresses
+                    .into_iter()
+                    .map(move |address| DnsObservation {
+                        address,
+                        hostname: event.hostname.clone(),
+                        canonical_name: event.canonical_name.clone(),
+                        ttl_seconds: event.ttl_seconds,
+                        resolver: event.resolver.clone(),
+                        process_instance: process_instance.clone(),
+                        observed_at_ms: timestamp_ms,
+                        expires_at_ms: timestamp_ms.saturating_add(ttl_ms),
+                    })
+            })
+            .collect();
         let events = network
             .into_iter()
             .map(|event| {
@@ -322,12 +349,34 @@ fn dns_callback(
     if addresses.is_empty() {
         return;
     }
+    let canonical_name = parser
+        .try_parse::<String>("CName")
+        .or_else(|_| parser.try_parse("CanonicalName"))
+        .ok()
+        .map(|value| value.trim_end_matches('.').to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+    let ttl_seconds = parser
+        .try_parse::<u32>("TTL")
+        .or_else(|_| parser.try_parse("Ttl"))
+        .unwrap_or((DNS_TTL_MS / 1_000) as u32)
+        .clamp(1, 86_400);
+    let resolver = parser
+        .try_parse::<String>("ServerAddress")
+        .or_else(|_| parser.try_parse("DnsServer"))
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let payload_pid = parser.try_parse::<u32>("PID").ok();
+    let header_pid = (record.process_id() != 0).then_some(record.process_id());
     send_bounded(
         sender,
-        RawEtwRecord::Dns {
+        RawEtwRecord::Dns(RawDnsEvent {
             hostname,
+            canonical_name,
             addresses,
-        },
+            ttl_seconds,
+            resolver,
+            pid: payload_pid.filter(|pid| *pid != 0).or(header_pid),
+        }),
         dropped,
         pending,
     );

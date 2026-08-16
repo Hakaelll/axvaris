@@ -4,7 +4,10 @@ use crate::{
     infer_direction, interface_model, interfaces_from_sysinfo,
     process::ProcessResolver,
 };
-use sabicheiro_core::{ConnectionState, NetworkInterface, NetworkProtocol, ObservationSource};
+use sabicheiro_core::{
+    CapabilityAvailability, CaptureCapabilityKind, ConnectionState, NetworkInterface,
+    NetworkProtocol, ObservationSource, ProviderCapability, ProviderDescriptor, ProviderMode,
+};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
@@ -69,6 +72,47 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
 
     fn interfaces(&mut self) -> Result<Vec<NetworkInterface>, CaptureError> {
         Ok(linux_interfaces().unwrap_or_else(interfaces_from_sysinfo))
+    }
+
+    fn descriptor(&self, generation: u64) -> ProviderDescriptor {
+        ProviderDescriptor {
+            protocol_version: 1,
+            provider_id: "linux.inet_diag".into(),
+            display_name: "Linux INET_DIAG".into(),
+            mode: ProviderMode::Snapshot,
+            generation: generation.max(1),
+            capabilities: vec![
+                ProviderCapability {
+                    kind: CaptureCapabilityKind::SocketSnapshot,
+                    availability: CapabilityAvailability::Available,
+                    source: ObservationSource::LinuxInetDiag,
+                    limitation: Some(
+                        "open/close timestamps are bounded by the polling interval".into(),
+                    ),
+                },
+                ProviderCapability {
+                    kind: CaptureCapabilityKind::ProcessIdentity,
+                    availability: CapabilityAvailability::Degraded,
+                    source: ObservationSource::LinuxInetDiag,
+                    limitation: Some(
+                        "PID ownership can be unavailable with hidepid or another network namespace"
+                            .into(),
+                    ),
+                },
+                ProviderCapability {
+                    kind: CaptureCapabilityKind::Interface,
+                    availability: CapabilityAvailability::Available,
+                    source: ObservationSource::LinuxInetDiag,
+                    limitation: None,
+                },
+                ProviderCapability {
+                    kind: CaptureCapabilityKind::NetworkNamespace,
+                    availability: CapabilityAvailability::Degraded,
+                    source: ObservationSource::LinuxInetDiag,
+                    limitation: Some("only the calling process network namespace is visible".into()),
+                },
+            ],
+        }
     }
 }
 

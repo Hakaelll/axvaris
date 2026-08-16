@@ -2,7 +2,8 @@ use flate2::read::GzDecoder;
 use maxminddb::{Reader, path};
 pub use sabicheiro_core::{AddressScope, classify_address};
 use sabicheiro_core::{
-    AsnInfo, GeoDatabaseStatus, GeoDatasetStatus, GeoLocation, GeoPrecision, PlacementKind,
+    AsnInfo, GeoDatabaseStatus, GeoDatasetStatus, GeoLocation, GeoPrecision, NetworkActionGrant,
+    NetworkActionIntent, NetworkDestinationClass, PlacementKind,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -45,6 +46,8 @@ pub enum GeoError {
     DatabaseTooLarge,
     #[error("no validated rollback database is available for {0}")]
     NoBackup(&'static str),
+    #[error("the network broker grant does not authorize this fixed GeoIP download")]
+    InvalidNetworkGrant,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -488,7 +491,17 @@ impl Default for DnsResolver {
 }
 
 impl DnsResolver {
-    pub fn resolve(&mut self, address: IpAddr, now_ms: i64) -> Option<String> {
+    pub fn resolve(
+        &mut self,
+        address: IpAddr,
+        now_ms: i64,
+        grant: &NetworkActionGrant,
+    ) -> Option<String> {
+        if grant.intent() != NetworkActionIntent::ReverseDns
+            || grant.destination_class() != NetworkDestinationClass::SystemDnsResolver
+        {
+            return None;
+        }
         if classify_address(address) == AddressScope::Unspecified {
             return None;
         }
@@ -590,7 +603,16 @@ pub fn import_mmdb(
     })
 }
 
-pub fn update_dbip_lite(data_directory: impl AsRef<Path>) -> Result<UpdatedDatabases, GeoError> {
+pub fn update_dbip_lite(
+    data_directory: impl AsRef<Path>,
+    grant: &NetworkActionGrant,
+) -> Result<UpdatedDatabases, GeoError> {
+    if grant.intent() != NetworkActionIntent::GeoIpDatasetUpdate
+        || grant.destination_class() != NetworkDestinationClass::DbIpDownload
+        || grant.maximum_response_bytes() < MAX_COMPRESSED_DATABASE_BYTES
+    {
+        return Err(GeoError::InvalidNetworkGrant);
+    }
     let data_directory = data_directory.as_ref();
     fs::create_dir_all(data_directory)?;
     let month = chrono::Utc::now().format("%Y-%m").to_string();
@@ -1008,12 +1030,22 @@ mod tests {
                 expires_at_ms: 10_000,
             },
         );
+        let grant =
+            sabicheiro_core::NetworkActionBroker::new(sabicheiro_core::NetworkActionPolicy {
+                reverse_dns_allowed: true,
+                ..sabicheiro_core::NetworkActionPolicy::default()
+            })
+            .authorize(
+                sabicheiro_core::NetworkActionIntent::ReverseDns,
+                "unit-test",
+            )
+            .expect("DNS grant");
 
         assert_eq!(
-            resolver.resolve(positive, 9_999).as_deref(),
+            resolver.resolve(positive, 9_999, &grant).as_deref(),
             Some("cached.example")
         );
-        assert_eq!(resolver.resolve(negative, 9_999), None);
+        assert_eq!(resolver.resolve(negative, 9_999, &grant), None);
     }
 
     #[test]

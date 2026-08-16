@@ -256,6 +256,10 @@ impl ConnectionAggregator {
         self.connections.values()
     }
 
+    pub fn connection(&self, key: &ConnectionKey) -> Option<&Connection> {
+        self.connections.get(key)
+    }
+
     pub fn snapshot(
         &self,
         generated_at_ms: i64,

@@ -3,10 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 const repository = path.resolve(import.meta.dirname, "..");
-const git = spawnSync("git", ["ls-files", "-z"], {
+const git = spawnSync(
+  "git",
+  ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+  {
   cwd: repository,
   encoding: "utf8",
-});
+  },
+);
 if (git.status !== 0) throw new Error(git.stderr || "git ls-files failed");
 const tracked = git.stdout
   .split("\0")

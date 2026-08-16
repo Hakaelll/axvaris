@@ -8,10 +8,11 @@ import { useI18n } from "../i18n";
 import { Icon, type IconName } from "./Icon";
 
 const navigation: { id: PrimaryView; label: string; icon: IconName }[] = [
-  { id: "globe", label: "Globe", icon: "globe" },
-  { id: "processes", label: "Processes", icon: "process" },
-  { id: "destinations", label: "Destinations", icon: "map" },
-  { id: "history", label: "History", icon: "history" },
+  { id: "today", label: "Today", icon: "activity" },
+  { id: "live", label: "Live", icon: "globe" },
+  { id: "investigate", label: "Investigate", icon: "history" },
+  { id: "exposure", label: "Exposure", icon: "shield" },
+  { id: "health", label: "Data & Health", icon: "database" },
 ];
 
 interface TopBarProps {
@@ -46,7 +47,7 @@ export function TopBar({
     capture.mode !== "off" && capture.status.state === "capturing";
   return (
     <header className="topbar">
-      <button className="brand" onClick={() => onView("globe")} type="button">
+      <button className="brand" onClick={() => onView("today")} type="button">
         <img
           alt=""
           aria-hidden="true"
@@ -164,7 +165,7 @@ export function TopBar({
         <button
           aria-label={t("Open settings")}
           className="icon-button"
-          onClick={() => onView("settings")}
+          onClick={() => onView("health")}
           title={t("Settings")}
           type="button"
         >

@@ -1,9 +1,18 @@
 mod correlator;
 mod differ;
+mod executable;
+mod fusion;
+mod harness;
+mod helper_protocol;
 #[cfg(any(target_os = "linux", test))]
 mod inet_diag_wire;
+mod pipeline;
 mod process;
 mod recording;
+mod route;
+mod sequencer;
+mod supervisor;
+mod udp;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -11,16 +20,45 @@ mod linux;
 mod windows;
 #[cfg(target_os = "windows")]
 mod windows_events;
+#[cfg(target_os = "windows")]
+mod windows_helper;
+#[cfg(target_os = "windows")]
+mod windows_helper_client;
 
 pub use correlator::{CorrelationStats, FlowCorrelator};
 pub use differ::SnapshotDiffer;
+pub use executable::inspect_executable;
+pub use fusion::{CorrelationCandidate, EvidenceFusion, FusionBatch, FusionStats, replay_evidence};
+pub use harness::{
+    CaptureHarnessReport, FixtureFlow, FixtureFlowKind, FixtureManifest, FixturePerturbation,
+    ProviderHarnessRun, compare_observations, reference_manifest, run_loopback_truth_suite,
+    run_system_provider_fixture, run_windows_event_fixture,
+};
+pub use helper_protocol::{
+    HELPER_MAX_FRAME_BYTES, HELPER_PROTOCOL_VERSION, HelperDnsEvent, HelperEnvelope, HelperError,
+    HelperNonce, HelperOperation, HelperResponse, HelperSession, decode_helper_frame,
+    decode_helper_response_frame, encode_helper_frame,
+};
+pub use pipeline::{BoundedEvidenceQueue, PipelineQueueClass, PipelineQueueStats, PipelineStage};
 pub use recording::RecordingController;
+pub use route::lookup_network_path;
+pub use sequencer::{EvidenceSequencer, ProviderSequenceTracker, network_provenance};
+pub use supervisor::{ProviderAction, ProviderSupervisor, SupervisorPolicy};
+pub use udp::{
+    QuicEvidence, QuicMetadata, QuicPacketKind, UdpConversation, UdpConversationEvent,
+    UdpConversationEventKind, UdpConversationTracker, parse_quic_metadata,
+};
 #[cfg(target_os = "windows")]
 pub use windows_events::{DnsObservation, WindowsEventCapture};
+#[cfg(target_os = "windows")]
+pub use windows_helper::{HELPER_PIPE_NAME, run_windows_helper};
+#[cfg(target_os = "windows")]
+pub use windows_helper_client::{WindowsHelperClient, secure_helper_nonce};
 
 use sabicheiro_core::{
-    ConnectionEvidence, ConnectionState, Direction, Endpoint, NetworkInterface, NetworkProtocol,
-    ObservationSource, ProcessInfo,
+    CapabilityAvailability, CaptureCapabilityKind, ConnectionEvidence, ConnectionState, Direction,
+    Endpoint, NetworkInterface, NetworkProtocol, ObservationSource, ProcessInfo,
+    ProviderCapability, ProviderDescriptor, ProviderMode,
 };
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr};
@@ -97,6 +135,22 @@ pub trait NetworkCaptureProvider: Send {
     fn name(&self) -> &'static str;
     fn snapshot(&mut self) -> Result<Vec<ObservedSocket>, CaptureError>;
     fn interfaces(&mut self) -> Result<Vec<NetworkInterface>, CaptureError>;
+
+    fn descriptor(&self, generation: u64) -> ProviderDescriptor {
+        ProviderDescriptor {
+            protocol_version: 1,
+            provider_id: self.name().into(),
+            display_name: self.name().into(),
+            mode: ProviderMode::Snapshot,
+            generation: generation.max(1),
+            capabilities: vec![ProviderCapability {
+                kind: CaptureCapabilityKind::SocketSnapshot,
+                availability: CapabilityAvailability::Available,
+                source: ObservationSource::Unknown,
+                limitation: Some("provider did not publish field-level capabilities".into()),
+            }],
+        }
+    }
 }
 
 pub fn system_provider() -> Result<Box<dyn NetworkCaptureProvider>, CaptureError> {
@@ -135,6 +189,30 @@ impl NetworkCaptureProvider for MockCaptureProvider {
 
     fn interfaces(&mut self) -> Result<Vec<NetworkInterface>, CaptureError> {
         Ok(Vec::new())
+    }
+
+    fn descriptor(&self, generation: u64) -> ProviderDescriptor {
+        ProviderDescriptor {
+            protocol_version: 1,
+            provider_id: "fixture.mock".into(),
+            display_name: "Deterministic fixture provider".into(),
+            mode: ProviderMode::Fixture,
+            generation: generation.max(1),
+            capabilities: [
+                CaptureCapabilityKind::LifecycleEvents,
+                CaptureCapabilityKind::SocketSnapshot,
+                CaptureCapabilityKind::ProcessIdentity,
+                CaptureCapabilityKind::Interface,
+            ]
+            .into_iter()
+            .map(|kind| ProviderCapability {
+                kind,
+                availability: CapabilityAvailability::Available,
+                source: ObservationSource::Demo,
+                limitation: None,
+            })
+            .collect(),
+        }
     }
 }
 

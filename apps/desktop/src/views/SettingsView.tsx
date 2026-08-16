@@ -73,6 +73,16 @@ function Toggle({
   );
 }
 
+function minuteToTime(minute: number): string {
+  const safe = Math.max(0, Math.min(1_439, minute));
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+}
+
+function timeToMinute(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return Math.max(0, Math.min(1_439, (hour ?? 0) * 60 + (minute ?? 0)));
+}
+
 export function SettingsView({
   settings,
   interfaces,
@@ -186,6 +196,58 @@ export function SettingsView({
                 </p>
               </div>
             </header>
+            <label className="setting-row">
+              <span>
+                <strong>{t("Operation profile")}</strong>
+                <small>{t("Profiles change capture cadence and resource budgets; the active behavior remains visible.")}</small>
+              </span>
+              <select
+                onChange={(event) =>
+                  onUpdate({
+                    ...settings,
+                    operation_profile: event.target.value as AppSettings["operation_profile"],
+                    ephemeral_capture:
+                      event.target.value === "ephemeral"
+                        ? true
+                        : settings.ephemeral_capture,
+                  })
+                }
+                value={settings.operation_profile}
+              >
+                <option value="visible">{t("Visible")}</option>
+                <option value="background_low_resource">{t("Background low-resource")}</option>
+                <option value="investigation_high_fidelity">{t("Investigation high-fidelity")}</option>
+                <option value="ephemeral">{t("Ephemeral")}</option>
+              </select>
+            </label>
+            <Toggle
+              checked={settings.autostart_enabled}
+              detail={t("Disabled by default. Enabling records explicit intent; platform startup registration is reported separately in diagnostics.")}
+              label={t("Start Sabicheiro when I sign in")}
+              onChange={(value) =>
+                onUpdate({ ...settings, autostart_enabled: value })
+              }
+            />
+            <div className={`handshake-mode ${settings.handshake_metadata_enabled ? "is-active" : ""}`}>
+              <Toggle
+                checked={settings.handshake_metadata_enabled}
+                detail={t("Optional, bounded and non-persistent TLS/QUIC metadata only: version, SNI and ALPN when observable. No payload, decryption, keys or MITM.")}
+                label={t("Ephemeral handshake metadata")}
+                onChange={(value) => {
+                  if (
+                    value &&
+                    !window.confirm(
+                      t("Enable bounded handshake metadata until you turn it off? Buffers are discarded and application payload is never persisted."),
+                    )
+                  )
+                    return;
+                  onUpdate({ ...settings, handshake_metadata_enabled: value });
+                }}
+              />
+              {settings.handshake_metadata_enabled && (
+                <strong role="status">{t("HANDSHAKE METADATA MODE IS ACTIVE")}</strong>
+              )}
+            </div>
             <label className="setting-row">
               <span>
                 <strong>{t("Default network interface")}</strong>
@@ -385,6 +447,25 @@ export function SettingsView({
                 </p>
               </div>
             </header>
+            <div className="quiet-hours">
+              <Toggle
+                checked={settings.notification_quiet_hours_enabled}
+                detail={t("Suppresses new local alerts during the selected local-time window; grouped evidence remains retained.")}
+                label={t("Quiet hours")}
+                onChange={(value) =>
+                  onUpdate({
+                    ...settings,
+                    notification_quiet_hours_enabled: value,
+                  })
+                }
+              />
+              {settings.notification_quiet_hours_enabled && (
+                <div>
+                  <label><span>{t("Start")}</span><input onChange={(event) => onUpdate({ ...settings, notification_quiet_start_minute: timeToMinute(event.target.value) })} type="time" value={minuteToTime(settings.notification_quiet_start_minute)} /></label>
+                  <label><span>{t("End")}</span><input onChange={(event) => onUpdate({ ...settings, notification_quiet_end_minute: timeToMinute(event.target.value) })} type="time" value={minuteToTime(settings.notification_quiet_end_minute)} /></label>
+                </div>
+              )}
+            </div>
             <div className="rule-builder">
               <select
                 aria-label={t("Notification rule")}
@@ -537,6 +618,20 @@ export function SettingsView({
               label={t("System reverse DNS lookups")}
               onChange={(value) =>
                 onUpdate({ ...settings, reverse_dns_enabled: value })
+              }
+            />
+            <Toggle
+              checked={settings.offline_enforced}
+              detail={t("Rejects every optional network action, including GeoIP downloads and reverse DNS. Offline imports remain available.")}
+              label={t("Enforce offline mode")}
+              onChange={(value) =>
+                onUpdate({
+                  ...settings,
+                  offline_enforced: value,
+                  reverse_dns_enabled: value
+                    ? false
+                    : settings.reverse_dns_enabled,
+                })
               }
             />
             <div className="setting-row">
@@ -922,6 +1017,37 @@ export function SettingsView({
                 onUpdate({ ...settings, reduce_motion: value })
               }
             />
+            <Toggle
+              checked={settings.enhanced_contrast}
+              detail={t("Raises text and border contrast without changing evidence semantics.")}
+              label={t("Enhanced contrast")}
+              onChange={(value) =>
+                onUpdate({ ...settings, enhanced_contrast: value })
+              }
+            />
+            <label className="setting-row">
+              <span>
+                <strong>{t("Text scale")}</strong>
+                <small>{t("Applies from 90% to 150% and is clamped to a safe migrated value.")}</small>
+              </span>
+              <span className="text-scale-control">
+                <input
+                  aria-label={t("Text scale")}
+                  max={150}
+                  min={90}
+                  onChange={(event) =>
+                    onUpdate({
+                      ...settings,
+                      text_scale_percent: Number(event.target.value),
+                    })
+                  }
+                  step={5}
+                  type="range"
+                  value={settings.text_scale_percent}
+                />
+                <output>{settings.text_scale_percent}%</output>
+              </span>
+            </label>
             <Toggle
               checked={settings.auto_focus}
               detail={t(

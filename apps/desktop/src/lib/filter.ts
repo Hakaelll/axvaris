@@ -17,36 +17,73 @@ const fields = new Set([
   "source",
 ]);
 
-interface QueryTerm {
+export interface QueryTerm {
   field: string | null;
   value: string;
   negated: boolean;
 }
 
+export type QueryExpression =
+  | { kind: "term"; term: QueryTerm }
+  | { kind: "and"; items: QueryExpression[] }
+  | { kind: "or"; items: QueryExpression[] }
+  | { kind: "not"; item: QueryExpression };
+
 export interface ParsedQuery {
   terms: QueryTerm[];
   error: string | null;
+  expression: QueryExpression | null;
+}
+
+interface QueryLexeme {
+  kind: "word" | "and" | "or" | "not" | "left" | "right";
+  value: string;
+  position: number;
 }
 
 function tokenizeQuery(query: string): {
-  tokens: string[];
+  tokens: QueryLexeme[];
   error: string | null;
 } {
-  const tokens: string[] = [];
+  const tokens: QueryLexeme[] = [];
   let current = "";
+  let currentPosition = 0;
   let quoted = false;
-  for (const character of query) {
+  let wordHadQuote = false;
+  const push = (position: number) => {
+    if (!current) return;
+    const upper = current.toUpperCase();
+    const kind = !wordHadQuote && ["AND", "OR", "NOT"].includes(upper)
+      ? (upper.toLowerCase() as "and" | "or" | "not")
+      : "word";
+    tokens.push({ kind, value: current, position: currentPosition });
+    current = "";
+    currentPosition = position;
+    wordHadQuote = false;
+  };
+  for (let position = 0; position < query.length; position += 1) {
+    const character = query[position]!;
     if (character === '"') {
       quoted = !quoted;
+      wordHadQuote = true;
+    } else if (!quoted && (character === "(" || character === ")")) {
+      push(position);
+      tokens.push({
+        kind: character === "(" ? "left" : "right",
+        value: character,
+        position,
+      });
+      currentPosition = position + 1;
     } else if (/\s/.test(character) && !quoted) {
-      if (current) tokens.push(current);
-      current = "";
+      push(position);
+      currentPosition = position + 1;
     } else {
+      if (!current) currentPosition = position;
       current += character;
     }
   }
   if (quoted) return { tokens, error: "Unterminated quoted value" };
-  if (current) tokens.push(current);
+  push(query.length);
   return { tokens, error: null };
 }
 
@@ -111,14 +148,24 @@ function invalidValue(field: string, value: string): string | null {
       "ip_helper",
       "windows_etw",
       "etw",
+      "windows_helper",
+      "helper",
       "linux_inet_diag",
       "inet_diag",
       "netlink",
+      "linux_ebpf",
+      "ebpf",
       "local_dns",
       "dns",
       "local_mmdb",
       "mmdb",
       "geoip",
+      "handshake_metadata",
+      "handshake",
+      "offline_catalog",
+      "catalog",
+      "user_annotation",
+      "annotation",
       "demo",
       "historical",
       "history",
@@ -131,27 +178,89 @@ function invalidValue(field: string, value: string): string | null {
 
 export function parseQuery(query: string): ParsedQuery {
   const tokenized = tokenizeQuery(query);
-  if (tokenized.error) return { terms: [], error: tokenized.error };
-  const terms: QueryTerm[] = [];
-  for (const rawToken of tokenized.tokens) {
+  if (tokenized.error)
+    return { terms: [], error: tokenized.error, expression: null };
+  if (tokenized.tokens.length === 0)
+    return { terms: [], error: null, expression: null };
+
+  const parseTerm = (rawToken: string): QueryTerm => {
     const negated = rawToken.startsWith("-") || rawToken.startsWith("!");
     const token = negated ? rawToken.slice(1) : rawToken;
-    if (!token) return { terms, error: "Missing value after negation" };
+    if (!token) throw new Error("Missing value after negation");
     const separator = token.indexOf(":");
     if (separator < 0) {
-      terms.push({ field: null, value: token.toLowerCase(), negated });
-      continue;
+      return { field: null, value: token.toLowerCase(), negated };
     }
     const field = token.slice(0, separator).toLowerCase();
     const value = token.slice(separator + 1);
-    if (!fields.has(field)) return { terms, error: `Unknown filter: ${field}` };
-    if (!value) return { terms, error: `Missing value for ${field}` };
+    if (!fields.has(field)) throw new Error(`Unknown filter: ${field}`);
+    if (!value) throw new Error(`Missing value for ${field}`);
     const normalized = value.toLowerCase();
     const valueError = invalidValue(field, normalized);
-    if (valueError) return { terms, error: `${field}: ${valueError}` };
-    terms.push({ field, value: normalized, negated });
+    if (valueError) throw new Error(`${field}: ${valueError}`);
+    return { field, value: normalized, negated };
+  };
+
+  let position = 0;
+  const peek = () => tokenized.tokens[position];
+  const next = () => tokenized.tokens[position++];
+  const parsePrimary = (): QueryExpression => {
+    const token = next();
+    if (!token) throw new Error(`Missing operand at position ${query.length}`);
+    if (token.kind === "word") return { kind: "term", term: parseTerm(token.value) };
+    if (token.kind === "not") return { kind: "not", item: parsePrimary() };
+    if (token.kind === "left") {
+      if (peek()?.kind === "right")
+        throw new Error(`Empty group at position ${token.position}`);
+      const expression = parseOr();
+      if (next()?.kind !== "right")
+        throw new Error(`Missing closing parenthesis at position ${token.position}`);
+      return expression;
+    }
+    throw new Error(`Unexpected ${token.value} at position ${token.position}`);
+  };
+  const parseAnd = (): QueryExpression => {
+    const items = [parsePrimary()];
+    while (peek() && peek()?.kind !== "or" && peek()?.kind !== "right") {
+      if (peek()?.kind === "and") {
+        const operator = next()!;
+        if (!peek() || ["and", "or", "right"].includes(peek()!.kind))
+          throw new Error(`AND is missing an operand at position ${operator.position}`);
+      }
+      items.push(parsePrimary());
+    }
+    return items.length === 1 ? items[0]! : { kind: "and", items };
+  };
+  const parseOr = (): QueryExpression => {
+    const items = [parseAnd()];
+    while (peek()?.kind === "or") {
+      const operator = next()!;
+      if (!peek() || peek()?.kind === "right")
+        throw new Error(`OR is missing an operand at position ${operator.position}`);
+      items.push(parseAnd());
+    }
+    return items.length === 1 ? items[0]! : { kind: "or", items };
+  };
+
+  try {
+    const expression = parseOr();
+    if (peek())
+      throw new Error(`Unexpected ${peek()!.value} at position ${peek()!.position}`);
+    const terms: QueryTerm[] = [];
+    const collect = (item: QueryExpression) => {
+      if (item.kind === "term") terms.push(item.term);
+      else if (item.kind === "not") collect(item.item);
+      else item.items.forEach(collect);
+    };
+    collect(expression);
+    return { terms, error: null, expression };
+  } catch (error) {
+    return {
+      terms: [],
+      error: error instanceof Error ? error.message : String(error),
+      expression: null,
+    };
   }
-  return { terms, error: null };
 }
 
 export function matchesQuery(
@@ -159,10 +268,41 @@ export function matchesQuery(
   parsed: ParsedQuery,
 ): boolean {
   if (parsed.error) return true;
-  return parsed.terms.every(({ field, value, negated }) => {
+  const matchesExpression = (expression: QueryExpression): boolean => {
+    if (expression.kind === "and") return expression.items.every(matchesExpression);
+    if (expression.kind === "or") return expression.items.some(matchesExpression);
+    if (expression.kind === "not") return !matchesExpression(expression.item);
+    const { field, value, negated } = expression.term;
     const matched = matchesTerm(connection, field, value);
     return negated ? !matched : matched;
-  });
+  };
+  return parsed.expression ? matchesExpression(parsed.expression) : true;
+}
+
+function quoteQueryValue(value: string): string {
+  return /[\s()]/.test(value) ? `"${value}"` : value;
+}
+
+export function serializeQueryTerm(term: QueryTerm): string {
+  const value = quoteQueryValue(term.value);
+  return `${term.negated ? "-" : ""}${term.field ? `${term.field}:` : ""}${value}`;
+}
+
+export function serializeQueryExpression(
+  expression: QueryExpression,
+  parentPrecedence = 0,
+): string {
+  const precedence =
+    expression.kind === "or" ? 1 : expression.kind === "and" ? 2 : 3;
+  let serialized: string;
+  if (expression.kind === "term") serialized = serializeQueryTerm(expression.term);
+  else if (expression.kind === "not")
+    serialized = `NOT (${serializeQueryExpression(expression.item)})`;
+  else
+    serialized = expression.items
+      .map((item) => serializeQueryExpression(item, precedence))
+      .join(expression.kind === "and" ? " AND " : " OR ");
+  return precedence < parentPrecedence ? `(${serialized})` : serialized;
 }
 
 function matchesTerm(
@@ -251,11 +391,16 @@ function normalizeSource(value: string): string {
   const aliases: Record<string, string> = {
     ip_helper: "windows_ip_helper",
     etw: "windows_etw",
+    helper: "windows_helper",
     inet_diag: "linux_inet_diag",
     netlink: "linux_inet_diag",
+    ebpf: "linux_ebpf",
     dns: "local_dns",
     mmdb: "local_mmdb",
     geoip: "local_mmdb",
+    handshake: "handshake_metadata",
+    catalog: "offline_catalog",
+    annotation: "user_annotation",
     history: "historical",
   };
   return aliases[value] ?? value;

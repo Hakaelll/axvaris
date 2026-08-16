@@ -8,6 +8,8 @@ rust-version.workspace = true
 [dependencies]
 sabicheiro-core = { path = "../sabicheiro-core" }
 serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
 sysinfo = { version = "0.39", default-features = false, features = ["system", "network"] }
 thiserror.workspace = true
 tracing.workspace = true
@@ -22,4 +24,11 @@ windows-sys = { version = "0.61", features = [
   "Win32_NetworkManagement_IpHelper",
   "Win32_NetworkManagement_Ndis",
   "Win32_Networking_WinSock",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Security_Cryptography",
+  "Win32_Security_WinTrust",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_System_Pipes",
 ] }

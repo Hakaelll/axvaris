@@ -23,11 +23,11 @@ export type AddressScope =
   | "broadcast"
   | "unspecified";
 export type PrimaryView =
-  | "globe"
-  | "processes"
-  | "destinations"
-  | "history"
-  | "settings";
+  | "today"
+  | "live"
+  | "investigate"
+  | "exposure"
+  | "health";
 
 export type CaptureStatus =
   | { state: "stopped" | "starting" | "capturing" }
@@ -60,15 +60,23 @@ export type EndpointRole =
 export type ObservationSource =
   | "windows_ip_helper"
   | "windows_etw"
+  | "windows_helper"
   | "linux_inet_diag"
+  | "linux_ebpf"
   | "local_dns"
   | "local_mmdb"
+  | "handshake_metadata"
+  | "offline_catalog"
+  | "user_annotation"
   | "demo"
   | "historical"
   | "unknown";
 export type CorrelationQuality =
   | "confirmed"
   | "correlated"
+  | "candidate"
+  | "snapshot_only"
+  | "unknown"
   | "approximate"
   | "unavailable";
 
@@ -88,6 +96,51 @@ export interface ProcessInfo {
   executable_path: string | null;
   started_at_ms: number | null;
   icon_data_url: string | null;
+  parent_pid: number | null;
+  parent_instance: string | null;
+  user_id: string | null;
+  session_id: number | null;
+  cgroup: string | null;
+  network_namespace: string | null;
+  executable_revision_id: string | null;
+}
+
+export type ExecutableSignatureStatus =
+  | "valid"
+  | "invalid"
+  | "unsigned"
+  | "unsupported"
+  | "not_checked";
+
+export interface ExecutableIdentity {
+  process_instance: string | null;
+  path: string;
+  revision_id: string;
+  size_bytes: number;
+  modified_at_ms: number | null;
+  sha256: string | null;
+  signature_status: ExecutableSignatureStatus;
+  package: string | null;
+  format: string | null;
+  computed_at_ms: number;
+  limitation: string | null;
+}
+
+export type ExecutableInspectionState =
+  | "queued"
+  | "running"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface ExecutableInspectionStatus {
+  id: string;
+  process_instance: string;
+  state: ExecutableInspectionState;
+  identity: ExecutableIdentity | null;
+  started_at_ms: number;
+  finished_at_ms: number | null;
+  message: string | null;
 }
 
 export interface GeoLocation {
@@ -142,6 +195,7 @@ export type CounterSource =
   | "unavailable"
   | "interface_aggregate"
   | "etw_flow"
+  | "ebpf_flow"
   | "demo";
 
 export interface TransferRates {
@@ -399,6 +453,7 @@ export interface AppSettings {
   show_local_traffic: boolean;
   show_listening_sockets: boolean;
   reverse_dns_enabled: boolean;
+  offline_enforced: boolean;
   selected_interface: string | null;
   home_latitude: number;
   home_longitude: number;
@@ -407,11 +462,24 @@ export interface AppSettings {
   feed_group_window_seconds: number;
   active_workspace: ConnectionWorkspace;
   notification_rules: NotificationRule[];
+  notification_quiet_hours_enabled: boolean;
+  notification_quiet_start_minute: number;
+  notification_quiet_end_minute: number;
   ephemeral_capture: boolean;
   ui_density: UiDensity;
+  operation_profile: OperationProfile;
+  autostart_enabled: boolean;
+  handshake_metadata_enabled: boolean;
+  enhanced_contrast: boolean;
+  text_scale_percent: number;
 }
 
 export type UiDensity = "compact" | "comfortable";
+export type OperationProfile =
+  | "visible"
+  | "background_low_resource"
+  | "investigation_high_fidelity"
+  | "ephemeral";
 
 export type ConnectionWorkspace = "remote" | "local" | "listeners";
 export type NotificationRuleKind =
@@ -573,6 +641,10 @@ export interface SavedInvestigation {
   name: string;
   query: InvestigationQuery;
   notes: string;
+  tags: string[];
+  selected_connection_id: string | null;
+  layout_json: string;
+  autosave_revision: number;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -706,4 +778,206 @@ export interface CommandFailure {
   code: string;
   message: string;
   recoverable: boolean;
+}
+
+export type NetworkPathKind =
+  | "direct"
+  | "gateway"
+  | "vpn"
+  | "system_proxy"
+  | "unknown";
+
+export type ListenerScope = "loopback" | "lan" | "vpn" | "wildcard" | "unknown";
+export type FirewallEvidence =
+  | "allowed"
+  | "blocked"
+  | "ambiguous"
+  | "not_queryable";
+
+export interface NetworkProfile {
+  id: string;
+  display_name: string | null;
+  vpn_observed: boolean;
+  created_at_ms: number;
+  sensitive_fields_redacted: boolean;
+}
+
+export interface NetworkPathEvidence {
+  id: string;
+  destination_prefix: string;
+  prefix_length: number;
+  gateway_pseudonym: string | null;
+  interface_id: string | null;
+  metric: number | null;
+  network_generation: number;
+  profile_id: string;
+  kind: NetworkPathKind;
+  observed_at_ms: number;
+  source: ObservationSource;
+  quality: CorrelationQuality;
+  limitation: string | null;
+}
+
+export interface DnsCausalCandidate {
+  answer_id: string;
+  query_name: string;
+  quality: CorrelationQuality;
+  reason: string;
+}
+
+export interface DnsCausalRelation {
+  confirmed: DnsCausalCandidate | null;
+  candidates: DnsCausalCandidate[];
+  limitation: string | null;
+}
+
+export interface ListenerExposure {
+  endpoint: Endpoint;
+  protocol: NetworkProtocol;
+  process_instance: string | null;
+  scope: ListenerScope;
+  firewall: FirewallEvidence;
+  first_observed_ms: number;
+  last_observed_ms: number;
+  limitation: string;
+}
+
+export interface OfflineCatalogIdentity {
+  name: string;
+  snapshot_date: string;
+  source: string;
+  license: string;
+  sha256: string;
+}
+
+export interface OfflineServiceHint {
+  observed_port: number;
+  observed_protocol: NetworkProtocol;
+  service_name: string;
+  description: string;
+  wording: string;
+  catalog: OfflineCatalogIdentity;
+}
+
+export interface ConnectionContextResponse {
+  connectionId: string;
+  dns: DnsCausalRelation | null;
+  path: NetworkPathEvidence;
+  listener: ListenerExposure | null;
+  serviceHint: OfflineServiceHint | null;
+  registrableDomain: string | null;
+}
+
+export interface TodayCardState {
+  id: string;
+  dismissed: boolean;
+  pinned: boolean;
+  updated_at_ms: number;
+}
+
+export interface ListenerSnapshot {
+  id: number | null;
+  session_id: string | null;
+  observed_at_ms: number;
+  snapshot_sha256: string;
+  listeners: ListenerExposure[];
+}
+
+export type LocalRuleCondition =
+  | { field: "process"; value: string }
+  | { field: "executable_revision"; value: string }
+  | { field: "domain"; value: string }
+  | { field: "ip"; value: string }
+  | { field: "cidr"; value: string }
+  | { field: "asn"; value: number }
+  | { field: "country"; value: string }
+  | { field: "protocol"; value: NetworkProtocol }
+  | { field: "port"; value: number }
+  | { field: "listener"; value: ListenerScope }
+  | { field: "network_profile"; value: string }
+  | { field: "path"; value: NetworkPathKind }
+  | { field: "first_seen"; value: boolean }
+  | { field: "minimum_bytes"; value: number }
+  | { field: "minimum_duration_ms"; value: number };
+
+export type LocalRuleAction =
+  | { action: "tag"; value: string }
+  | { action: "pin" }
+  | { action: "add_to_investigation"; value: string }
+  | { action: "notify" };
+
+export interface LocalRule {
+  id: string;
+  version: number;
+  name: string;
+  enabled: boolean;
+  match_all: boolean;
+  conditions: LocalRuleCondition[];
+  actions: LocalRuleAction[];
+  cooldown_seconds: number;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+export interface RuleMatch {
+  rule_id: string;
+  rule_version: number;
+  connection_id: string;
+  matched: boolean;
+  reasons: string[];
+  actions: LocalRuleAction[];
+}
+
+export type NotificationState = "unread" | "read" | "pinned" | "resolved";
+
+export interface LocalNotificationRecord {
+  id: string;
+  rule_id: string;
+  rule_version: number;
+  evidence_ids: string[];
+  network_profile_id: string | null;
+  title: string;
+  detail: string;
+  group_key: string;
+  count: number;
+  first_at_ms: number;
+  last_at_ms: number;
+  snoozed_until_ms: number | null;
+  state: NotificationState;
+}
+
+export interface ConnectionAnnotation {
+  connection_id: string;
+  tags: string[];
+  pinned: boolean;
+  investigation_ids: string[];
+  updated_at_ms: number;
+}
+
+export interface SabiExportRequest {
+  path: string;
+  investigation_id: string;
+  redaction: ExportRedaction;
+}
+
+export interface SabiManifest {
+  schema_version: number;
+  app_version: string;
+  created_at_ms: number;
+  investigation_id: string;
+  query: InvestigationQuery;
+  from_ms: number | null;
+  to_ms: number | null;
+  redaction: ExportRedaction;
+  dataset_sha256: string[];
+  entry_sha256: Record<string, string>;
+}
+
+export interface ImportedSabiBundle {
+  source_path: string;
+  read_only: true;
+  manifest: SabiManifest;
+  investigation: SavedInvestigation;
+  connections: HistoryEntry[];
+  timeline: TrafficSample[];
 }

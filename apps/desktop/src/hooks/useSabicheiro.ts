@@ -89,6 +89,7 @@ const defaultSettings: AppSettings = {
   show_local_traffic: false,
   show_listening_sockets: false,
   reverse_dns_enabled: false,
+  offline_enforced: false,
   selected_interface: null,
   home_latitude: 40.4168,
   home_longitude: -3.7038,
@@ -97,8 +98,16 @@ const defaultSettings: AppSettings = {
   feed_group_window_seconds: 30,
   active_workspace: "remote",
   notification_rules: [],
+  notification_quiet_hours_enabled: false,
+  notification_quiet_start_minute: 1320,
+  notification_quiet_end_minute: 420,
   ephemeral_capture: false,
   ui_density: "comfortable",
+  operation_profile: "visible",
+  autostart_enabled: false,
+  handshake_metadata_enabled: false,
+  enhanced_contrast: false,
+  text_scale_percent: 100,
 };
 
 const emptyFocusRules: FocusRules = { bookmarks: [], ignore_rules: [] };
@@ -320,7 +329,7 @@ export function useSabicheiro() {
   const [recording, setRecording] = useState<RecordingState | null>(null);
   const [focusRules, setFocusRules] = useState<FocusRules>(emptyFocusRules);
   const [timeMachine, setTimeMachine] = useState<TimeMachineState | null>(null);
-  const [primaryView, setPrimaryView] = useState<PrimaryView>("globe");
+  const [primaryView, setPrimaryView] = useState<PrimaryView>("today");
   const [viewMode, setViewMode] = useState<ViewMode>("globe");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -922,7 +931,7 @@ export function useSabicheiro() {
           connections: reconstructed,
           session_id: sessionId,
         });
-        setPrimaryView("globe");
+      setPrimaryView("live");
         setSelectedId(
           reconstructed.some(
             (connection) => connection.id === preferredConnectionId,

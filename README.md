@@ -5,23 +5,42 @@ application that turns the network activity of one computer into an interactive,
 searchable world view. It connects processes to endpoints, destinations, local
 history and explainable behaviour signals without accounts, telemetry or a paid API.
 
-> Status: `0.3.0` local test release (Verified Destinations). The Windows x86_64
-> application, strict test suite, production frontend, deterministic GeoIP fixtures,
-> performance baseline and NSIS/portable artifacts are validated locally. Linux
-> `INET_DIAG` source and native fixture tests cross-compile, but running those tests and
-> AppImage/deb packages still requires a Linux host. Windows ETW and packet recording
-> remain privilege-sensitive and fall back safely. Exact evidence is in
+> Status: `0.4.1` Windows validation candidate (Spain Focus). The strict test
+> suite, production frontend, 100,000-row benchmark, SPDX SBOM, release binary and NSIS
+> install/launch/uninstall cycle are validated locally. Native Linux/eBPF packaging,
+> elevated Windows ETW, the eight-hour soak and OS screen-reader/HiDPI matrix remain
+> open, so this is not yet labelled a stable cross-platform release. Exact evidence is in
 > [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Visual evidence
 
 The deterministic demo is the reproducible visual fixture (`pnpm dev`, then **Demo
-mode**). The 0.3 review covers first-run/offline state, dense 3D and 2D data, map
+mode**). The retained 0.3 review covers first-run/offline state, dense 3D and 2D data, map
 zoom/pan/frame/expand/restore, inspector evidence, compact/comfortable density,
-English/Castellano, keyboard map controls and the semantic tree. The new markers,
+English/Castellano, keyboard map controls and the semantic tree. The 0.4 areas and
+controls pass the production/i18n/static accessibility gates, but their full native
+visual and screen-reader matrix remains recorded as `REVIEW`. The markers,
 routes and map use only packaged geometry—there are no remote map tiles.
 
 ## Highlights
+
+- Five task-oriented areas: Today, Live, Investigate, Exposure and Data & Health.
+- Immutable SQLite v5 evidence journal with provider clocks, sequence gaps,
+  field-level provenance, deterministic replay and tiered retention/FTS.
+- Process-instance lineage, local executable revision/hash/signature evidence, DNS
+  causal candidates, native route context and pseudonymous network profiles.
+- Today change cards, application/network profiles, typed versioned rules, grouped
+  quiet-hour notifications and listener exposure snapshots.
+- Virtualized 100,000-row evidence table with a paginated semantic alternative and a
+  local boolean query builder supporting grouped AND/OR/NOT expressions.
+- Versioned, bounded, hash-verified `.sabi` investigation bundles opened read-only and
+  never merged into local history.
+- Explicit operation profiles, tray status/actions, per-user opt-in autostart,
+  offline-enforced mode, enhanced contrast and text scaling.
+- Spain-centered initial 3D/2D map framing and a hardened Exposure view that validates
+  historical listener snapshots, ignores stale responses and isolates render failures.
+- A self-contained `docs.html` guide covering Windows/Linux installation, features,
+  capture boundaries, privacy, exports, troubleshooting and release verification.
 
 - Synchronized local 3D globe, detailed 50m 2D map, grouped live feed and connection inspector.
 - Adaptive country/region/destination route grouping to keep dense views readable.
@@ -57,17 +76,20 @@ routes and map use only packaged geometry—there are no remote map tiles.
 
 | Platform | Observation backend | Package/validation state |
 | --- | --- | --- |
-| Windows 10/11 x86_64 | IP Helper owner-PID tables; optional ETW events; Pktmon recording | 0.3 application/tests and local NSIS/portable release validated |
-| Debian/Ubuntu x86_64 | Netlink `INET_DIAG` plus inode→PID; dumpcap recording | native fixture suite cross-compiles; AppImage/deb runtime validation requires Linux |
+| Windows 10/11 x86_64 | IP Helper owner-PID tables; optional ETW/helper events; Pktmon recording | 0.4.1 application/tests and local NSIS cycle validated; elevated ETW review open |
+| Debian/Ubuntu x86_64 | Netlink `INET_DIAG` plus inode→PID; dumpcap recording | capture source cross-checks; eBPF and AppImage/deb native validation require Linux |
 | Fedora/Arch | Same source boundary; distro prerequisites differ | source compatibility only, not a verified v1 artifact |
 | ARM64 | Domain/provider boundaries are architecture-neutral | future target; no v1 artifact |
 
 ## Install
 
-Windows users can run `Sabicheiro-0.3.0-windows-x64-setup.exe`; it installs per-user,
+Windows users can run `Sabicheiro_0.4.1_x64-setup.exe`; it installs per-user,
 adds a Start-menu entry and an uninstaller. Linux packages can be produced natively
 with the commands in [BUILD.md](BUILD.md); when built, mark the AppImage executable or
 install the `.deb` using the normal distro tooling.
+
+The standalone [docs.html](docs.html) guide provides the complete user-facing setup and
+feature reference for both platforms, including current validation limits.
 
 The interface language can be selected on the welcome screen and changed later under
 **Settings -> Display -> Interface language**. The choice is stored locally.

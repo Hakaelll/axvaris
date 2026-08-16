@@ -17,6 +17,10 @@ redistribution decision for primary components are in `DEPENDENCIES.md`.
 - `mmdb-writer`: MIT, development-only synthetic MMDB fixture generation.
 - DB-IP City Lite / ASN Lite database, when installed by the user: CC BY 4.0.
   **IP geolocation by DB-IP.com** — <https://db-ip.com/db/lite.php>.
+- The embedded IANA service/port release subset follows the IANA licensing terms and
+  is used only as an offline display hint.
+- The embedded Public Suffix List release subset is MPL-2.0 and is used only for local
+  registrable-domain grouping.
 
 MPL-2.0 packages in the locked dependency graph are used unmodified. GPL system tools
 (`iproute2`, dumpcap/Wireshark) are not linked into or redistributed with Sabicheiro.
@@ -26,7 +30,7 @@ source dependencies.
 
 ## Audit snapshot
 
-On 2026-08-12, local package manifests reported 519 Cargo packages and 42 pnpm
+On 2026-08-14, local package manifests reported 519 Cargo packages and 42 pnpm
 packages, with no missing license declaration and no commercial-only dependency. See
 `DEPENDENCIES.md` for the category totals and source references.
 
@@ -34,3 +38,6 @@ This summary accompanies the application for attribution and review. Upstream so
 distributions retain their complete copyright/license files; distributors should run
 the locked license audit in `BUILD.md` and include any additional notice required after
 changing a dependency or dataset snapshot.
+
+The SPDX 2.3 SBOM for 0.4.1 lists Sabicheiro plus 561 locked dependency packages and
+is distributed as `docs/sbom-0.4.1.spdx.json` with its SHA-256 manifest.

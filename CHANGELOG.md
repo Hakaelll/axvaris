@@ -3,6 +3,72 @@
 All notable changes are documented here. Sabicheiro follows semantic versioning for
 its local desktop releases.
 
+## 0.4.1 — 2026-08-14 — Spain Focus
+
+### Added
+
+- A standalone, responsive `docs.html` manual that follows the desktop design system
+  and documents Windows/Linux installation, platform permissions, every primary area,
+  privacy, exports, recording, known limitations, troubleshooting and release checks.
+- Runtime validation and deterministic normalization for listener snapshots received
+  by the Exposure view, including malformed-record reporting and IPv6 endpoint display.
+- A view-level recovery boundary so an unexpected Exposure render failure cannot take
+  down the rest of the desktop shell.
+
+### Changed
+
+- The 3D globe and 2D map now open and reset with Spain centered while retaining the
+  existing approximate-home origin marker and route evidence.
+- Exposure refreshes ignore stale asynchronous responses, remain safe under React
+  Strict Mode and build listener comparisons in linear rather than quadratic time.
+
+### Validation status
+
+- Strict TypeScript, production/i18n, Rust formatting, Clippy, workspace tests,
+  repository policy, license audit, SPDX SBOM, Windows NSIS build and archive checksum
+  verification pass for the 0.4.1 candidate.
+- Native Linux/eBPF/packages, approved elevated Windows ETW, the eight-hour soak and
+  Narrator/NVDA/HiDPI evidence remain open and are not claimed as complete.
+
+## 0.4.0 — 2026-08-14 — Process to Path
+
+### Added
+
+- Immutable evidence journal, provider capability/clock/cursor/gap contracts,
+  deterministic multi-source fusion and replayable SQLite v5 projections.
+- Truth-manifest capture harness, hardened optional Windows named-pipe helper,
+  event-provider supervisor, lifecycle-first bounded queues and UDP/QUIC state models.
+- Process lineage and executable revisions, cancellable local SHA-256/signature
+  inspection, DNS causal graph, route evidence and pseudonymous network profiles.
+- Today changes, historical application/network profiles, typed local rules, grouped
+  notification inbox, exposure snapshots and hash-verified read-only `.sabi` bundles.
+- Five-area information architecture, virtualized evidence table with semantic
+  alternative, grouped boolean query builder and persistent investigation workspace.
+- Tray controls, operation profiles, explicit autostart, quiet hours, offline-enforced
+  mode, enhanced contrast and text scaling.
+- Versioned local IANA service and Public Suffix release subsets, SPDX 2.3 SBOM
+  generation and reproducible release performance evidence for 100,000 rows.
+
+### Changed
+
+- SQLite schema is now v5. Evidence remains immutable; derived projections,
+  annotations, rule versions, notification state, profiles and audits are stored
+  separately. Failed migrations preserve readable backups and the previous database.
+- Query syntax now supports explicit AND/OR/NOT grouping with deterministic
+  serialization while preserving implicit AND compatibility.
+- Optional network activity is centralized behind typed fixed-destination grants;
+  offline-enforced mode rejects every optional grant.
+- The globe/map is a Live tool rather than the product home screen.
+
+### Validation status
+
+- Windows formatting, strict Clippy, 125 automated Rust tests, 839-key Spanish audit,
+  production frontend build, 100,000-row benchmark, offline license audit, SBOM,
+  release build and NSIS install/launch/uninstall pass.
+- The available normal-user host denies ETW. Native Linux/eBPF/package checks,
+  eight-hour soak and Narrator/NVDA/HiDPI evidence remain open, so this artifact is a
+  validation candidate rather than a stable cross-platform publication.
+
 ## 0.3.0 — 2026-08-12 — Verified Destinations
 
 ### Added

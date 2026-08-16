@@ -4,6 +4,266 @@ export type Language = "en" | "es";
 export type TranslationValues = Record<string, string | number>;
 
 const spanish: Record<string, string> = {
+  Today: "Hoy",
+  Live: "En vivo",
+  Investigate: "Investigar",
+  Exposure: "Exposición",
+  "Data & Health": "Datos y estado",
+  ".sabi file path": "Ruta del archivo .sabi",
+  "{column} width": "Ancho de {column}",
+  "{count} DNS candidates; none promoted to confirmed":
+    "{count} candidatos DNS; ninguno se ha promovido a confirmado",
+  "{count} dry-run matches": "{count} coincidencias en la simulación",
+  "{count} exact rows": "{count} filas exactas",
+  "{count} grouped events": "{count} eventos agrupados",
+  "{count} listeners": "{count} listeners",
+  "{count} local profiles": "{count} perfiles locales",
+  "{count} local services are listening":
+    "{count} servicios locales están escuchando",
+  "{count} retained": "{count} conservados",
+  "{count} versioned rules": "{count} reglas versionadas",
+  "{count} visible": "{count} visibles",
+  "A rule needs a condition and at least one safe action.":
+    "Una regla necesita una condición y al menos una acción segura.",
+  "Accessibility rendering mode": "Modo de representación accesible",
+  Action: "Acción",
+  Actions: "Acciones",
+  "Add at least one typed condition.": "Añade al menos una condición tipada.",
+  "Add chip": "Añadir chip",
+  "Add condition": "Añadir condición",
+  "Add grouped": "Añadir agrupado",
+  "added since previous snapshot": "añadidos desde el snapshot anterior",
+  "AND requires every condition; OR accepts either group. Negation excludes matching evidence.":
+    "AND exige todas las condiciones; OR acepta cualquiera de los grupos. La negación excluye la evidencia coincidente.",
+  "Applies from 90% to 150% and is clamped to a safe migrated value.":
+    "Se aplica del 90 % al 150 % y se limita a un valor migrado seguro.",
+  "ASN is local dataset context, not a security verdict.":
+    "El ASN es contexto del dataset local, no un veredicto de seguridad.",
+  "Background low-resource": "Segundo plano de bajo consumo",
+  "Bind endpoint": "Endpoint de escucha",
+  "Build an evidence query": "Construir una consulta de evidencia",
+  Canonicalize: "Normalizar",
+  "Capability degradation": "Degradación de capacidad",
+  "Capture signed snapshot": "Capturar snapshot firmado",
+  "Capture the first local listener snapshot to establish a comparison point.":
+    "Captura el primer snapshot local de listeners para establecer un punto de comparación.",
+  "Capturing local snapshot…": "Capturando snapshot local…",
+  "Causal context": "Contexto causal",
+  Change: "Cambio",
+  "Changes are observations with traceable evidence, never malware verdicts.":
+    "Los cambios son observaciones con evidencia trazable, nunca veredictos de malware.",
+  "Changes worth reviewing": "Cambios que merece la pena revisar",
+  "Checking native route…": "Consultando la ruta nativa…",
+  "Choose a previous query": "Elegir una consulta anterior",
+  "Close bundle": "Cerrar paquete",
+  "Columns and widths": "Columnas y anchos",
+  conditions: "condiciones",
+  "Current and changed local listener evidence":
+    "Evidencia actual y modificada de listeners locales",
+  "Current network profile": "Perfil de red actual",
+  Custom: "Personalizado",
+  Disabled: "Desactivada",
+  "Disabled by default. Enabling records explicit intent; platform startup registration is reported separately in diagnostics.":
+    "Desactivado por defecto. Al habilitarlo se registra la intención explícita; el registro de inicio de la plataforma se informa por separado en Diagnóstico.",
+  Dismiss: "Descartar",
+  "DNS limitation": "Limitación DNS",
+  "DNS relation": "Relación DNS",
+  "DoH, DoT or a prior shared cache may hide the originating query.":
+    "DoH, DoT o una caché compartida previa pueden ocultar la consulta de origen.",
+  "Dry-run completed locally.": "Simulación local completada.",
+  "Duplicate rule: {name}": "Regla duplicada: {name}",
+  "Edit as next version": "Editar como nueva versión",
+  "Editable query chips": "Chips editables de consulta",
+  "Enable bounded handshake metadata until you turn it off? Buffers are discarded and application payload is never persisted.":
+    "¿Activar metadatos acotados de handshake hasta que los desactives? Los búferes se descartan y el payload de aplicación nunca se conserva.",
+  Enabled: "Activada",
+  "Enforce offline mode": "Forzar modo sin conexión",
+  "Enhanced contrast": "Contraste reforzado",
+  "Enter a valid value for the selected condition.":
+    "Introduce un valor válido para la condición seleccionada.",
+  Ephemeral: "Efímero",
+  "Ephemeral handshake metadata": "Metadatos efímeros de handshake",
+  "Evidence pages": "Páginas de evidencia",
+  "Executable revision": "Revisión del ejecutable",
+  "Export redacted .sabi": "Exportar .sabi redactado",
+  "Export redacted evidence": "Exportar evidencia redactada",
+  "Exposure could not be displayed": "No se pudo mostrar Exposición",
+  "Exported {count} records to {path}":
+    "Se exportaron {count} registros a {path}",
+  Field: "Campo",
+  "Fields, operators and observed values are completed entirely on this device.":
+    "Los campos, operadores y valores observados se completan totalmente en este dispositivo.",
+  "Firewall evidence": "Evidencia del firewall",
+  "Firewall state is reported as not queryable until a native read-only rule provider supplies evidence. Bind scope alone never becomes a vulnerability verdict.":
+    "El estado del firewall se muestra como no consultable hasta que un proveedor nativo de solo lectura aporte evidencia. El alcance del bind por sí solo nunca se convierte en un veredicto de vulnerabilidad.",
+  "First observed in the retained local baseline for this network context.":
+    "Primera observación en el baseline local conservado para este contexto de red.",
+  "First observed opening a network connection on this device.":
+    "Primera observación abriendo una conexión de red en este dispositivo.",
+  "FIRST-CLASS EVIDENCE TABLE": "TABLA DE EVIDENCIA PRINCIPAL",
+  "Fix the positional error before applying this query.":
+    "Corrige el error indicado antes de aplicar esta consulta.",
+  "Gateway pseudonym": "Seudónimo del gateway",
+  Group: "Agrupar",
+  "HANDSHAKE METADATA MODE IS ACTIVE":
+    "EL MODO DE METADATOS DE HANDSHAKE ESTÁ ACTIVO",
+  "Hash-signed local snapshots": "Snapshots locales firmados con hash",
+  "Imported read-only investigation": "Investigación importada de solo lectura",
+  "Interface unavailable": "Interfaz no disponible",
+  "Investigation high-fidelity": "Investigación de alta fidelidad",
+  "Investigation tags": "Etiquetas de la investigación",
+  "IP evidence remains valid": "La evidencia IP sigue siendo válida",
+  Join: "Unión",
+  Latest: "Más reciente",
+  "Loading listener snapshots…": "Cargando snapshots de listeners…",
+  "Listener change": "Cambio de listener",
+  "Listener evidence": "Evidencia de listeners",
+  "listeners in latest snapshot": "listeners en el snapshot más reciente",
+  "LOCAL DECISION SUMMARY": "RESUMEN LOCAL PARA DECIDIR",
+  "Local history": "Historial local",
+  "LOCAL LISTENER AUDIT": "AUDITORÍA LOCAL DE LISTENERS",
+  "Local notification inbox": "Bandeja local de notificaciones",
+  "LOCAL QUERY BUILDER": "CONSTRUCTOR LOCAL DE CONSULTAS",
+  Meaning: "Significado",
+  Negate: "Negar",
+  "Network path": "Camino de red",
+  "Network path change": "Cambio del camino de red",
+  "New domain": "Dominio nuevo",
+  "New for {process}; open the evidence to inspect source and quality.":
+    "Nuevo para {process}; abre la evidencia para comprobar su fuente y calidad.",
+  "New network owner hint": "Nueva pista de propietario de red",
+  "New workspace": "Nuevo workspace",
+  Next: "Siguiente",
+  "No causal DNS evidence": "Sin evidencia DNS causal",
+  "No conditions yet": "Todavía no hay condiciones",
+  "No DNS evidence": "Sin evidencia DNS",
+  "No listener evidence in the latest snapshot":
+    "Sin evidencia de listeners en el último snapshot",
+  "No local notes in this bundle.": "Este paquete no contiene notas locales.",
+  "No local notifications.": "No hay notificaciones locales.",
+  "No new retained changes to review":
+    "No hay cambios nuevos conservados que revisar",
+  "No offline catalog hint": "Sin pista del catálogo offline",
+  "No process instance evidence": "Sin evidencia de instancia del proceso",
+  "No retained evidence matches this query.":
+    "Ninguna evidencia conservada coincide con esta consulta.",
+  None: "Ninguno",
+  "None reported": "No se informó de ninguna",
+  NOT: "NO",
+  "Notify locally": "Notificar localmente",
+  "Observed or correlated name": "Nombre observado o correlacionado",
+  "Observed port / protocol": "Puerto/protocolo observado",
+  "Observed value": "Valor observado",
+  Open: "Abrir",
+  "Open any card to reach its concrete connection evidence in one step.":
+    "Abre cualquier tarjeta para llegar a su evidencia concreta de conexión en un paso.",
+  "Open Data & Health": "Abrir Datos y estado",
+  "Open evidence": "Abrir evidencia",
+  "Open Exposure": "Abrir Exposición",
+  "Open Investigate": "Abrir Investigar",
+  "Open Live": "Abrir En vivo",
+  "Open portable investigation": "Abrir investigación portable",
+  "Open row for native route evidence":
+    "Abre la fila para consultar la evidencia de ruta nativa",
+  "Open Today": "Abrir Hoy",
+  "Operation profile": "Perfil de operación",
+  "Optional, bounded and non-persistent TLS/QUIC metadata only: version, SNI and ALPN when observable. No payload, decryption, keys or MITM.":
+    "Solo metadatos TLS/QUIC opcionales, acotados y no persistentes: versión, SNI y ALPN cuando sean observables. Sin payload, descifrado, claves ni MITM.",
+  "Page {page} of {pages}; {count} exact rows":
+    "Página {page} de {pages}; {count} filas exactas",
+  Pin: "Fijar",
+  "Pin matching evidence": "Fijar la evidencia coincidente",
+  Preset: "Preajuste",
+  "Preview on retained history": "Previsualizar sobre el historial conservado",
+  Previous: "Anterior",
+  "Process / instance": "Proceso/instancia",
+  "Profiles change capture cadence and resource budgets; the active behavior remains visible.":
+    "Los perfiles cambian la cadencia de captura y los presupuestos de recursos; el comportamiento activo permanece visible.",
+  "Raises text and border contrast without changing evidence semantics.":
+    "Aumenta el contraste de texto y bordes sin cambiar la semántica de la evidencia.",
+  "Reachability limitation": "Limitación de alcance",
+  "Reload Exposure": "Volver a cargar Exposición",
+  "READ-ONLY .SABI / schema {version}":
+    ".SABI DE SOLO LECTURA / esquema {version}",
+  "Registrable domain": "Dominio registrable",
+  "Rejects every optional network action, including GeoIP downloads and reverse DNS. Offline imports remain available.":
+    "Rechaza todas las acciones de red opcionales, incluidas las descargas GeoIP y el DNS inverso. La importación offline sigue disponible.",
+  "Remove this condition": "Eliminar esta condición",
+  "removed since previous snapshot": "eliminados desde el snapshot anterior",
+  "Require every condition (AND)": "Exigir todas las condiciones (AND)",
+  Resolve: "Resolver",
+  "Review bind scope and firewall evidence in Exposure.":
+    "Revisa el alcance del bind y la evidencia del firewall en Exposición.",
+  "Revision unavailable": "Revisión no disponible",
+  "Route evidence": "Evidencia de ruta",
+  "Route evidence is tied to the current network generation.":
+    "La evidencia de ruta está vinculada a la generación de red actual.",
+  "Route limitation": "Limitación de ruta",
+  "Route metric": "Métrica de ruta",
+  "Rule name": "Nombre de la regla",
+  "Rule version {version} saved locally.":
+    "La versión {version} de la regla se guardó localmente.",
+  "Rules and labels": "Reglas y etiquetas",
+  "Rules may tag, pin, add to an investigation or notify. They cannot block traffic, run commands or start packet capture.":
+    "Las reglas pueden etiquetar, fijar, añadir a una investigación o notificar. No pueden bloquear tráfico, ejecutar comandos ni iniciar capturas de paquetes.",
+  "Safe actions": "Acciones seguras",
+  "SAFE LOCAL AUTOMATION": "AUTOMATIZACIÓN LOCAL SEGURA",
+  "Save new version": "Guardar nueva versión",
+  "Save now": "Guardar ahora",
+  "Save preset locally": "Guardar preajuste localmente",
+  "Saved exact time window": "Ventana temporal exacta guardada",
+  "Saved local preset": "Preajuste local guardado",
+  "Screen reader pages": "Páginas para lector de pantalla",
+  "Selected retained session": "Sesión conservada seleccionada",
+  "SHA-256 covers the deterministic listener set stored in SQLite.":
+    "SHA-256 cubre el conjunto determinista de listeners guardado en SQLite.",
+  "Snooze 1 h": "Posponer 1 h",
+  "Source path": "Ruta de origen",
+  "Some malformed listener records were ignored to keep Exposure available.":
+    "Se ignoraron algunos registros de listeners no válidos para mantener disponible Exposición.",
+  "Start capture or use Demo; provider limitations remain visible in Data & Health.":
+    "Inicia la captura o usa Demo; las limitaciones del proveedor siguen visibles en Datos y estado.",
+  "Start Sabicheiro when I sign in":
+    "Iniciar Sabicheiro al acceder a mi sesión",
+  Tag: "Etiqueta",
+  "Tags separated by commas": "Etiquetas separadas por comas",
+  text: "texto",
+  "Text scale": "Escala del texto",
+  "The exact filtered IDs used by timeline, map and export.":
+    "Los mismos ID filtrados que usan el timeline, el mapa y la exportación.",
+  "The view isolated an unexpected rendering error. Network capture and retained evidence remain available.":
+    "La vista aisló un error de renderizado inesperado. La captura de red y la evidencia conservada siguen disponibles.",
+  "The ZIP manifest, exact entry set, CRC and SHA-256 hashes are verified before opening. Imported evidence stays read-only and is never merged or uploaded.":
+    "Antes de abrir se verifican el manifiesto ZIP, el conjunto exacto de entradas, el CRC y los hashes SHA-256. La evidencia importada permanece en solo lectura y nunca se mezcla ni se sube.",
+  "This is an observation result, not proof that no service can listen between snapshots.":
+    "Este es un resultado de observación, no una prueba de que ningún servicio pueda escuchar entre snapshots.",
+  "Timeline samples": "Muestras del timeline",
+  "Typed field": "Campo tipado",
+  unchanged: "sin cambios",
+  "unknown interface": "interfaz desconocida",
+  "Unknown process": "Proceso desconocido",
+  Unpin: "Desfijar",
+  "Untitled local rule": "Regla local sin título",
+  User: "Usuario",
+  "User unavailable": "Usuario no disponible",
+  "Usual service hint": "Pista de servicio habitual",
+  "Verified entries": "Entradas verificadas",
+  "Verified read-only bundle with {count} connections.":
+    "Paquete de solo lectura verificado con {count} conexiones.",
+  "Verify and open read-only": "Verificar y abrir en solo lectura",
+  "Virtual 100k+": "Virtual 100k+",
+  "Virtualized connection evidence": "Evidencia de conexiones virtualizada",
+  Visible: "Visible",
+  "VPN interface observed": "Interfaz VPN observada",
+  "What changed today": "Qué cambió hoy",
+  "What is listening, since when, and where its bind may be reachable. No network scan is performed.":
+    "Qué está escuchando, desde cuándo y dónde podría alcanzar su bind. No se realiza ningún escaneo de red.",
+  "Wildcard means all local interfaces; it does not prove Internet accessibility.":
+    "Wildcard significa todas las interfaces locales; no demuestra accesibilidad desde Internet.",
+  scope_device: "nuevo para el equipo",
+  scope_application: "nuevo para la aplicación",
+  scope_profile: "nuevo para el perfil",
+  scope_health: "estado del proveedor",
   Primary: "Navegación principal",
   Globe: "Globo",
   Map: "Mapa",
@@ -790,7 +1050,8 @@ const spanish: Record<string, string> = {
     "La cola DNS limitada descartó solicitudes",
   "Reduce capture load or disable optional reverse DNS.":
     "Reduce la carga de captura o desactiva el DNS inverso opcional.",
-  "Optional reverse DNS is disabled": "El DNS inverso opcional está desactivado",
+  "Optional reverse DNS is disabled":
+    "El DNS inverso opcional está desactivado",
   "Enable it explicitly in Settings only when hostnames are needed.":
     "Actívalo expresamente en Ajustes solo cuando necesites nombres de host.",
   "SQLite quick_check passed": "SQLite quick_check pasó",
@@ -821,10 +1082,12 @@ const spanish: Record<string, string> = {
   "IPv6 availability depends on the local operating-system stack":
     "La disponibilidad de IPv6 depende de la pila local del sistema operativo",
   "Process instance observed": "Instancia de proceso observada",
-  "Process instance was not available": "La instancia de proceso no estaba disponible",
+  "Process instance was not available":
+    "La instancia de proceso no estaba disponible",
   "Connection opened": "Conexión abierta",
   "Local DNS name correlated": "Nombre DNS local correlacionado",
-  "Estimated network location enriched": "Ubicación de red estimada enriquecida",
+  "Estimated network location enriched":
+    "Ubicación de red estimada enriquecida",
   "Connection closed": "Conexión cerrada",
   "Derived view saved; original observations remain unchanged.":
     "Vista derivada guardada; las observaciones originales permanecen sin cambios.",
@@ -888,7 +1151,8 @@ const spanish: Record<string, string> = {
   "Local focus rules could not be read.":
     "No se pudieron leer las reglas de enfoque locales.",
   "The local focus rule is invalid.": "La regla de enfoque local no es válida.",
-  "The local history query is invalid.": "La consulta de historial local no es válida.",
+  "The local history query is invalid.":
+    "La consulta de historial local no es válida.",
   "TCP/UDP and IPv4/IPv6 capability proof":
     "Prueba de capacidades TCP/UDP e IPv4/IPv6",
   "Review the capability rows; retry with the documented permissions or enable the missing local IP stack.":
@@ -905,6 +1169,59 @@ const spanish: Record<string, string> = {
     "El cierre no fue visible dentro de la ventana acotada de 30 ms",
   "Bound UDP rows stay local/listener evidence when the OS omits their peer":
     "Las filas UDP enlazadas permanecen como evidencia local/listener cuando el SO omite su peer",
+  "Application and network profiles": "Perfiles de aplicación y red",
+  "Application profile": "Perfil de aplicación",
+  "binary revisions": "revisiones del binario",
+  "Both profiles have the same observed VPN flag.":
+    "Ambos perfiles tienen el mismo indicador de VPN observado.",
+  "Cancel hashing": "Cancelar cálculo del hash",
+  "Connections by local hour": "Conexiones por hora local",
+  "Created {date}": "Creado el {date}",
+  "Current v5 history does not retroactively assign a network profile to legacy connection rows. Comparisons remain scoped to captured profile evidence and never guess an association.":
+    "El historial v5 actual no asigna retroactivamente un perfil de red a conexiones antiguas. Las comparaciones se limitan a la evidencia de perfil capturada y nunca inventan una asociación.",
+  "Direct network observed": "Red directa observada",
+  domains: "dominios",
+  Domains: "Dominios",
+  "Earlier network profile": "Perfil de red anterior",
+  End: "Fin",
+  "Every aggregate below is computed from the exact common query and drills back to retained connection IDs.":
+    "Cada agregado se calcula a partir de la consulta común exacta y permite llegar hasta los identificadores de conexión conservados.",
+  "Executable revisions": "Revisiones del ejecutable",
+  "File revision": "Revisión del archivo",
+  "First observed": "Primera observación",
+  "Format / package": "Formato / paquete",
+  "Hash and signature are local identity evidence, never reputation or a safety verdict.":
+    "El hash y la firma son evidencia local de identidad, nunca reputación ni un veredicto de seguridad.",
+  "HISTORICAL CONTEXT": "CONTEXTO HISTÓRICO",
+  "Inspect executable locally": "Inspeccionar ejecutable localmente",
+  "Last observed": "Última observación",
+  "Later network profile": "Perfil de red posterior",
+  listeners: "listeners",
+  "Local name for {id}": "Nombre local para {id}",
+  "Namespace / cgroup": "Espacio de nombres / cgroup",
+  "No evidence in the selected window.":
+    "No hay evidencia en la ventana seleccionada.",
+  "Not computed": "No calculado",
+  "Not inspected yet": "Aún no inspeccionado",
+  "Observed paths": "Rutas observadas",
+  "observed traffic": "tráfico observado",
+  "Parent instance": "Instancia padre",
+  "Per-user startup registration could not be changed. The previous setting was preserved.":
+    "No se pudo cambiar el inicio automático por usuario. Se conservó el ajuste anterior.",
+  "Ports and protocols": "Puertos y protocolos",
+  "Pseudonymous network profiles": "Perfiles de red seudónimos",
+  "Quiet hours": "Horas de silencio",
+  "Raw SSID, gateway and addresses are discarded from the profile identity; names are local and optional.":
+    "El SSID, la puerta de enlace y las direcciones sin redactar se descartan de la identidad del perfil; los nombres son locales y opcionales.",
+  "Signature status": "Estado de la firma",
+  Start: "Inicio",
+  "Suppresses new local alerts during the selected local-time window; grouped evidence remains retained.":
+    "Suprime nuevos avisos locales durante la franja horaria seleccionada; la evidencia agrupada se conserva.",
+  "The observed VPN flag changed between these profiles.":
+    "El indicador de VPN observado cambió entre estos perfiles.",
+  "User / session": "Usuario / sesión",
+  "Usual hours": "Horas habituales",
+  "VPN observed": "VPN observada",
 };
 
 const I18nContext = createContext<Language>("en");
@@ -1032,7 +1349,11 @@ function translateDynamicSpanish(source: string): string | null {
   if (missingFilterValue) return `Falta el valor de ${missingFilterValue[1]}`;
   const invalidFilterValue = source.match(/^([^:]+): (.+)$/);
   const invalidFilterReason = invalidFilterValue?.[2];
-  if (invalidFilterValue && invalidFilterReason && spanish[invalidFilterReason]) {
+  if (
+    invalidFilterValue &&
+    invalidFilterReason &&
+    spanish[invalidFilterReason]
+  ) {
     return `${invalidFilterValue[1]}: ${spanish[invalidFilterReason]}`;
   }
   const capturing = source.match(/^(.+) is capturing$/);

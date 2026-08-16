@@ -41,17 +41,17 @@ export function CommandPalette({
   const actions = useMemo(
     () => [
       {
-        label: t("Open globe"),
+        label: t("Open Today"),
         keywords: "world network mundo red",
         icon: "globe" as IconName,
-        run: () => onView("globe"),
+        run: () => onView("today"),
       },
       {
         label: t("Switch to 3D globe"),
         keywords: "visualization visualización globo",
         icon: "globe" as IconName,
         run: () => {
-          onView("globe");
+          onView("live");
           onVisualization("globe");
         },
       },
@@ -60,21 +60,21 @@ export function CommandPalette({
         keywords: "visualization fallback visualización mapa",
         icon: "map" as IconName,
         run: () => {
-          onView("globe");
+          onView("live");
           onVisualization("map");
         },
       },
       {
-        label: t("Open processes"),
+        label: t("Open Investigate"),
         keywords: "applications aplicaciones procesos",
         icon: "process" as IconName,
-        run: () => onView("processes"),
+        run: () => onView("investigate"),
       },
       {
-        label: t("Open destinations"),
+        label: t("Open Exposure"),
         keywords: "countries domains ip países dominios destinos",
         icon: "map" as IconName,
-        run: () => onView("destinations"),
+        run: () => onView("exposure"),
       },
       {
         label: t("Search process"),
@@ -89,10 +89,10 @@ export function CommandPalette({
         run: () => onSearchPreset("domain:"),
       },
       {
-        label: t("Open history"),
+        label: t("Open Live"),
         keywords: "sessions timeline sesiones historial",
         icon: "history" as IconName,
-        run: () => onView("history"),
+        run: () => onView("live"),
       },
       {
         label: paused ? t("Resume visualization") : t("Pause visualization"),
@@ -129,10 +129,10 @@ export function CommandPalette({
         run: onExport,
       },
       {
-        label: t("Open settings"),
+        label: t("Open Data & Health"),
         keywords: "privacy diagnostics",
         icon: "settings" as IconName,
-        run: () => onView("settings"),
+        run: () => onView("health"),
       },
     ],
     [

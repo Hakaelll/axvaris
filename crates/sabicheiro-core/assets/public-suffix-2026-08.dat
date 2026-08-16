@@ -1,0 +1,33 @@
+// Source: publicsuffix.org/list/public_suffix_list.dat
+// Snapshot: 2026-08-13; MPL-2.0; release subset for offline grouping
+com
+org
+net
+edu
+gov
+io
+dev
+app
+info
+biz
+es
+de
+fr
+it
+pt
+nl
+be
+uk
+co.uk
+org.uk
+ac.uk
+jp
+co.jp
+au
+com.au
+ca
+us
+br
+com.br
+mx
+local

@@ -3,7 +3,8 @@ use crate::{
     interfaces_from_sysinfo, process::ProcessResolver,
 };
 use sabicheiro_core::{
-    ConnectionState, Endpoint, NetworkInterface, NetworkProtocol, ObservationSource,
+    CapabilityAvailability, CaptureCapabilityKind, ConnectionState, Endpoint, NetworkInterface,
+    NetworkProtocol, ObservationSource, ProviderCapability, ProviderDescriptor, ProviderMode,
 };
 use std::{
     ffi::{CStr, c_void},
@@ -131,6 +132,30 @@ impl NetworkCaptureProvider for WindowsCaptureProvider {
             let fallback = interfaces_from_sysinfo();
             (!fallback.is_empty()).then_some(fallback).ok_or(error)
         })
+    }
+
+    fn descriptor(&self, generation: u64) -> ProviderDescriptor {
+        ProviderDescriptor {
+            protocol_version: 1,
+            provider_id: "windows.ip_helper".into(),
+            display_name: "Windows IP Helper".into(),
+            mode: ProviderMode::Snapshot,
+            generation: generation.max(1),
+            capabilities: [
+                CaptureCapabilityKind::SocketSnapshot,
+                CaptureCapabilityKind::ProcessIdentity,
+                CaptureCapabilityKind::Interface,
+            ]
+            .into_iter()
+            .map(|kind| ProviderCapability {
+                kind,
+                availability: CapabilityAvailability::Available,
+                source: ObservationSource::WindowsIpHelper,
+                limitation: (kind == CaptureCapabilityKind::SocketSnapshot)
+                    .then(|| "open/close timestamps are bounded by the polling interval".into()),
+            })
+            .collect(),
+        }
     }
 }
 

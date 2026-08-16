@@ -262,6 +262,7 @@ fn demo_event(
             executable_path: Some(format!("C:\\Program Files\\{}", destination.executable)),
             started_at_ms: Some(timestamp_ms.saturating_sub(3_600_000)),
             icon_data_url: None,
+            ..ProcessInfo::default()
         },
         direction: Direction::Outbound,
         state,

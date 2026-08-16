@@ -1,0 +1,23 @@
+# Source: IANA Service Name and Transport Protocol Port Number Registry
+# Snapshot: 2026-08-13; local release subset used only for display hints
+# License/terms: https://www.iana.org/help/licensing-terms
+domain,53,tcp,DNS
+domain,53,udp,DNS
+http,80,tcp,HTTP
+https,443,tcp,HTTPS
+https,443,udp,HTTPS over QUIC (common hint)
+ssh,22,tcp,SSH
+smtp,25,tcp,SMTP
+submission,587,tcp,Message submission
+imap,143,tcp,IMAP
+imaps,993,tcp,IMAPS
+pop3,110,tcp,POP3
+ntp,123,udp,NTP
+dhcp,67,udp,DHCP server
+dhcp,68,udp,DHCP client
+mdns,5353,udp,mDNS
+llmnr,5355,udp,LLMNR
+rdp,3389,tcp,Remote Desktop
+postgresql,5432,tcp,PostgreSQL
+mysql,3306,tcp,MySQL
+redis,6379,tcp,Redis

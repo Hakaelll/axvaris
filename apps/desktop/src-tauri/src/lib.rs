@@ -1,28 +1,41 @@
+use chrono::Timelike;
 #[cfg(target_os = "windows")]
 use sabicheiro_capture::WindowsEventCapture;
 use sabicheiro_capture::{
-    FlowCorrelator, NetworkCaptureProvider, RecordingController, SnapshotDiffer, system_provider,
+    BoundedEvidenceQueue, EvidenceFusion, EvidenceSequencer, FlowCorrelator,
+    NetworkCaptureProvider, PipelineQueueClass, PipelineStage, ProviderAction, ProviderSupervisor,
+    RecordingController, SnapshotDiffer, inspect_executable, lookup_network_path, replay_evidence,
+    system_provider,
 };
 use sabicheiro_core::{
-    AddressFamily, AppSettings, AsnProfile, Bookmark, CaptureCapability, CaptureMode,
-    CaptureSelfTest, CaptureStatus, CaptureSummary, ComparisonRow, Connection,
-    ConnectionAggregator, ConnectionHistoryStats, ConnectionKey, CounterSource, DashboardSnapshot,
-    DashboardUpdate, DerivedGeoEnrichment, Diagnostics, ExportFormat, ExportRequest, ExportResult,
-    FocusRules, GeoDatabaseStatus, HistoryEntry, HistoryQuery, IdentityEventKind,
-    IdentityTimelineEvent, IgnoreRule, InvestigationQuery, LocalDataCategory,
-    LocalDataRemovalResult, NetworkEventKind, NetworkProtocol, NormalizedNetworkEvent,
-    ObservationSource, RecordingRequest, RecordingState, RecordingStatus, RecordingSummary,
-    ReenrichmentJobState, ReenrichmentJobStatus, RetentionPolicy, RuleKind, SavedInvestigation,
-    SelfTestCheck, SelfTestLevel, SessionComparison, SessionSummary, StorageHealth,
-    SubsystemDiagnostic, SubsystemStatus, SupportBundleRequest, TimelineQuery, TrafficCounters,
-    TrafficSample, TransferRates, reconstruct_at,
+    AddressFamily, AppSettings, AsnProfile, Bookmark, CapabilityAvailability, CaptureCapability,
+    CaptureCapabilityKind, CaptureMode, CaptureSelfTest, CaptureStatus, CaptureSummary,
+    ComparisonRow, Connection, ConnectionAggregator, ConnectionAnnotation, ConnectionHistoryStats,
+    ConnectionKey, CorrelationQuality, CounterSource, DashboardSnapshot, DashboardUpdate,
+    DerivedGeoEnrichment, Diagnostics, DnsAnswerEvidence, DnsCausalGraph, DnsCausalRelation,
+    ExecutableInspectionState, ExecutableInspectionStatus, ExportFormat, ExportRequest,
+    ExportResult, FocusRules, GeoDatabaseStatus, HandshakeModeAudit, HistoryEntry, HistoryQuery,
+    IdentityEventKind, IdentityTimelineEvent, IgnoreRule, ImportedSabiBundle, InvestigationQuery,
+    ListenerExposure, ListenerScope, ListenerSnapshot, LocalDataCategory, LocalDataRemovalResult,
+    LocalNotificationRecord, LocalRule, LocalRuleAction, NetworkActionAudit, NetworkActionBroker,
+    NetworkActionGrant, NetworkActionIntent, NetworkActionPolicy, NetworkEventKind,
+    NetworkPathEvidence, NetworkPathKind, NetworkProfile, NetworkProtocol, NormalizedNetworkEvent,
+    NotificationCenterEngine, NotificationState, ObservationSource, OfflineCatalogIdentity,
+    OfflineServiceHint, ProviderCapability, ProviderDescriptor, ProviderMode, QuietHours,
+    RecordingRequest, RecordingState, RecordingStatus, RecordingSummary, ReenrichmentJobState,
+    ReenrichmentJobStatus, RetentionPolicy, RuleContext, RuleKind, RuleMatch, SabiExportRequest,
+    SabiManifest, SavedInvestigation, SelfTestCheck, SelfTestLevel, SessionComparison,
+    SessionSummary, StorageHealth, SubsystemDiagnostic, SubsystemStatus, SupportBundleRequest,
+    TimelineQuery, TimelineResolution, TodayCardState, TrafficCounters, TrafficSample,
+    TransferRates, reconstruct_at,
 };
 use sabicheiro_geo::{
     AddressScope, DnsResolver, GeoDatabaseKind, GeoLookup, LocalGeoResolver, import_mmdb,
     remove_mmdb, rollback_mmdb, update_dbip_lite,
 };
-use sabicheiro_storage::Storage;
+use sabicheiro_storage::{Storage, projection_sha256};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::{self, OpenOptions},
@@ -39,6 +52,10 @@ use std::{
 };
 use sysinfo::{Networks, ProcessesToUpdate, System};
 use tauri::{Manager, State};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
+};
 
 const TICK_INTERVAL: Duration = Duration::from_millis(200);
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(750);
@@ -48,6 +65,127 @@ const INTERFACE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 const RETENTION_CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const DNS_QUEUE_CAPACITY: usize = 1_024;
 const GEO_QUEUE_CAPACITY: usize = 2_048;
+const EVIDENCE_STORAGE_BATCH_SIZE: usize = 4_096;
+
+fn evidence_provider_descriptor(source: ObservationSource, generation: u64) -> ProviderDescriptor {
+    let (provider_id, display_name, mode, kinds): (
+        &str,
+        &str,
+        ProviderMode,
+        &[CaptureCapabilityKind],
+    ) = match source {
+        ObservationSource::WindowsIpHelper => (
+            "windows.ip_helper",
+            "Windows IP Helper",
+            ProviderMode::Snapshot,
+            &[
+                CaptureCapabilityKind::SocketSnapshot,
+                CaptureCapabilityKind::ProcessIdentity,
+                CaptureCapabilityKind::Interface,
+            ],
+        ),
+        ObservationSource::WindowsEtw => (
+            "windows.etw",
+            "Windows ETW",
+            ProviderMode::EventStream,
+            &[
+                CaptureCapabilityKind::LifecycleEvents,
+                CaptureCapabilityKind::FlowBytes,
+                CaptureCapabilityKind::FlowPackets,
+                CaptureCapabilityKind::Dns,
+                CaptureCapabilityKind::ProcessIdentity,
+            ],
+        ),
+        ObservationSource::WindowsHelper => (
+            "windows.helper",
+            "Sabicheiro capture helper",
+            ProviderMode::EventStream,
+            &[
+                CaptureCapabilityKind::LifecycleEvents,
+                CaptureCapabilityKind::FlowBytes,
+                CaptureCapabilityKind::FlowPackets,
+                CaptureCapabilityKind::Dns,
+                CaptureCapabilityKind::ProcessIdentity,
+            ],
+        ),
+        ObservationSource::LinuxInetDiag => (
+            "linux.inet_diag",
+            "Linux INET_DIAG",
+            ProviderMode::Snapshot,
+            &[
+                CaptureCapabilityKind::SocketSnapshot,
+                CaptureCapabilityKind::ProcessIdentity,
+                CaptureCapabilityKind::NetworkNamespace,
+                CaptureCapabilityKind::Interface,
+            ],
+        ),
+        ObservationSource::LinuxEbpf => (
+            "linux.ebpf",
+            "Linux eBPF",
+            ProviderMode::EventStream,
+            &[
+                CaptureCapabilityKind::LifecycleEvents,
+                CaptureCapabilityKind::FlowBytes,
+                CaptureCapabilityKind::FlowPackets,
+                CaptureCapabilityKind::ProcessIdentity,
+                CaptureCapabilityKind::NetworkNamespace,
+                CaptureCapabilityKind::Interface,
+            ],
+        ),
+        ObservationSource::Demo => (
+            "fixture.demo",
+            "Deterministic demo",
+            ProviderMode::Fixture,
+            &[
+                CaptureCapabilityKind::LifecycleEvents,
+                CaptureCapabilityKind::FlowBytes,
+                CaptureCapabilityKind::FlowPackets,
+                CaptureCapabilityKind::ProcessIdentity,
+                CaptureCapabilityKind::Interface,
+            ],
+        ),
+        _ => (
+            "sabicheiro.normalized",
+            "Normalized local observation",
+            ProviderMode::Unknown,
+            &[CaptureCapabilityKind::LifecycleEvents],
+        ),
+    };
+    ProviderDescriptor {
+        protocol_version: 1,
+        provider_id: provider_id.into(),
+        display_name: display_name.into(),
+        mode,
+        generation: generation.max(1),
+        capabilities: kinds
+            .iter()
+            .copied()
+            .map(|kind| ProviderCapability {
+                kind,
+                availability: CapabilityAvailability::Available,
+                source,
+                limitation: (mode == ProviderMode::Snapshot).then(|| {
+                    "lifecycle timing is bounded by the provider snapshot interval".into()
+                }),
+            })
+            .collect(),
+    }
+}
+
+fn evidence_queue_class(observation: &sabicheiro_core::EvidenceObservation) -> PipelineQueueClass {
+    match observation.network.as_ref().map(|event| event.kind) {
+        Some(NetworkEventKind::Opened | NetworkEventKind::Closed) => PipelineQueueClass::Lifecycle,
+        Some(NetworkEventKind::Updated)
+            if observation
+                .network
+                .as_ref()
+                .is_some_and(|event| event.traffic_delta != TrafficCounters::default()) =>
+        {
+            PipelineQueueClass::RepeatedMetric
+        }
+        _ => PipelineQueueClass::Context,
+    }
+}
 
 fn transfer_rates_from_deltas(
     received_bytes: u64,
@@ -75,9 +213,17 @@ fn counters_from_rates(rates: TransferRates) -> TrafficCounters {
 #[derive(Clone)]
 struct AppState(Arc<Runtime>);
 
+struct TrayUi {
+    _icon: TrayIcon<tauri::Wry>,
+    _status: MenuItem<tauri::Wry>,
+    _health: MenuItem<tauri::Wry>,
+    _pause: MenuItem<tauri::Wry>,
+}
+
 struct Runtime {
     engine: Mutex<Engine>,
     reenrichment_jobs: Mutex<HashMap<String, ReenrichmentJobControl>>,
+    executable_jobs: Mutex<HashMap<String, ExecutableInspectionJobControl>>,
     shutdown: AtomicBool,
     data_directory: PathBuf,
     logging: Option<LocalLogging>,
@@ -87,6 +233,12 @@ struct Runtime {
 struct ReenrichmentJobControl {
     cancel: Arc<AtomicBool>,
     status: Arc<Mutex<ReenrichmentJobStatus>>,
+}
+
+#[derive(Clone)]
+struct ExecutableInspectionJobControl {
+    cancel: Arc<AtomicBool>,
+    status: Arc<Mutex<ExecutableInspectionStatus>>,
 }
 
 struct LocalLogging {
@@ -154,6 +306,27 @@ struct HistoryResponse {
     recordings: Vec<RecordingSummary>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectionReplayResult {
+    projection_version: u32,
+    observations: usize,
+    connections: usize,
+    provider_gaps: usize,
+    result_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectionContextResponse {
+    connection_id: String,
+    dns: Option<DnsCausalRelation>,
+    path: NetworkPathEvidence,
+    listener: Option<ListenerExposure>,
+    service_hint: Option<OfflineServiceHint>,
+    registrable_domain: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ComparisonExportRequest {
@@ -167,12 +340,15 @@ struct ComparisonExportRequest {
 struct DnsJob {
     key: ConnectionKey,
     address: IpAddr,
+    grant: NetworkActionGrant,
 }
 
 #[derive(Debug)]
 struct DnsResult {
     key: ConnectionKey,
+    address: IpAddr,
     hostname: Option<String>,
+    observed_at_ms: i64,
 }
 
 struct DnsService {
@@ -193,12 +369,15 @@ impl DnsService {
             .spawn(move || {
                 let mut resolver = DnsResolver::default();
                 while let Ok(job) = job_receiver.recv() {
-                    let hostname = resolver.resolve(job.address, sabicheiro_core::now_ms());
+                    let observed_at_ms = sabicheiro_core::now_ms();
+                    let hostname = resolver.resolve(job.address, observed_at_ms, &job.grant);
                     worker_pending.fetch_sub(1, Ordering::Relaxed);
                     if result_sender
                         .send(DnsResult {
                             key: job.key,
+                            address: job.address,
                             hostname,
+                            observed_at_ms,
                         })
                         .is_err()
                     {
@@ -405,11 +584,19 @@ struct Engine {
     differ: SnapshotDiffer,
     correlator: FlowCorrelator,
     capture_generation: u64,
+    evidence_clock_origin: Instant,
+    evidence_sequencers: HashMap<(ObservationSource, u64), EvidenceSequencer>,
+    evidence_fusion: EvidenceFusion,
+    evidence_storage_queue: BoundedEvidenceQueue,
+    last_event_capture_drops: u64,
+    provider_supervisor: ProviderSupervisor,
     demo: sabicheiro_core::DemoGenerator,
     storage: Storage,
     geo: GeoService,
     dns: DnsService,
     dns_observations: HashMap<IpAddr, (String, i64)>,
+    dns_causal_graph: DnsCausalGraph,
+    dns_relations: HashMap<ConnectionKey, sabicheiro_core::DnsCausalRelation>,
     settings: AppSettings,
     session: Option<SessionSummary>,
     recording: RecordingController,
@@ -433,6 +620,9 @@ struct Engine {
     subsystem_states: HashMap<String, (SubsystemStatus, i64)>,
     last_tick_at: Instant,
     network_signature: String,
+    active_network_profile_id: Option<String>,
+    local_rules: Vec<LocalRule>,
+    notification_center: NotificationCenterEngine,
 }
 
 impl Runtime {
@@ -446,6 +636,11 @@ impl Runtime {
             }
         };
         let settings = storage.load_settings().unwrap_or_default();
+        let local_rules = storage.list_local_rules().unwrap_or_default();
+        let notification_center = NotificationCenterEngine::from_records(
+            10_000,
+            storage.list_notifications(10_000).unwrap_or_default(),
+        );
         let retention_error = storage
             .cleanup(settings.retention, sabicheiro_core::now_ms())
             .err()
@@ -506,11 +701,22 @@ impl Runtime {
                 differ: SnapshotDiffer::default(),
                 correlator: FlowCorrelator::default(),
                 capture_generation: 0,
+                evidence_clock_origin: Instant::now(),
+                evidence_sequencers: HashMap::new(),
+                evidence_fusion: EvidenceFusion::default(),
+                evidence_storage_queue: BoundedEvidenceQueue::new(
+                    PipelineStage::Storage,
+                    settings.operation_profile.evidence_queue_capacity(),
+                ),
+                last_event_capture_drops: 0,
+                provider_supervisor: ProviderSupervisor::default(),
                 demo: sabicheiro_core::DemoGenerator::new(settings.demo_seed),
                 storage,
                 geo: GeoService::start(geo),
                 dns: DnsService::start(),
                 dns_observations: HashMap::new(),
+                dns_causal_graph: DnsCausalGraph::default(),
+                dns_relations: HashMap::new(),
                 settings,
                 session: None,
                 recording: RecordingController::default(),
@@ -534,8 +740,12 @@ impl Runtime {
                 subsystem_states: HashMap::new(),
                 last_tick_at: Instant::now(),
                 network_signature: String::new(),
+                active_network_profile_id: None,
+                local_rules,
+                notification_center,
             }),
             reenrichment_jobs: Mutex::new(HashMap::new()),
+            executable_jobs: Mutex::new(HashMap::new()),
             shutdown: AtomicBool::new(false),
             data_directory,
             logging,
@@ -580,6 +790,8 @@ impl Runtime {
 impl Engine {
     fn tick(&mut self) {
         let now_ms = sabicheiro_core::now_ms();
+        self.provider_supervisor.tick(now_ms);
+        self.apply_provider_actions(now_ms);
         let tick_gap = self.last_tick_at.elapsed();
         self.last_tick_at = Instant::now();
         if self.capture_mode == CaptureMode::Live && tick_gap > Duration::from_secs(5) {
@@ -597,11 +809,19 @@ impl Engine {
                 let events = self.demo.next_batch(now_ms);
                 self.process_events(events, true);
             }
-            CaptureMode::Live if self.last_capture_poll.elapsed() >= LIVE_POLL_INTERVAL => {
+            CaptureMode::Live
+                if self.last_capture_poll.elapsed()
+                    >= Duration::from_millis(
+                        self.settings.operation_profile.poll_interval_ms(),
+                    ) =>
+            {
                 self.last_capture_poll = Instant::now();
                 let result = self.provider.as_mut().map(|provider| provider.snapshot());
                 match result {
                     Some(Ok(mut sockets)) => {
+                        let snapshot_provider_id = self.provider.as_ref().map(|provider| {
+                            provider.descriptor(self.capture_generation).provider_id
+                        });
                         if !self.selected_interface_addresses.is_empty() {
                             sockets.retain(|socket| {
                                 socket.identity.local.address.is_unspecified()
@@ -625,9 +845,21 @@ impl Engine {
                         self.correlator.observe_snapshots(events.iter(), now_ms);
                         self.process_events(events, false);
                         self.capture_status = CaptureStatus::Capturing;
+                        if let Some(provider_id) = snapshot_provider_id {
+                            self.provider_supervisor.mark_healthy(&provider_id, now_ms);
+                        }
                     }
                     Some(Err(error)) => {
                         let message = error.to_string();
+                        if let Some(provider_id) = self.provider.as_ref().map(|provider| {
+                            provider.descriptor(self.capture_generation).provider_id
+                        }) {
+                            self.provider_supervisor.mark_failure(
+                                &provider_id,
+                                message.clone(),
+                                now_ms,
+                            );
+                        }
                         self.capture_status = CaptureStatus::Error(message.clone());
                         self.diagnostics.last_error = Some(message);
                     }
@@ -647,6 +879,19 @@ impl Engine {
         {
             self.persist(now_ms);
             self.last_persist = Instant::now();
+        }
+        let evidence_stats = self.evidence_storage_queue.stats(
+            self.evidence_clock_origin
+                .elapsed()
+                .as_nanos()
+                .min(u128::from(u64::MAX)) as u64,
+        );
+        if self.capture_mode == CaptureMode::Live && evidence_stats.resync_required {
+            self.evidence_storage_queue.mark_resynced();
+            self.reconcile_after_environment_change(
+                now_ms,
+                "The evidence consumer lost lifecycle order under backpressure; socket state was explicitly reconciled.",
+            );
         }
         if self.last_diagnostics.elapsed() >= DIAGNOSTICS_INTERVAL {
             self.refresh_diagnostics();
@@ -676,7 +921,230 @@ impl Engine {
         self.stop_expired_recording(now_ms);
     }
 
-    fn process_events(&mut self, mut events: Vec<NormalizedNetworkEvent>, demo: bool) {
+    fn apply_provider_actions(&mut self, now_ms: i64) {
+        while let Some(action) = self.provider_supervisor.next_action() {
+            match action {
+                ProviderAction::Start { .. } => {}
+                ProviderAction::Restart { provider_id, .. } if provider_id == "windows.etw" =>
+                {
+                    #[cfg(target_os = "windows")]
+                    match WindowsEventCapture::start() {
+                        Ok(capture) => {
+                            self.event_capture = Some(capture);
+                            self.last_event_capture_drops = 0;
+                            self.provider_supervisor.mark_healthy(&provider_id, now_ms);
+                            self.diagnostics.capture_event_source = "windows_etw".into();
+                            self.diagnostics.flow_counters_available = true;
+                        }
+                        Err(error) => {
+                            self.provider_supervisor.mark_failure(
+                                &provider_id,
+                                error.to_string(),
+                                now_ms,
+                            );
+                        }
+                    }
+                }
+                ProviderAction::Restart { provider_id, .. } => match system_provider() {
+                    Ok(provider)
+                        if provider.descriptor(self.capture_generation).provider_id
+                            == provider_id =>
+                    {
+                        self.provider = Some(provider);
+                        self.capture_status = CaptureStatus::Starting;
+                        self.last_capture_poll = Instant::now() - LIVE_POLL_INTERVAL;
+                    }
+                    Ok(_) => self.provider_supervisor.mark_failure(
+                        &provider_id,
+                        "the restarted system provider identity changed",
+                        now_ms,
+                    ),
+                    Err(error) => self.provider_supervisor.mark_failure(
+                        &provider_id,
+                        error.to_string(),
+                        now_ms,
+                    ),
+                },
+                ProviderAction::ActivateFallback {
+                    provider_id,
+                    fallback_provider_id,
+                } => {
+                    self.diagnostics.capture_event_source = "socket_polling".into();
+                    self.diagnostics.flow_counters_available = false;
+                    self.diagnostics.last_error = Some(format!(
+                        "Provider {provider_id} is unavailable; {fallback_provider_id} remains active."
+                    ));
+                }
+                ProviderAction::Reconcile { reason, .. } => {
+                    self.reconcile_after_environment_change(now_ms, &reason);
+                }
+            }
+        }
+    }
+
+    fn process_events(&mut self, events: Vec<NormalizedNetworkEvent>, demo: bool) {
+        if events.is_empty() {
+            return;
+        }
+        let generation = self.capture_generation.max(1);
+        let base_monotonic_ns = self
+            .evidence_clock_origin
+            .elapsed()
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
+        let persist_evidence = !self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.ephemeral);
+        let mut observations = Vec::with_capacity(events.len());
+        for (offset, event) in events.into_iter().enumerate() {
+            let source = event.evidence.observation_source;
+            let sequencer = self
+                .evidence_sequencers
+                .entry((source, generation))
+                .or_insert_with(|| {
+                    EvidenceSequencer::new(
+                        evidence_provider_descriptor(source, generation),
+                        event.timestamp_ms,
+                    )
+                });
+            let observation = sequencer.wrap_network_at(
+                base_monotonic_ns.saturating_add(offset as u64),
+                event.timestamp_ms,
+                event,
+            );
+            if persist_evidence {
+                let class = evidence_queue_class(&observation);
+                let _ = self.evidence_storage_queue.push(
+                    observation.clone(),
+                    class,
+                    None,
+                    base_monotonic_ns,
+                );
+            }
+            observations.push(observation);
+        }
+        let mut batch = self.evidence_fusion.ingest(observations);
+        self.diagnostics.sequence_gaps = self.diagnostics.sequence_gaps.saturating_add(
+            batch
+                .gaps
+                .iter()
+                .map(sabicheiro_core::ProviderGap::missing_count)
+                .sum::<u64>(),
+        );
+        for event in &mut batch.events {
+            if event.kind != NetworkEventKind::Opened {
+                continue;
+            }
+            let relation = self.dns_causal_graph.relate(event);
+            if let Some(confirmed) = &relation.confirmed {
+                event.hostname = Some(confirmed.query_name.clone());
+                event.domain = Some(confirmed.query_name.clone());
+            }
+            if relation.confirmed.is_some() || !relation.candidates.is_empty() {
+                self.dns_relations.insert(event.key.clone(), relation);
+            }
+        }
+        self.project_events(batch.events, demo);
+    }
+
+    fn process_dns_answer(&mut self, answer: DnsAnswerEvidence) {
+        let generation = self.capture_generation.max(1);
+        let monotonic_ns = self
+            .evidence_clock_origin
+            .elapsed()
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
+        let source = answer.source;
+        let observed_at_ms = answer.observed_at_ms;
+        self.dns_causal_graph.observe(answer.clone());
+        let sequencer = self
+            .evidence_sequencers
+            .entry((source, generation))
+            .or_insert_with(|| {
+                EvidenceSequencer::new(
+                    evidence_provider_descriptor(source, generation),
+                    observed_at_ms,
+                )
+            });
+        let process_known = answer.process_instance.is_some();
+        let observation = sequencer.wrap_dns_at(
+            monotonic_ns,
+            observed_at_ms,
+            answer,
+            CorrelationQuality::Confirmed,
+            (!process_known).then(|| {
+                "DNS answer is observed, but causal process attribution is unavailable".into()
+            }),
+        );
+        if !self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.ephemeral)
+        {
+            let _ = self.evidence_storage_queue.push(
+                observation.clone(),
+                PipelineQueueClass::Context,
+                None,
+                monotonic_ns,
+            );
+        }
+        let _ = self.evidence_fusion.ingest([observation]);
+    }
+
+    fn record_provider_gap(
+        &mut self,
+        source: ObservationSource,
+        missing: u64,
+        affected_capabilities: impl IntoIterator<Item = CaptureCapabilityKind>,
+        reason: &str,
+        now_ms: i64,
+    ) {
+        if missing == 0 {
+            return;
+        }
+        let generation = self.capture_generation.max(1);
+        let monotonic_ns = self
+            .evidence_clock_origin
+            .elapsed()
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
+        let sequencer = self
+            .evidence_sequencers
+            .entry((source, generation))
+            .or_insert_with(|| {
+                EvidenceSequencer::new(evidence_provider_descriptor(source, generation), now_ms)
+            });
+        let Some(observation) =
+            sequencer.record_gap(missing, monotonic_ns, now_ms, affected_capabilities, reason)
+        else {
+            return;
+        };
+        if !self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.ephemeral)
+        {
+            let _ = self.evidence_storage_queue.push(
+                observation.clone(),
+                PipelineQueueClass::Lifecycle,
+                None,
+                monotonic_ns,
+            );
+        }
+        let batch = self.evidence_fusion.ingest([observation]);
+        self.diagnostics.sequence_gaps = self.diagnostics.sequence_gaps.saturating_add(
+            batch
+                .gaps
+                .iter()
+                .map(sabicheiro_core::ProviderGap::missing_count)
+                .sum::<u64>(),
+        );
+    }
+
+    /// Applies derived/local enrichments only after the original observations have
+    /// entered the immutable journal queue.
+    fn project_events(&mut self, mut events: Vec<NormalizedNetworkEvent>, demo: bool) {
         for event in &mut events {
             if event.kind == NetworkEventKind::Opened
                 && !event.key.remote.address.is_unspecified()
@@ -692,27 +1160,139 @@ impl Engine {
                 }
                 if self.settings.reverse_dns_enabled
                     && event.key.remote.scope == AddressScope::Global
-                    && !self.dns.enqueue(DnsJob {
-                        key: event.key.clone(),
-                        address: event.key.remote.address,
-                    })
                 {
-                    self.diagnostics.dropped_ui_events =
-                        self.diagnostics.dropped_ui_events.saturating_add(1);
-                }
-                if let Some((hostname, expires_at_ms)) =
-                    self.dns_observations.get(&event.key.remote.address)
-                    && *expires_at_ms > event.timestamp_ms
-                {
-                    event.hostname = Some(hostname.clone());
-                    event.domain = Some(hostname.clone());
+                    let broker = NetworkActionBroker::new(NetworkActionPolicy {
+                        offline_enforced: self.settings.offline_enforced,
+                        geoip_updates_allowed: false,
+                        reverse_dns_allowed: self.settings.reverse_dns_enabled,
+                    });
+                    match broker.authorize(
+                        NetworkActionIntent::ReverseDns,
+                        "settings.reverse_dns_enabled",
+                    ) {
+                        Ok(grant) => {
+                            let _ = self.storage.record_network_action(
+                                event.timestamp_ms,
+                                grant.intent(),
+                                grant.destination_class(),
+                                Some(grant.consent_id()),
+                                true,
+                                0,
+                                0,
+                                "Queued one bounded reverse-DNS request; observed IP redacted from audit.",
+                            );
+                            if !self.dns.enqueue(DnsJob {
+                                key: event.key.clone(),
+                                address: event.key.remote.address,
+                                grant,
+                            }) {
+                                self.diagnostics.dropped_ui_events =
+                                    self.diagnostics.dropped_ui_events.saturating_add(1);
+                            }
+                        }
+                        Err(error) => {
+                            let _ = self.storage.record_network_action(
+                                event.timestamp_ms,
+                                NetworkActionIntent::ReverseDns,
+                                NetworkActionIntent::ReverseDns.destination_class(),
+                                Some("settings.reverse_dns_enabled"),
+                                false,
+                                0,
+                                0,
+                                &error.to_string(),
+                            );
+                        }
+                    }
                 }
             }
         }
         self.events_since_rate = self
             .events_since_rate
             .saturating_add(events.len().try_into().unwrap_or(u64::MAX));
-        self.aggregator.apply_batch(events);
+        for event in events {
+            let key = event.key.clone();
+            let kind = event.kind;
+            let timestamp_ms = event.timestamp_ms;
+            self.aggregator.apply(event);
+            if matches!(kind, NetworkEventKind::Opened | NetworkEventKind::Updated)
+                && let Some(connection) = self.aggregator.connection(&key).cloned()
+            {
+                self.evaluate_local_rules(&connection, timestamp_ms);
+            }
+        }
+    }
+
+    fn evaluate_local_rules(&mut self, connection: &Connection, occurred_at_ms: i64) {
+        if self.local_rules.is_empty() {
+            return;
+        }
+        let listener_scope = if connection.state == sabicheiro_core::ConnectionState::Listening {
+            if connection.key.local.address.is_loopback() {
+                ListenerScope::Loopback
+            } else if connection.key.local.address.is_unspecified() {
+                ListenerScope::Wildcard
+            } else if self.vpn_active {
+                ListenerScope::Vpn
+            } else {
+                ListenerScope::Lan
+            }
+        } else {
+            ListenerScope::Unknown
+        };
+        let path_kind = if self.vpn_active {
+            NetworkPathKind::Vpn
+        } else if connection.key.remote.scope == AddressScope::Global {
+            NetworkPathKind::Gateway
+        } else {
+            NetworkPathKind::Direct
+        };
+        let context = RuleContext {
+            network_profile_id: self.active_network_profile_id.clone(),
+            path_kind,
+            listener_scope,
+        };
+        let rules = self.local_rules.clone();
+        for rule in rules {
+            let rule_match = rule.evaluate(connection, &context);
+            if !rule_match.matched {
+                continue;
+            }
+            let _ = self.storage.record_rule_match(&rule_match, occurred_at_ms);
+            let _ = self
+                .storage
+                .apply_rule_match_actions(&rule_match, occurred_at_ms);
+            if !rule_match.actions.contains(&LocalRuleAction::Notify) {
+                continue;
+            }
+            let detail = if rule_match.reasons.is_empty() {
+                "The local rule matched this retained connection evidence.".into()
+            } else {
+                rule_match.reasons.join(", ")
+            };
+            let quiet_hours = QuietHours {
+                enabled: self.settings.notification_quiet_hours_enabled,
+                start_minute_local: self.settings.notification_quiet_start_minute,
+                end_minute_local: self.settings.notification_quiet_end_minute,
+            };
+            let minute_local =
+                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(occurred_at_ms)
+                    .map(|timestamp| timestamp.with_timezone(&chrono::Local))
+                    .map_or(0, |timestamp| {
+                        u16::try_from(timestamp.hour() * 60 + timestamp.minute()).unwrap_or(0)
+                    });
+            if let Some(notification) = self.notification_center.ingest(
+                &rule_match,
+                self.active_network_profile_id.clone(),
+                rule.name,
+                detail,
+                occurred_at_ms,
+                rule.cooldown_seconds,
+                quiet_hours,
+                minute_local,
+            ) {
+                let _ = self.storage.save_notification(&notification);
+            }
+        }
     }
 
     fn drain_geo_results(&mut self) {
@@ -797,6 +1377,27 @@ impl Engine {
         self.vpn_active = interfaces
             .iter()
             .any(|network_interface| network_interface.is_up && network_interface.is_vpn);
+        if !self.network_signature.is_empty() {
+            let mut profile = NetworkProfile::pseudonymous(
+                &self.network_signature,
+                None,
+                self.vpn_active,
+                sabicheiro_core::now_ms(),
+            );
+            if let Ok(existing_profiles) = self.storage.list_network_profiles() {
+                if let Some(existing) = existing_profiles
+                    .into_iter()
+                    .find(|existing| existing.id == profile.id)
+                {
+                    profile.created_at_ms = existing.created_at_ms;
+                    profile.display_name = existing.display_name;
+                }
+            }
+            self.active_network_profile_id = Some(profile.id.clone());
+            let _ = self
+                .storage
+                .save_network_profile(&profile, sabicheiro_core::now_ms());
+        }
         let Some(selected) = self.selected_interface.as_deref() else {
             return;
         };
@@ -825,6 +1426,8 @@ impl Engine {
         self.capture_generation = self.capture_generation.saturating_add(1).max(1);
         self.differ = SnapshotDiffer::new(self.capture_generation);
         self.correlator.clear();
+        self.evidence_fusion = EvidenceFusion::default();
+        self.evidence_sequencers.clear();
         self.network_metrics = Networks::new_with_refreshed_list();
         self.network_rates = TransferRates::default();
         self.diagnostics.capture_generation = self.capture_generation;
@@ -841,6 +1444,9 @@ impl Engine {
             return;
         };
         let (mut events, observations) = capture.drain(now_ms);
+        let dropped = capture.dropped();
+        let pending = capture.pending();
+        let capacity = capture.capacity();
         if !self.selected_interface_addresses.is_empty() {
             events.retain(|event| {
                 event.key.local.address.is_unspecified()
@@ -860,21 +1466,21 @@ impl Engine {
                 observation.address,
                 (observation.hostname.clone(), observation.expires_at_ms),
             );
-            let keys = self
-                .aggregator
-                .connections()
-                .filter(|connection| connection.key.remote.address == observation.address)
-                .map(|connection| connection.key.clone())
-                .collect::<Vec<_>>();
-            for key in keys {
-                self.aggregator.enrich(
-                    &key,
-                    Some(observation.hostname.clone()),
-                    Some(observation.hostname.clone()),
-                    None,
-                    None,
-                );
-            }
+            let mut answer = DnsAnswerEvidence::new(
+                format!(
+                    "windows-etw-dns:{}:{}:{}",
+                    observation.observed_at_ms, observation.hostname, observation.address
+                ),
+                observation.hostname,
+                [observation.address],
+                observation.ttl_seconds,
+                observation.process_instance,
+                observation.observed_at_ms,
+                ObservationSource::WindowsEtw,
+            );
+            answer.canonical_name = observation.canonical_name;
+            answer.resolver = observation.resolver;
+            self.process_dns_answer(answer);
             self.diagnostics.dns_correlations_observed =
                 self.diagnostics.dns_correlations_observed.saturating_add(1);
         }
@@ -886,15 +1492,27 @@ impl Engine {
         self.diagnostics.correlated_capture_events = correlation.correlated;
         self.diagnostics.approximate_capture_events = correlation.approximate;
         self.diagnostics.orphan_capture_events = correlation.orphaned;
-        self.diagnostics.dropped_capture_events = capture.dropped();
-        self.diagnostics.capture_queue_depth = capture
-            .pending()
+        self.diagnostics.dropped_capture_events = dropped;
+        self.diagnostics.capture_queue_depth = pending
             .saturating_add(self.dns.pending())
             .saturating_add(self.geo.pending());
-        self.diagnostics.capture_queue_capacity = capture
-            .capacity()
+        self.diagnostics.capture_queue_capacity = capacity
             .saturating_add(DNS_QUEUE_CAPACITY)
             .saturating_add(GEO_QUEUE_CAPACITY);
+        let newly_dropped = dropped.saturating_sub(self.last_event_capture_drops);
+        self.last_event_capture_drops = dropped;
+        self.record_provider_gap(
+            ObservationSource::WindowsEtw,
+            newly_dropped,
+            [
+                CaptureCapabilityKind::LifecycleEvents,
+                CaptureCapabilityKind::FlowBytes,
+                CaptureCapabilityKind::FlowPackets,
+                CaptureCapabilityKind::Dns,
+            ],
+            "bounded Windows ETW queue overflow",
+            now_ms,
+        );
         if !events.is_empty() {
             self.process_events(events, false);
         }
@@ -910,11 +1528,56 @@ impl Engine {
         while let Ok(result) = self.dns.receiver.try_recv() {
             let domain = result.hostname.clone();
             self.aggregator
-                .enrich(&result.key, result.hostname, domain, None, None);
+                .enrich(&result.key, result.hostname.clone(), domain, None, None);
+            if let Some(hostname) = result.hostname {
+                self.process_dns_answer(DnsAnswerEvidence::new(
+                    format!(
+                        "reverse-dns:{}:{}:{}",
+                        result.observed_at_ms, hostname, result.address
+                    ),
+                    hostname,
+                    [result.address],
+                    3_600,
+                    result.key.process_instance,
+                    result.observed_at_ms,
+                    ObservationSource::LocalDns,
+                ));
+            }
         }
     }
 
+    fn flush_evidence_journal(&mut self) -> bool {
+        let now_monotonic_ns = self
+            .evidence_clock_origin
+            .elapsed()
+            .as_nanos()
+            .min(u128::from(u64::MAX)) as u64;
+        let mut batch = Vec::with_capacity(EVIDENCE_STORAGE_BATCH_SIZE);
+        while batch.len() < EVIDENCE_STORAGE_BATCH_SIZE {
+            let Some(observation) = self.evidence_storage_queue.pop(now_monotonic_ns) else {
+                break;
+            };
+            batch.push(observation);
+        }
+        if batch.is_empty() {
+            return true;
+        }
+        let session_id = self.session.as_ref().map(|session| session.id.as_str());
+        if let Err(error) = self.storage.append_observations(session_id, &batch) {
+            for observation in batch {
+                let class = evidence_queue_class(&observation);
+                let _ =
+                    self.evidence_storage_queue
+                        .push(observation, class, None, now_monotonic_ns);
+            }
+            self.diagnostics.last_error = Some(error.to_string());
+            return false;
+        }
+        true
+    }
+
     fn persist(&mut self, now_ms: i64) {
+        let _ = self.flush_evidence_journal();
         if self
             .session
             .as_ref()
@@ -1054,6 +1717,15 @@ impl Engine {
         self.capture_generation = self.capture_generation.saturating_add(1).max(1);
         self.differ = SnapshotDiffer::new(self.capture_generation);
         self.correlator.clear();
+        self.evidence_clock_origin = Instant::now();
+        self.evidence_sequencers.clear();
+        self.evidence_fusion = EvidenceFusion::default();
+        self.evidence_storage_queue = BoundedEvidenceQueue::new(
+            PipelineStage::Storage,
+            self.settings.operation_profile.evidence_queue_capacity(),
+        );
+        self.last_event_capture_drops = 0;
+        self.provider_supervisor = ProviderSupervisor::default();
         self.diagnostics.capture_generation = self.capture_generation;
         self.provider = None;
         #[cfg(target_os = "windows")]
@@ -1061,6 +1733,8 @@ impl Engine {
             self.event_capture = None;
         }
         self.dns_observations.clear();
+        self.dns_causal_graph = DnsCausalGraph::default();
+        self.dns_relations.clear();
         self.selected_interface_addresses.clear();
         self.interface_by_address.clear();
         self.network_signature.clear();
@@ -1092,6 +1766,9 @@ impl Engine {
                 let Some((provider, selected_addresses, vpn_active)) = live_setup else {
                     unreachable!("live capture setup is prepared before state mutation")
                 };
+                let snapshot_provider_id = provider.descriptor(self.capture_generation).provider_id;
+                self.provider_supervisor
+                    .register(snapshot_provider_id, None, now_ms);
                 self.selected_interface_addresses = selected_addresses;
                 self.vpn_active = vpn_active;
                 self.diagnostics.backend = provider.name().into();
@@ -1099,16 +1776,30 @@ impl Engine {
                 self.diagnostics.capture_event_source = "socket_polling".into();
                 self.diagnostics.flow_counters_available = false;
                 #[cfg(target_os = "windows")]
-                match WindowsEventCapture::start() {
-                    Ok(capture) => {
-                        self.event_capture = Some(capture);
-                        self.diagnostics.backend = "windows-etw + windows-ip-helper".into();
-                        self.diagnostics.capture_event_source = "windows_etw".into();
-                        self.diagnostics.flow_counters_available = true;
-                        self.diagnostics.last_error = None;
-                    }
-                    Err(error) => {
-                        self.diagnostics.last_error = Some(error.to_string());
+                {
+                    self.provider_supervisor.register(
+                        "windows.etw",
+                        Some("windows.ip_helper".into()),
+                        now_ms,
+                    );
+                    match WindowsEventCapture::start() {
+                        Ok(capture) => {
+                            self.event_capture = Some(capture);
+                            self.provider_supervisor.mark_healthy("windows.etw", now_ms);
+                            self.diagnostics.backend = "windows-etw + windows-ip-helper".into();
+                            self.diagnostics.capture_event_source = "windows_etw".into();
+                            self.diagnostics.flow_counters_available = true;
+                            self.diagnostics.last_error = None;
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            self.provider_supervisor.mark_failure(
+                                "windows.etw",
+                                message.clone(),
+                                now_ms,
+                            );
+                            self.diagnostics.last_error = Some(message);
+                        }
                     }
                 }
                 self.capture_status = CaptureStatus::Starting;
@@ -1149,6 +1840,21 @@ impl Engine {
     fn stop_current_session(&mut self, ended_at_ms: i64) {
         if self.session.is_none() {
             return;
+        }
+        while self
+            .evidence_storage_queue
+            .stats(
+                self.evidence_clock_origin
+                    .elapsed()
+                    .as_nanos()
+                    .min(u128::from(u64::MAX)) as u64,
+            )
+            .depth
+            > 0
+        {
+            if !self.flush_evidence_journal() {
+                break;
+            }
         }
         let session_ephemeral = self
             .session
@@ -1337,16 +2043,42 @@ impl Engine {
             .map_or((0, 0), |capture| (capture.pending(), capture.capacity()));
         #[cfg(not(target_os = "windows"))]
         let (event_depth, event_capacity) = (0, 0);
+        let evidence_stats = self.evidence_storage_queue.stats(
+            self.evidence_clock_origin
+                .elapsed()
+                .as_nanos()
+                .min(u128::from(u64::MAX)) as u64,
+        );
+        let evidence_dropped = evidence_stats
+            .dropped_lifecycle
+            .saturating_add(evidence_stats.dropped_context)
+            .saturating_add(evidence_stats.dropped_repeated_metrics);
         self.diagnostics.capture_queue_depth = event_depth
             .saturating_add(self.dns.pending())
-            .saturating_add(self.geo.pending());
+            .saturating_add(self.geo.pending())
+            .saturating_add(evidence_stats.depth);
         self.diagnostics.capture_queue_capacity = event_capacity
             .saturating_add(DNS_QUEUE_CAPACITY)
-            .saturating_add(GEO_QUEUE_CAPACITY);
+            .saturating_add(GEO_QUEUE_CAPACITY)
+            .saturating_add(evidence_stats.capacity);
         self.diagnostics.queue_saturation = self.diagnostics.capture_queue_depth as f32
             / self.diagnostics.capture_queue_capacity.max(1) as f32;
         self.diagnostics.dropped_ui_events =
             self.diagnostics.dropped_ui_events.max(self.geo.dropped());
+        self.diagnostics.sequence_gaps = self
+            .diagnostics
+            .sequence_gaps
+            .max(evidence_stats.dropped_lifecycle);
+        if evidence_stats.resync_required {
+            self.diagnostics.last_error = Some(
+                "The evidence storage consumer lost lifecycle order; a provider resync is required."
+                    .into(),
+            );
+        }
+        self.diagnostics.dropped_capture_events = self
+            .diagnostics
+            .dropped_capture_events
+            .max(evidence_dropped);
         self.refresh_subsystem_diagnostics();
     }
 
@@ -1470,6 +2202,40 @@ impl Engine {
                 None,
             )
         };
+        let evidence_stats = self.evidence_storage_queue.stats(
+            self.evidence_clock_origin
+                .elapsed()
+                .as_nanos()
+                .min(u128::from(u64::MAX)) as u64,
+        );
+        let evidence_dropped = evidence_stats
+            .dropped_lifecycle
+            .saturating_add(evidence_stats.dropped_context)
+            .saturating_add(evidence_stats.dropped_repeated_metrics);
+        let journal = if evidence_stats.resync_required || evidence_dropped > 0 {
+            (
+                SubsystemStatus::Degraded,
+                format!(
+                    "Immutable journal queue dropped {evidence_dropped} observations; lifecycle drops {}",
+                    evidence_stats.dropped_lifecycle
+                ),
+                Some(
+                    "Recheck the provider and rebuild projections from retained journal evidence."
+                        .into(),
+                ),
+            )
+        } else {
+            (
+                SubsystemStatus::Healthy,
+                format!(
+                    "{} of {} journal queue slots used; oldest age {} ms",
+                    evidence_stats.depth,
+                    evidence_stats.capacity,
+                    evidence_stats.maximum_age_ns / 1_000_000
+                ),
+                None,
+            )
+        };
         let specs = [
             (
                 "capture",
@@ -1492,7 +2258,20 @@ impl Engine {
                 DNS_QUEUE_CAPACITY,
                 self.dns.dropped(),
             ),
-            ("storage", storage, 0, 0, 0),
+            (
+                "storage",
+                storage,
+                evidence_stats.depth,
+                evidence_stats.capacity,
+                evidence_dropped,
+            ),
+            (
+                "evidence_journal",
+                journal,
+                evidence_stats.depth,
+                evidence_stats.capacity,
+                evidence_dropped,
+            ),
             ("render", render, 0, 0, self.diagnostics.dropped_ui_events),
             (
                 "backpressure",
@@ -1526,6 +2305,35 @@ impl Engine {
                 },
             )
             .collect();
+        for health in self.provider_supervisor.health_snapshot() {
+            let status = match health.state {
+                sabicheiro_core::ProviderLifecycleState::Healthy => SubsystemStatus::Healthy,
+                sabicheiro_core::ProviderLifecycleState::Starting
+                | sabicheiro_core::ProviderLifecycleState::Degraded
+                | sabicheiro_core::ProviderLifecycleState::Restarting
+                | sabicheiro_core::ProviderLifecycleState::Fallback => SubsystemStatus::Degraded,
+                sabicheiro_core::ProviderLifecycleState::Failed => SubsystemStatus::Unavailable,
+                sabicheiro_core::ProviderLifecycleState::Stopped => SubsystemStatus::Disabled,
+            };
+            let message = health.reason.clone().unwrap_or_else(|| {
+                format!(
+                    "Provider state {:?}, generation {}",
+                    health.state, health.generation
+                )
+            });
+            self.diagnostics.subsystems.push(SubsystemDiagnostic {
+                subsystem: format!("provider:{}", health.provider_id),
+                status,
+                since_ms: Some(health.since_ms),
+                message,
+                action: health.next_retry_ms.map(|retry| {
+                    format!("Automatic bounded retry is scheduled at {retry} ms UTC.")
+                }),
+                queue_depth: 0,
+                queue_capacity: 0,
+                dropped_events: 0,
+            });
+        }
     }
 
     fn refresh_storage_health(&mut self) {
@@ -2147,6 +2955,52 @@ fn query_history(
 }
 
 #[tauri::command]
+fn replay_evidence_projection(
+    session_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ProjectionReplayResult, CommandError> {
+    let engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let observations = engine
+        .storage
+        .load_observations_for_replay(session_id.as_deref())
+        .map_err(|error| CommandError::recoverable("replay_unavailable", error))?;
+    let observation_count = observations.len();
+    let first_observation_id = observations.first().map(|item| item.id.clone());
+    let last_observation_id = observations.last().map(|item| item.id.clone());
+    let fusion = replay_evidence(observations);
+    let provider_gaps = fusion.gaps.len();
+    let mut aggregator = ConnectionAggregator::default();
+    aggregator.apply_batch(fusion.events);
+    let mut connections = aggregator.connections().cloned().collect::<Vec<_>>();
+    connections.sort_by(|left, right| left.id.cmp(&right.id));
+    let result_sha256 = projection_sha256(&connections)
+        .map_err(|error| CommandError::recoverable("replay_unavailable", error))?;
+    engine
+        .storage
+        .record_projection_run(
+            "connections",
+            1,
+            first_observation_id.as_deref(),
+            last_observation_id.as_deref(),
+            observation_count,
+            &result_sha256,
+            sabicheiro_core::now_ms(),
+        )
+        .map_err(|error| CommandError::recoverable("replay_unavailable", error))?;
+    Ok(ProjectionReplayResult {
+        projection_version: 1,
+        observations: observation_count,
+        connections: connections.len(),
+        provider_gaps,
+        result_sha256,
+    })
+}
+
+#[tauri::command]
 fn save_investigation(
     mut investigation: SavedInvestigation,
     state: State<'_, AppState>,
@@ -2159,11 +3013,27 @@ fn save_investigation(
         investigation.created_at_ms = now_ms;
     }
     investigation.updated_at_ms = now_ms;
-    state
+    let engine = state
         .0
         .engine
         .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let prior_revision = engine
+        .storage
+        .list_investigations()
+        .ok()
+        .and_then(|items| {
+            items
+                .into_iter()
+                .find(|item| item.id == investigation.id)
+                .map(|item| item.autosave_revision)
+        })
+        .unwrap_or(0);
+    investigation.autosave_revision = investigation
+        .autosave_revision
+        .max(prior_revision)
+        .saturating_add(1);
+    engine
         .storage
         .save_investigation(&investigation)
         .map_err(|error| CommandError::recoverable("investigation_invalid", error))?;
@@ -2209,6 +3079,395 @@ fn query_investigation(
         .storage
         .query_investigation(&query)
         .map_err(|error| CommandError::recoverable("investigation_unavailable", error))
+}
+
+#[tauri::command]
+fn save_local_rule(rule: LocalRule, state: State<'_, AppState>) -> Result<LocalRule, CommandError> {
+    let mut engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    engine
+        .storage
+        .save_local_rule(&rule)
+        .map_err(|error| CommandError::recoverable("local_rule_invalid", error))?;
+    engine.local_rules = engine
+        .storage
+        .list_local_rules()
+        .map_err(|error| CommandError::recoverable("local_rule_unavailable", error))?;
+    Ok(rule)
+}
+
+#[tauri::command]
+fn list_local_rules(state: State<'_, AppState>) -> Result<Vec<LocalRule>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_local_rules()
+        .map_err(|error| CommandError::recoverable("local_rule_unavailable", error))
+}
+
+#[tauri::command]
+fn delete_local_rule(id: String, state: State<'_, AppState>) -> Result<bool, CommandError> {
+    let mut engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let removed = engine
+        .storage
+        .delete_local_rule(&id)
+        .map_err(|error| CommandError::recoverable("local_rule_unavailable", error))?;
+    if removed {
+        engine.local_rules.retain(|rule| rule.id != id);
+    }
+    Ok(removed)
+}
+
+#[tauri::command]
+fn preview_local_rule(
+    rule: LocalRule,
+    mut query: HistoryQuery,
+    state: State<'_, AppState>,
+) -> Result<Vec<RuleMatch>, CommandError> {
+    rule.validate()
+        .map_err(|error| CommandError::recoverable("local_rule_invalid", error))?;
+    query.limit = query.limit.clamp(1, 100_000);
+    let engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let context = RuleContext {
+        network_profile_id: engine.active_network_profile_id.clone(),
+        path_kind: if engine.vpn_active {
+            NetworkPathKind::Vpn
+        } else {
+            NetworkPathKind::Unknown
+        },
+        listener_scope: ListenerScope::Unknown,
+    };
+    let entries = engine
+        .storage
+        .query_history(&query)
+        .map_err(|error| CommandError::recoverable("local_rule_preview_failed", error))?;
+    Ok(entries
+        .iter()
+        .map(|entry| rule.evaluate(&entry.connection, &context))
+        .filter(|rule_match| rule_match.matched)
+        .collect())
+}
+
+#[tauri::command]
+fn list_notifications(
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<Vec<LocalNotificationRecord>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_notifications(limit)
+        .map_err(|error| CommandError::recoverable("notifications_unavailable", error))
+}
+
+#[tauri::command]
+fn update_notification_state(
+    id: String,
+    notification_state: NotificationState,
+    snoozed_until_ms: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<bool, CommandError> {
+    let mut engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let updated = engine
+        .storage
+        .update_notification_state(&id, notification_state, snoozed_until_ms)
+        .map_err(|error| CommandError::recoverable("notifications_unavailable", error))?;
+    if updated {
+        engine.notification_center = NotificationCenterEngine::from_records(
+            10_000,
+            engine
+                .storage
+                .list_notifications(10_000)
+                .map_err(|error| CommandError::recoverable("notifications_unavailable", error))?,
+        );
+    }
+    Ok(updated)
+}
+
+#[tauri::command]
+fn list_network_profiles(state: State<'_, AppState>) -> Result<Vec<NetworkProfile>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_network_profiles()
+        .map_err(|error| CommandError::recoverable("network_profiles_unavailable", error))
+}
+
+#[tauri::command]
+fn rename_network_profile(
+    id: String,
+    display_name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<NetworkProfile, CommandError> {
+    let engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let mut profile = engine
+        .storage
+        .list_network_profiles()
+        .map_err(|error| CommandError::recoverable("network_profiles_unavailable", error))?
+        .into_iter()
+        .find(|profile| profile.id == id)
+        .ok_or_else(|| {
+            CommandError::recoverable(
+                "network_profile_not_found",
+                "the pseudonymous local network profile was not found",
+            )
+        })?;
+    profile.display_name = display_name
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty());
+    if profile
+        .display_name
+        .as_ref()
+        .is_some_and(|name| name.chars().count() > 80)
+    {
+        return Err(CommandError::recoverable(
+            "network_profile_invalid",
+            "network profile names are limited to 80 characters",
+        ));
+    }
+    engine
+        .storage
+        .save_network_profile(&profile, sabicheiro_core::now_ms())
+        .map_err(|error| CommandError::recoverable("network_profile_invalid", error))?;
+    Ok(profile)
+}
+
+#[tauri::command]
+fn save_today_card_state(
+    card: TodayCardState,
+    state: State<'_, AppState>,
+) -> Result<TodayCardState, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .save_today_card_state(&card)
+        .map_err(|error| CommandError::recoverable("today_state_unavailable", error))?;
+    Ok(card)
+}
+
+#[tauri::command]
+fn list_today_card_states(state: State<'_, AppState>) -> Result<Vec<TodayCardState>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_today_card_states()
+        .map_err(|error| CommandError::recoverable("today_state_unavailable", error))
+}
+
+#[tauri::command]
+fn list_connection_annotations(
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<Vec<ConnectionAnnotation>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_connection_annotations(limit)
+        .map_err(|error| CommandError::recoverable("annotations_unavailable", error))
+}
+
+#[tauri::command]
+fn capture_listener_snapshot(state: State<'_, AppState>) -> Result<ListenerSnapshot, CommandError> {
+    let engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let observed_at_ms = sabicheiro_core::now_ms();
+    let listeners = engine
+        .aggregator
+        .connections()
+        .filter(|connection| connection.state == sabicheiro_core::ConnectionState::Listening)
+        .map(|connection| {
+            ListenerExposure::classify(
+                connection.key.local.clone(),
+                connection.protocol,
+                connection.key.process_instance.clone(),
+                engine.vpn_active,
+                observed_at_ms,
+            )
+        })
+        .collect::<Vec<_>>();
+    engine
+        .storage
+        .save_listener_snapshot(
+            engine.session.as_ref().map(|session| session.id.as_str()),
+            observed_at_ms,
+            &listeners,
+        )
+        .map_err(|error| CommandError::recoverable("listener_snapshot_failed", error))
+}
+
+#[tauri::command]
+fn list_listener_snapshots(
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<Vec<ListenerSnapshot>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_listener_snapshots(limit)
+        .map_err(|error| CommandError::recoverable("listener_snapshot_failed", error))
+}
+
+#[tauri::command]
+fn get_connection_context(
+    connection_id: String,
+    state: State<'_, AppState>,
+) -> Result<ConnectionContextResponse, CommandError> {
+    let engine = state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let connection = engine
+        .aggregator
+        .connections()
+        .find(|connection| connection.id == connection_id)
+        .cloned()
+        .or_else(|| {
+            engine
+                .storage
+                .query_history(&HistoryQuery {
+                    limit: 100_000,
+                    ..HistoryQuery::default()
+                })
+                .ok()?
+                .into_iter()
+                .find(|entry| entry.connection.id == connection_id)
+                .map(|entry| entry.connection)
+        })
+        .ok_or_else(|| {
+            CommandError::recoverable("connection_not_found", "connection evidence was not found")
+        })?;
+    let profile_id = engine
+        .active_network_profile_id
+        .clone()
+        .unwrap_or_else(|| "network-unknown".into());
+    let kind = if engine.vpn_active {
+        NetworkPathKind::Vpn
+    } else if connection.key.remote.scope == AddressScope::Global {
+        NetworkPathKind::Gateway
+    } else {
+        NetworkPathKind::Direct
+    };
+    let listener = (connection.state == sabicheiro_core::ConnectionState::Listening).then(|| {
+        ListenerExposure::classify(
+            connection.key.local.clone(),
+            connection.protocol,
+            connection.key.process_instance.clone(),
+            engine.vpn_active,
+            connection.last_seen_ms,
+        )
+    });
+    let service_hint =
+        sabicheiro_core::service_hint(connection.protocol, connection.key.remote.port);
+    let registrable_domain = connection
+        .domain
+        .as_deref()
+        .or(connection.hostname.as_deref())
+        .and_then(sabicheiro_core::registrable_domain);
+    let path = lookup_network_path(
+        connection.key.remote.address,
+        profile_id.clone(),
+        engine.capture_generation,
+        engine.vpn_active,
+        connection.last_seen_ms,
+    )
+    .unwrap_or_else(|error| NetworkPathEvidence {
+        id: format!(
+            "route:{}:{}:{}",
+            profile_id,
+            connection.interface.as_deref().unwrap_or("unknown"),
+            engine.capture_generation
+        ),
+        destination_prefix: connection.key.remote.address.to_string(),
+        prefix_length: if connection.key.remote.address.is_ipv4() {
+            32
+        } else {
+            128
+        },
+        gateway_pseudonym: None,
+        interface_id: connection.interface.clone(),
+        metric: None,
+        network_generation: engine.capture_generation,
+        profile_id,
+        kind,
+        observed_at_ms: connection.last_seen_ms,
+        source: connection.evidence.observation_source,
+        quality: CorrelationQuality::Candidate,
+        limitation: Some(format!(
+            "Native route inspection was unavailable ({error}); this is an interface-based estimate."
+        )),
+    });
+    Ok(ConnectionContextResponse {
+        connection_id: connection.id,
+        dns: engine.dns_relations.get(&connection.key).cloned(),
+        path,
+        listener,
+        service_hint,
+        registrable_domain,
+    })
+}
+
+#[tauri::command]
+fn list_handshake_mode_audit(
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<Vec<HandshakeModeAudit>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_handshake_mode_audit(limit)
+        .map_err(|error| CommandError::recoverable("handshake_audit_unavailable", error))
+}
+
+#[tauri::command]
+fn get_offline_catalogs() -> Vec<OfflineCatalogIdentity> {
+    sabicheiro_core::offline_catalog_identities()
 }
 
 #[tauri::command]
@@ -2634,7 +3893,7 @@ fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, CommandError>
 
 #[tauri::command]
 fn update_settings(
-    settings: AppSettings,
+    mut settings: AppSettings,
     state: State<'_, AppState>,
 ) -> Result<AppSettings, CommandError> {
     if !(-90.0..=90.0).contains(&settings.home_latitude)
@@ -2651,15 +3910,60 @@ fn update_settings(
             "feed grouping window must be between 1 and 300 seconds",
         ));
     }
+    if !(75..=200).contains(&settings.text_scale_percent) {
+        return Err(CommandError::recoverable(
+            "invalid_settings",
+            "text scale must be between 75 and 200 percent",
+        ));
+    }
+    if settings.notification_quiet_start_minute > 1_439
+        || settings.notification_quiet_end_minute > 1_439
+    {
+        return Err(CommandError::recoverable(
+            "invalid_settings",
+            "notification quiet hours must be valid local minutes",
+        ));
+    }
+    if settings.operation_profile == sabicheiro_core::OperationProfile::Ephemeral {
+        settings.ephemeral_capture = true;
+    }
     let mut engine = state
         .0
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
-    engine
-        .storage
-        .save_settings(&settings)
-        .map_err(|error| CommandError::recoverable("storage_unavailable", error))?;
+    let handshake_changed =
+        engine.settings.handshake_metadata_enabled != settings.handshake_metadata_enabled;
+    let autostart_changed = engine.settings.autostart_enabled != settings.autostart_enabled;
+    let prior_autostart = engine.settings.autostart_enabled;
+    if autostart_changed {
+        configure_autostart(settings.autostart_enabled)
+            .map_err(|error| CommandError::recoverable("autostart_unavailable", error))?;
+    }
+    if let Err(error) = engine.storage.save_settings(&settings) {
+        if autostart_changed {
+            let _ = configure_autostart(prior_autostart);
+        }
+        return Err(CommandError::recoverable("storage_unavailable", error));
+    }
+    if handshake_changed {
+        engine
+            .storage
+            .record_handshake_mode_audit(&HandshakeModeAudit {
+                occurred_at_ms: sabicheiro_core::now_ms(),
+                enabled: settings.handshake_metadata_enabled,
+                maximum_bytes: 16_384,
+                maximum_packets: 8,
+                duration_limit_ms: 5_000,
+                detail: if settings.handshake_metadata_enabled {
+                    "Explicit local opt-in; metadata only, bounded buffers, no payload persistence."
+                        .into()
+                } else {
+                    "Handshake metadata mode disabled; ephemeral buffers are discarded.".into()
+                },
+            })
+            .map_err(|error| CommandError::recoverable("storage_unavailable", error))?;
+    }
     engine.settings = settings;
     Ok(engine.settings.clone())
 }
@@ -3103,6 +4407,170 @@ fn cancel_reenrichment_job(id: String, state: State<'_, AppState>) -> Result<boo
 }
 
 #[tauri::command]
+fn start_executable_inspection(
+    process_instance: String,
+    maximum_megabytes: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<ExecutableInspectionStatus, CommandError> {
+    if process_instance.trim().is_empty() || process_instance.len() > 256 {
+        return Err(CommandError::recoverable(
+            "process_identity_invalid",
+            "a valid observed process instance is required",
+        ));
+    }
+    let runtime = state.0.clone();
+    let process = {
+        let engine = runtime
+            .engine
+            .lock()
+            .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+        engine
+            .aggregator
+            .connections()
+            .find(|connection| {
+                connection.process.instance_id().as_deref() == Some(&process_instance)
+            })
+            .map(|connection| connection.process.clone())
+            .or_else(|| {
+                engine
+                    .storage
+                    .query_history(&HistoryQuery {
+                        from_ms: None,
+                        to_ms: None,
+                        session_id: None,
+                        query: None,
+                        limit: 100_000,
+                    })
+                    .ok()?
+                    .into_iter()
+                    .find(|entry| {
+                        entry.connection.process.instance_id().as_deref() == Some(&process_instance)
+                    })
+                    .map(|entry| entry.connection.process)
+            })
+    }
+    .ok_or_else(|| {
+        CommandError::recoverable(
+            "process_identity_not_found",
+            "the observed process instance is no longer present in retained local evidence",
+        )
+    })?;
+    let path = process.executable_path.clone().ok_or_else(|| {
+        CommandError::recoverable(
+            "process_identity_unavailable",
+            "the operating system did not expose an executable path for this process",
+        )
+    })?;
+    let started_at_ms = sabicheiro_core::now_ms();
+    let id = format!(
+        "executable-{}-{started_at_ms}",
+        process.pid.unwrap_or_default()
+    );
+    let status = ExecutableInspectionStatus {
+        id: id.clone(),
+        process_instance: process_instance.clone(),
+        state: ExecutableInspectionState::Queued,
+        identity: None,
+        started_at_ms,
+        finished_at_ms: None,
+        message: Some("Local identity inspection is queued.".into()),
+    };
+    let control = ExecutableInspectionJobControl {
+        cancel: Arc::new(AtomicBool::new(false)),
+        status: Arc::new(Mutex::new(status.clone())),
+    };
+    runtime
+        .executable_jobs
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "job state is unavailable"))?
+        .insert(id, control.clone());
+    let maximum_bytes = maximum_megabytes
+        .unwrap_or(256)
+        .clamp(1, 512)
+        .saturating_mul(1024 * 1024);
+    let _ = thread::Builder::new()
+        .name("sabicheiro-executable-identity".into())
+        .spawn(move || {
+            if let Ok(mut current) = control.status.lock() {
+                current.state = ExecutableInspectionState::Running;
+                current.message = Some(format!(
+                    "Hashing locally with a {} MiB I/O budget.",
+                    maximum_bytes / 1024 / 1024
+                ));
+            }
+            let result = inspect_executable(
+                Path::new(&path),
+                Some(process_instance),
+                maximum_bytes,
+                &control.cancel,
+            );
+            if let Ok(mut current) = control.status.lock() {
+                current.finished_at_ms = Some(sabicheiro_core::now_ms());
+                if control.cancel.load(Ordering::Relaxed) {
+                    current.state = ExecutableInspectionState::Cancelled;
+                    current.message = Some("Local executable inspection was cancelled.".into());
+                    return;
+                }
+                match result {
+                    Ok(identity) => {
+                        current.state = ExecutableInspectionState::Completed;
+                        current.message = identity.limitation.clone().or_else(|| {
+                            Some("Local executable identity completed; no reputation lookup was used.".into())
+                        });
+                        current.identity = Some(identity);
+                    }
+                    Err(error) => {
+                        current.state = ExecutableInspectionState::Failed;
+                        current.message = Some(error.to_string());
+                    }
+                }
+            }
+        })
+        .map_err(|error| CommandError::recoverable("process_identity_unavailable", error))?;
+    Ok(status)
+}
+
+#[tauri::command]
+fn get_executable_inspection(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<ExecutableInspectionStatus, CommandError> {
+    let jobs = state
+        .0
+        .executable_jobs
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "job state is unavailable"))?;
+    jobs.get(&id)
+        .ok_or_else(|| {
+            CommandError::recoverable(
+                "process_identity_not_found",
+                "local executable inspection was not found",
+            )
+        })?
+        .status
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "job status is unavailable"))
+        .map(|status| status.clone())
+}
+
+#[tauri::command]
+fn cancel_executable_inspection(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, CommandError> {
+    let jobs = state
+        .0
+        .executable_jobs
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "job state is unavailable"))?;
+    let Some(control) = jobs.get(&id) else {
+        return Ok(false);
+    };
+    control.cancel.store(true, Ordering::Relaxed);
+    Ok(true)
+}
+
+#[tauri::command]
 fn get_session_geo_view(
     session_id: String,
     state: State<'_, AppState>,
@@ -3146,6 +4614,21 @@ fn get_storage_health(state: State<'_, AppState>) -> Result<StorageHealth, Comma
         .storage
         .health_check()
         .map_err(|error| CommandError::recoverable("storage_unavailable", error))
+}
+
+#[tauri::command]
+fn list_network_actions(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<NetworkActionAudit>, CommandError> {
+    state
+        .0
+        .engine
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .storage
+        .list_network_actions(limit.unwrap_or(100))
+        .map_err(|error| CommandError::recoverable("network_audit_unavailable", error))
 }
 
 #[tauri::command]
@@ -3307,8 +4790,50 @@ async fn update_geo_database(
     state: State<'_, AppState>,
 ) -> Result<GeoDatabaseStatus, CommandError> {
     let runtime = state.0.clone();
+    let grant = {
+        let engine = runtime
+            .engine
+            .lock()
+            .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+        let broker = NetworkActionBroker::new(NetworkActionPolicy {
+            offline_enforced: engine.settings.offline_enforced,
+            geoip_updates_allowed: true,
+            reverse_dns_allowed: false,
+        });
+        match broker.authorize(
+            NetworkActionIntent::GeoIpDatasetUpdate,
+            "geoip.update_button",
+        ) {
+            Ok(grant) => {
+                let _ = engine.storage.record_network_action(
+                    sabicheiro_core::now_ms(),
+                    grant.intent(),
+                    grant.destination_class(),
+                    Some(grant.consent_id()),
+                    true,
+                    0,
+                    0,
+                    "Explicit fixed-origin DB-IP Lite dataset update started.",
+                );
+                grant
+            }
+            Err(error) => {
+                let _ = engine.storage.record_network_action(
+                    sabicheiro_core::now_ms(),
+                    NetworkActionIntent::GeoIpDatasetUpdate,
+                    NetworkActionIntent::GeoIpDatasetUpdate.destination_class(),
+                    Some("geoip.update_button"),
+                    false,
+                    0,
+                    0,
+                    &error.to_string(),
+                );
+                return Err(CommandError::recoverable("network_action_denied", error));
+            }
+        }
+    };
     let directory = runtime.data_directory.join("geoip");
-    let updated = tauri::async_runtime::spawn_blocking(move || update_dbip_lite(directory))
+    let updated = tauri::async_runtime::spawn_blocking(move || update_dbip_lite(directory, &grant))
         .await
         .map_err(|error| CommandError::recoverable("geo_update_failed", error))?
         .map_err(|error| CommandError::recoverable("geo_update_failed", error))?;
@@ -3316,6 +4841,24 @@ async fn update_geo_database(
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let bytes_received = fs::metadata(&updated.city_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or_default()
+        .saturating_add(
+            fs::metadata(&updated.asn_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default(),
+        );
+    let _ = engine.storage.record_network_action(
+        sabicheiro_core::now_ms(),
+        NetworkActionIntent::GeoIpDatasetUpdate,
+        NetworkActionIntent::GeoIpDatasetUpdate.destination_class(),
+        Some("geoip.update_button"),
+        true,
+        0,
+        bytes_received,
+        "Fixed-origin DB-IP Lite update completed; no observed address was transmitted.",
+    );
     engine
         .geo
         .reload(&updated.city_path, &updated.asn_path)
@@ -3431,6 +4974,223 @@ fn export_view(
         .storage
         .export(&request)
         .map_err(|error| CommandError::recoverable("export_failed", error))
+}
+
+#[tauri::command]
+fn export_sabi(
+    request: SabiExportRequest,
+    state: State<'_, AppState>,
+) -> Result<ExportResult, CommandError> {
+    let runtime = state.0.clone();
+    let path = prepare_output_path(&runtime.data_directory, &request.path)?;
+    require_extension(&path, "sabi", "investigation bundle")?;
+    if path.exists() {
+        return Err(CommandError::recoverable(
+            "output_path_exists",
+            "investigation bundle already exists; choose a new filename",
+        ));
+    }
+    let (investigation, connections, timeline, dataset_sha256) = {
+        let engine = runtime
+            .engine
+            .lock()
+            .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+        let investigation = engine
+            .storage
+            .list_investigations()
+            .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?
+            .into_iter()
+            .find(|investigation| investigation.id == request.investigation_id)
+            .ok_or_else(|| {
+                CommandError::recoverable(
+                    "investigation_not_found",
+                    "the saved investigation no longer exists",
+                )
+            })?;
+        let connections = engine
+            .storage
+            .query_investigation_redacted(&investigation.query, &request.redaction)
+            .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?;
+        let from_ms = investigation.query.from_ms.or_else(|| {
+            connections
+                .iter()
+                .map(|entry| entry.connection.first_seen_ms)
+                .min()
+        });
+        let to_ms = investigation.query.to_ms.or_else(|| {
+            connections
+                .iter()
+                .map(|entry| entry.connection.last_seen_ms)
+                .max()
+        });
+        let timeline = match from_ms.zip(to_ms) {
+            Some((from_ms, to_ms)) if from_ms <= to_ms => engine
+                .storage
+                .query_timeline(&TimelineQuery {
+                    from_ms,
+                    to_ms,
+                    session_id: investigation.query.session_id.clone(),
+                    process_key: None,
+                    resolution: TimelineResolution::OneSecond,
+                })
+                .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?,
+            _ => Vec::new(),
+        };
+        let mut dataset_sha256 = engine
+            .geo
+            .status()
+            .ok()
+            .into_iter()
+            .flat_map(|status| [status.city.sha256, status.asn.sha256])
+            .flatten()
+            .collect::<Vec<_>>();
+        dataset_sha256.sort();
+        dataset_sha256.dedup();
+        (investigation, connections, timeline, dataset_sha256)
+    };
+
+    let mut files = vec![
+        (
+            "investigation.json".to_owned(),
+            serde_json::to_vec_pretty(&investigation)
+                .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?,
+        ),
+        (
+            "connections.json".to_owned(),
+            serde_json::to_vec_pretty(&connections)
+                .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?,
+        ),
+        (
+            "timeline.json".to_owned(),
+            serde_json::to_vec_pretty(&timeline)
+                .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?,
+        ),
+    ];
+    let entry_sha256 = files
+        .iter()
+        .map(|(name, data)| (name.clone(), sha256_hex(data)))
+        .collect::<BTreeMap<_, _>>();
+    let manifest = SabiManifest {
+        schema_version: 1,
+        app_version: env!("CARGO_PKG_VERSION").into(),
+        created_at_ms: sabicheiro_core::now_ms(),
+        investigation_id: investigation.id.clone(),
+        query: investigation.query.clone(),
+        from_ms: investigation.query.from_ms,
+        to_ms: investigation.query.to_ms,
+        redaction: request.redaction,
+        dataset_sha256,
+        entry_sha256,
+    };
+    files.push((
+        "manifest.json".to_owned(),
+        serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?,
+    ));
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    let bytes_written = write_zip_archive(&path, &files)
+        .map_err(|error| CommandError::recoverable("sabi_export_failed", error))?;
+    Ok(ExportResult {
+        path: path.to_string_lossy().into_owned(),
+        records: connections.len(),
+        bytes_written,
+    })
+}
+
+#[tauri::command]
+fn import_sabi(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<ImportedSabiBundle, CommandError> {
+    let runtime = state.0.clone();
+    let path = normalized_output_path(&runtime.data_directory, &path)?;
+    require_extension(&path, "sabi", "investigation bundle")?;
+    let files = read_stored_zip_archive(&path)
+        .map_err(|error| CommandError::recoverable("sabi_import_failed", error))?;
+    let manifest_bytes = files.get("manifest.json").ok_or_else(|| {
+        CommandError::recoverable("sabi_import_failed", "bundle manifest is missing")
+    })?;
+    let manifest: SabiManifest = serde_json::from_slice(manifest_bytes)
+        .map_err(|error| CommandError::recoverable("sabi_import_failed", error))?;
+    if manifest.schema_version != 1 {
+        return Err(CommandError::recoverable(
+            "sabi_version_unsupported",
+            format!("unsupported .sabi schema {}", manifest.schema_version),
+        ));
+    }
+    let actual_names = files
+        .keys()
+        .filter(|name| name.as_str() != "manifest.json")
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let expected_names = manifest
+        .entry_sha256
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if actual_names != expected_names {
+        return Err(CommandError::recoverable(
+            "sabi_hash_mismatch",
+            "bundle entries do not match the signed manifest set",
+        ));
+    }
+    for (name, expected) in &manifest.entry_sha256 {
+        let actual = files
+            .get(name)
+            .map(|data| sha256_hex(data))
+            .unwrap_or_default();
+        if !constant_time_ascii_eq(expected.as_bytes(), actual.as_bytes()) {
+            return Err(CommandError::recoverable(
+                "sabi_hash_mismatch",
+                format!("bundle entry {name} failed SHA-256 validation"),
+            ));
+        }
+    }
+    let investigation: SavedInvestigation = decode_sabi_entry(&files, "investigation.json")?;
+    let connections: Vec<HistoryEntry> = decode_sabi_entry(&files, "connections.json")?;
+    let timeline: Vec<TrafficSample> = decode_sabi_entry(&files, "timeline.json")?;
+    if investigation.id != manifest.investigation_id || investigation.query != manifest.query {
+        return Err(CommandError::recoverable(
+            "sabi_manifest_mismatch",
+            "investigation identity or query does not match the manifest",
+        ));
+    }
+    Ok(ImportedSabiBundle {
+        source_path: path.to_string_lossy().into_owned(),
+        read_only: true,
+        manifest,
+        investigation,
+        connections,
+        timeline,
+    })
+}
+
+fn decode_sabi_entry<T: serde::de::DeserializeOwned>(
+    files: &BTreeMap<String, Vec<u8>>,
+    name: &str,
+) -> Result<T, CommandError> {
+    let data = files.get(name).ok_or_else(|| {
+        CommandError::recoverable(
+            "sabi_import_failed",
+            format!("bundle entry {name} is missing"),
+        )
+    })?;
+    serde_json::from_slice(data)
+        .map_err(|error| CommandError::recoverable("sabi_import_failed", error))
+}
+
+fn require_extension(path: &Path, extension: &str, label: &str) -> Result<(), CommandError> {
+    if path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_none_or(|value| !value.eq_ignore_ascii_case(extension))
+    {
+        return Err(CommandError::recoverable(
+            "output_path_invalid",
+            format!("{label} must use the .{extension} extension"),
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3632,6 +5392,120 @@ fn write_zip_archive(path: &Path, files: &[(String, Vec<u8>)]) -> std::io::Resul
     Ok(output.metadata()?.len())
 }
 
+fn read_stored_zip_archive(path: &Path) -> std::io::Result<BTreeMap<String, Vec<u8>>> {
+    const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
+    const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
+    const MAX_ENTRIES: usize = 128;
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() || metadata.len() > MAX_ARCHIVE_BYTES {
+        return Err(std::io::Error::other(
+            "investigation bundle is not a file or exceeds 256 MiB",
+        ));
+    }
+    let bytes = fs::read(path)?;
+    let mut offset = 0_usize;
+    let mut total_uncompressed = 0_usize;
+    let mut files = BTreeMap::new();
+    while offset.checked_add(4).is_some_and(|end| end <= bytes.len()) {
+        let signature = read_zip_u32(&bytes, offset)?;
+        if signature == 0x0201_4b50 || signature == 0x0605_4b50 {
+            break;
+        }
+        if signature != 0x0403_4b50 || offset + 30 > bytes.len() {
+            return Err(std::io::Error::other("invalid ZIP local entry header"));
+        }
+        let flags = read_zip_u16(&bytes, offset + 6)?;
+        let compression = read_zip_u16(&bytes, offset + 8)?;
+        let expected_crc = read_zip_u32(&bytes, offset + 14)?;
+        let compressed_size = read_zip_u32(&bytes, offset + 18)? as usize;
+        let uncompressed_size = read_zip_u32(&bytes, offset + 22)? as usize;
+        let name_length = usize::from(read_zip_u16(&bytes, offset + 26)?);
+        let extra_length = usize::from(read_zip_u16(&bytes, offset + 28)?);
+        if flags != 0
+            || compression != 0
+            || compressed_size != uncompressed_size
+            || uncompressed_size > MAX_ENTRY_BYTES
+            || name_length == 0
+            || name_length > 1_024
+        {
+            return Err(std::io::Error::other(
+                "bundle uses unsupported ZIP features or exceeds entry limits",
+            ));
+        }
+        let name_start = offset + 30;
+        let name_end = name_start
+            .checked_add(name_length)
+            .filter(|end| *end <= bytes.len())
+            .ok_or_else(|| std::io::Error::other("truncated ZIP entry name"))?;
+        let name = std::str::from_utf8(&bytes[name_start..name_end])
+            .map_err(|_| std::io::Error::other("ZIP entry name is not UTF-8"))?;
+        if name.starts_with('/')
+            || name.starts_with('\\')
+            || name.contains("..")
+            || name.contains(':')
+            || name.bytes().any(|byte| byte == 0 || byte == b'\\')
+        {
+            return Err(std::io::Error::other("unsafe ZIP entry name"));
+        }
+        let data_start = name_end
+            .checked_add(extra_length)
+            .filter(|start| *start <= bytes.len())
+            .ok_or_else(|| std::io::Error::other("truncated ZIP extra data"))?;
+        let data_end = data_start
+            .checked_add(compressed_size)
+            .filter(|end| *end <= bytes.len())
+            .ok_or_else(|| std::io::Error::other("truncated ZIP entry"))?;
+        let data = bytes[data_start..data_end].to_vec();
+        if crc32(&data) != expected_crc {
+            return Err(std::io::Error::other("ZIP entry CRC mismatch"));
+        }
+        total_uncompressed = total_uncompressed
+            .checked_add(data.len())
+            .filter(|total| *total <= MAX_ARCHIVE_BYTES as usize)
+            .ok_or_else(|| std::io::Error::other("ZIP uncompressed data exceeds 256 MiB"))?;
+        if files.insert(name.to_owned(), data).is_some() || files.len() > MAX_ENTRIES {
+            return Err(std::io::Error::other("duplicate or excessive ZIP entries"));
+        }
+        offset = data_end;
+    }
+    if files.is_empty() || offset >= bytes.len() || read_zip_u32(&bytes, offset)? != 0x0201_4b50 {
+        return Err(std::io::Error::other("ZIP central directory is missing"));
+    }
+    Ok(files)
+}
+
+fn read_zip_u16(bytes: &[u8], offset: usize) -> std::io::Result<u16> {
+    let value = bytes
+        .get(offset..offset.saturating_add(2))
+        .ok_or_else(|| std::io::Error::other("truncated ZIP integer"))?;
+    Ok(u16::from_le_bytes([value[0], value[1]]))
+}
+
+fn read_zip_u32(bytes: &[u8], offset: usize) -> std::io::Result<u32> {
+    let value = bytes
+        .get(offset..offset.saturating_add(4))
+        .ok_or_else(|| std::io::Error::other("truncated ZIP integer"))?;
+    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    Sha256::digest(data)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn constant_time_ascii_eq(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    for index in 0..left.len().max(right.len()) {
+        difference |= usize::from(
+            left.get(index).copied().unwrap_or_default()
+                ^ right.get(index).copied().unwrap_or_default(),
+        );
+    }
+    difference == 0
+}
+
 fn write_u16(output: &mut impl Write, value: u16) -> std::io::Result<()> {
     output.write_all(&value.to_le_bytes())
 }
@@ -3771,6 +5645,267 @@ fn cleanup_old_logs(directory: &Path, retention: Duration) {
     }
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn tray_status(engine: &Engine) -> (String, String, String, String) {
+    let mode = match engine.capture_mode {
+        CaptureMode::Off => "off",
+        CaptureMode::Demo => "demo",
+        CaptureMode::Live => "live",
+    };
+    let state = match &engine.capture_status {
+        CaptureStatus::Stopped => "stopped",
+        CaptureStatus::Starting => "starting",
+        CaptureStatus::Capturing => "capturing",
+        CaptureStatus::Error(_) => "error",
+    };
+    let persistence = if engine.settings.ephemeral_capture {
+        "memory only"
+    } else {
+        "local SQLite"
+    };
+    let profile = match engine.settings.operation_profile {
+        sabicheiro_core::OperationProfile::Visible => "visible",
+        sabicheiro_core::OperationProfile::BackgroundLowResource => "background low-resource",
+        sabicheiro_core::OperationProfile::InvestigationHighFidelity => {
+            "investigation high-fidelity"
+        }
+        sabicheiro_core::OperationProfile::Ephemeral => "ephemeral",
+    };
+    let degraded = engine
+        .diagnostics
+        .subsystems
+        .iter()
+        .filter(|subsystem| {
+            matches!(
+                subsystem.status,
+                SubsystemStatus::Degraded | SubsystemStatus::Unavailable
+            )
+        })
+        .count();
+    let metadata = if engine.settings.handshake_metadata_enabled {
+        " · handshake metadata ON"
+    } else {
+        ""
+    };
+    (
+        format!("Status: {mode} / {state} / {persistence}"),
+        format!("Health: {degraded} degraded · profile {profile}"),
+        if engine.view_paused {
+            "Resume view (capture continues)".into()
+        } else {
+            "Pause view (capture continues)".into()
+        },
+        format!("Sabicheiro — {mode} / {state} / {persistence}{metadata}"),
+    )
+}
+
+fn setup_tray(app: &mut tauri::App, runtime: Arc<Runtime>) -> tauri::Result<()> {
+    let status = MenuItem::with_id(
+        app,
+        "tray_status",
+        "Status: off / stopped / local SQLite",
+        false,
+        None::<&str>,
+    )?;
+    let health = MenuItem::with_id(app, "tray_health", "Health: starting", false, None::<&str>)?;
+    let open = MenuItem::with_id(app, "tray_open", "Open Sabicheiro", true, None::<&str>)?;
+    let pause = MenuItem::with_id(
+        app,
+        "tray_pause",
+        "Pause view (capture continues)",
+        true,
+        None::<&str>,
+    )?;
+    let stop = MenuItem::with_id(app, "tray_stop", "Stop capture", true, None::<&str>)?;
+    let quit = MenuItem::with_id(
+        app,
+        "tray_quit",
+        "Quit and stop capture",
+        true,
+        None::<&str>,
+    )?;
+    let menu = Menu::with_items(app, &[&status, &health, &open, &pause, &stop, &quit])?;
+    let mut builder = TrayIconBuilder::with_id("sabicheiro-tray")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("Sabicheiro — capture starting")
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "tray_open" => show_main_window(app),
+            "tray_pause" => {
+                let runtime = app.state::<AppState>().0.clone();
+                if let Ok(mut engine) = runtime.engine.lock() {
+                    engine.view_paused = !engine.view_paused;
+                    engine.paused_at_revision = engine.aggregator.revision();
+                    engine.paused_view_events = 0;
+                }
+            }
+            "tray_stop" => {
+                let runtime = app.state::<AppState>().0.clone();
+                if let Ok(mut engine) = runtime.engine.lock() {
+                    let _ = engine.set_capture(SetCaptureRequest {
+                        mode: CaptureMode::Off,
+                        selected_interface: None,
+                    });
+                }
+            }
+            "tray_quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } | TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                }
+            ) {
+                show_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    let icon = builder.build(app)?;
+    let updater_status = status.clone();
+    let updater_health = health.clone();
+    let updater_pause = pause.clone();
+    let updater_icon = icon.clone();
+    let updater_runtime = runtime.clone();
+    let _ = thread::Builder::new()
+        .name("sabicheiro-tray-status".into())
+        .spawn(move || {
+            while !updater_runtime.shutdown.load(Ordering::Relaxed) {
+                if let Ok(engine) = updater_runtime.engine.lock() {
+                    let (status_text, health_text, pause_text, tooltip) = tray_status(&engine);
+                    let _ = updater_status.set_text(status_text);
+                    let _ = updater_health.set_text(health_text);
+                    let _ = updater_pause.set_text(pause_text);
+                    let _ = updater_icon.set_tooltip(Some(tooltip));
+                }
+                thread::sleep(DIAGNOSTICS_INTERVAL);
+            }
+        });
+    app.manage(TrayUi {
+        _icon: icon,
+        _status: status,
+        _health: health,
+        _pause: pause,
+    });
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn quote_desktop_exec(path: &Path) -> Result<String, String> {
+    let value = path
+        .to_str()
+        .ok_or_else(|| "the executable path is not valid UTF-8".to_owned())?;
+    if value.contains(['\r', '\n', '\0']) {
+        return Err("the executable path contains an invalid control character".into());
+    }
+    Ok(format!(
+        "\"{}\"",
+        value.replace('\\', "\\\\").replace('"', "\\\"")
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn configure_autostart(enabled: bool) -> Result<(), String> {
+    const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("could not resolve the Sabicheiro executable: {error}"))?;
+    let executable = executable
+        .to_str()
+        .filter(|value| !value.contains(['\r', '\n', '\0']))
+        .ok_or_else(|| "the Sabicheiro executable path is invalid".to_owned())?;
+    if enabled {
+        let value = format!("\"{executable}\"");
+        let output = std::process::Command::new("reg.exe")
+            .args([
+                "ADD",
+                RUN_KEY,
+                "/v",
+                "Sabicheiro",
+                "/t",
+                "REG_SZ",
+                "/d",
+                &value,
+                "/f",
+            ])
+            .output()
+            .map_err(|error| format!("could not invoke the Windows startup registry: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Windows rejected the per-user startup registration: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+    } else {
+        let _ = std::process::Command::new("reg.exe")
+            .args(["DELETE", RUN_KEY, "/v", "Sabicheiro", "/f"])
+            .output();
+        let query = std::process::Command::new("reg.exe")
+            .args(["QUERY", RUN_KEY, "/v", "Sabicheiro"])
+            .output()
+            .map_err(|error| format!("could not verify Windows startup state: {error}"))?;
+        if query.status.success() {
+            return Err("the per-user Windows startup entry could not be removed".into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn configure_autostart(enabled: bool) -> Result<(), String> {
+    let configuration = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .ok_or_else(|| "neither XDG_CONFIG_HOME nor the user home is available".to_owned())?;
+    let directory = configuration.join("autostart");
+    let destination = directory.join("io.sabicheiro.desktop.desktop");
+    if !enabled {
+        if destination.exists() {
+            fs::remove_file(&destination)
+                .map_err(|error| format!("could not remove {}: {error}", destination.display()))?;
+        }
+        return Ok(());
+    }
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("could not create {}: {error}", directory.display()))?;
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("could not resolve the Sabicheiro executable: {error}"))?;
+    let executable = quote_desktop_exec(&executable)?;
+    let contents = format!(
+        "[Desktop Entry]\nType=Application\nName=Sabicheiro\nComment=Private local network observability\nExec={executable}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+    );
+    let temporary = directory.join(format!(
+        ".io.sabicheiro.desktop.desktop.tmp-{}",
+        std::process::id()
+    ));
+    fs::write(&temporary, contents)
+        .map_err(|error| format!("could not write {}: {error}", temporary.display()))?;
+    fs::rename(&temporary, &destination).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        format!("could not install {}: {error}", destination.display())
+    })?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn configure_autostart(_enabled: bool) -> Result<(), String> {
+    Err("autostart is supported only on the Windows and Linux release targets".into())
+}
+
 pub fn run() {
     let application = tauri::Builder::default()
         .setup(|app| {
@@ -3782,7 +5917,12 @@ pub fn run() {
             if let Some(logging) = &runtime.logging {
                 logging.info("Sabicheiro desktop runtime started");
             }
-            app.manage(AppState(runtime));
+            app.manage(AppState(runtime.clone()));
+            if setup_tray(app, runtime.clone()).is_err() {
+                if let Some(logging) = &runtime.logging {
+                    logging.info("Sabicheiro tray was unavailable; the main window remains usable");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -3793,10 +5933,27 @@ pub fn run() {
             run_capture_self_test,
             set_view_paused,
             query_history,
+            replay_evidence_projection,
             save_investigation,
             list_investigations,
             delete_investigation,
             query_investigation,
+            save_local_rule,
+            list_local_rules,
+            delete_local_rule,
+            preview_local_rule,
+            list_notifications,
+            update_notification_state,
+            list_network_profiles,
+            rename_network_profile,
+            save_today_card_state,
+            list_today_card_states,
+            list_connection_annotations,
+            capture_listener_snapshot,
+            list_listener_snapshots,
+            get_connection_context,
+            list_handshake_mode_audit,
+            get_offline_catalogs,
             get_asn_profile,
             get_identity_timeline,
             query_traffic_timeline,
@@ -3817,8 +5974,12 @@ pub fn run() {
             start_session_reenrichment,
             get_reenrichment_job,
             cancel_reenrichment_job,
+            start_executable_inspection,
+            get_executable_inspection,
+            cancel_executable_inspection,
             get_session_geo_view,
             get_storage_health,
+            list_network_actions,
             compact_storage,
             clear_local_data,
             get_geo_database_status,
@@ -3827,6 +5988,8 @@ pub fn run() {
             rollback_geo_database,
             remove_geo_database,
             export_view,
+            export_sabi,
+            import_sabi,
             export_support_bundle,
             start_recording,
             stop_recording,
@@ -4150,6 +6313,43 @@ mod command_tests {
         drop(engine);
         drop(runtime);
         fs::remove_dir_all(directory).expect("remove isolated runtime directory");
+    }
+
+    #[test]
+    fn sabi_zip_parser_is_bounded_and_detects_altered_entry_bytes() {
+        let directory = std::env::temp_dir().join(format!(
+            "sabicheiro-sabi-parser-test-{}-{}",
+            std::process::id(),
+            sabicheiro_core::now_ms()
+        ));
+        fs::create_dir_all(&directory).expect("create bundle fixture directory");
+        let path = directory.join("fixture.sabi");
+        let files = vec![
+            ("connections.json".into(), br#"[{"id":"fixture"}]"#.to_vec()),
+            ("manifest.json".into(), br#"{"schema_version":1}"#.to_vec()),
+        ];
+        write_zip_archive(&path, &files).expect("write bundle fixture");
+        let decoded = read_stored_zip_archive(&path).expect("read bundle fixture");
+        assert_eq!(decoded.get("connections.json"), Some(&files[0].1));
+
+        let mut altered = fs::read(&path).expect("read archive bytes");
+        let needle = b"fixture";
+        let index = altered
+            .windows(needle.len())
+            .position(|window| window == needle)
+            .expect("fixture payload offset");
+        altered[index] ^= 1;
+        fs::write(&path, altered).expect("write altered archive");
+        assert!(read_stored_zip_archive(&path).is_err());
+
+        for length in 0..1_024 {
+            let fuzz_path = directory.join("fuzz.sabi");
+            let bytes = vec![length as u8; length];
+            fs::write(&fuzz_path, bytes).expect("write parser input");
+            let result = std::panic::catch_unwind(|| read_stored_zip_archive(&fuzz_path));
+            assert!(result.is_ok(), "bundle parser panicked at length {length}");
+        }
+        fs::remove_dir_all(directory).expect("remove bundle fixture directory");
     }
 
     #[cfg(target_os = "windows")]

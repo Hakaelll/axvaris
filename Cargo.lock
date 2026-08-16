@@ -3080,12 +3080,14 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "sabicheiro-capture"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "ferrisetw",
  "libc",
  "sabicheiro-core",
  "serde",
+ "serde_json",
+ "sha2",
  "sysinfo",
  "thiserror 2.0.20",
  "tracing",
@@ -3094,18 +3096,19 @@ dependencies = [
 
 [[package]]
 name = "sabicheiro-core"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "sabicheiro-desktop"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "sabicheiro-capture",
@@ -3114,6 +3117,7 @@ dependencies = [
  "sabicheiro-storage",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "tauri",
  "tauri-build",
@@ -3122,7 +3126,7 @@ dependencies = [
 
 [[package]]
 name = "sabicheiro-geo"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "dns-lookup",
@@ -3139,13 +3143,14 @@ dependencies = [
 
 [[package]]
 name = "sabicheiro-storage"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "rusqlite",
  "sabicheiro-core",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.20",
 ]

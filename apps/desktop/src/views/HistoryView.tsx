@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import type {
   HistoryQuery,
   HistoryResponse,
+  ImportedSabiBundle,
   DerivedGeoEnrichment,
   ReenrichmentJobStatus,
   SavedInvestigation,
@@ -12,6 +13,9 @@ import type {
 } from "../types";
 import { formatBytes, formatDateTime, formatDuration } from "../lib/format";
 import { desktopApi } from "../lib/backend";
+import { EvidenceTable } from "../components/EvidenceTable";
+import { QueryBuilder } from "../components/QueryBuilder";
+import { ContextProfiles } from "../components/ContextProfiles";
 
 interface HistoryViewProps {
   currentQuery: string;
@@ -67,6 +71,13 @@ export function HistoryView({
   const [investigations, setInvestigations] = useState<SavedInvestigation[]>([]);
   const [investigationName, setInvestigationName] = useState("");
   const [investigationNotes, setInvestigationNotes] = useState("");
+  const [investigationTags, setInvestigationTags] = useState("");
+  const [activeInvestigation, setActiveInvestigation] =
+    useState<SavedInvestigation | null>(null);
+  const [sabiImportPath, setSabiImportPath] = useState("");
+  const [importedBundle, setImportedBundle] =
+    useState<ImportedSabiBundle | null>(null);
+  const [sabiStatus, setSabiStatus] = useState<string | null>(null);
   const [pinnedConnectionIds, setPinnedConnectionIds] = useState<string[]>([]);
   const [investigationWindow, setInvestigationWindow] = useState<{
     from_ms: number | null;
@@ -249,52 +260,65 @@ export function HistoryView({
   const pinnedEntries = (history?.entries ?? []).filter(({ connection }) =>
     pinnedConnectionIds.includes(connection.id),
   );
+  const buildInvestigation = (
+    existing: SavedInvestigation | null,
+  ): SavedInvestigation => ({
+    id: existing?.id ?? "",
+    name: investigationName.trim(),
+    notes: investigationNotes.trim(),
+    tags: investigationTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    selected_connection_id: pinnedConnectionIds[0] ?? null,
+    layout_json: JSON.stringify({
+      range,
+      selectedSession,
+      scroll: "evidence-table",
+    }),
+    autosave_revision: existing?.autosave_revision ?? 0,
+    query: {
+      filter: currentQuery || null,
+      from_ms: bounds?.start ?? null,
+      to_ms: bounds?.end ?? null,
+      session_id: selectedSession,
+      pinned_connection_ids: pinnedConnectionIds,
+      pinned_destination_ips: [
+        ...new Set(
+          pinnedEntries.map(({ connection }) => connection.key.remote.address),
+        ),
+      ],
+      pinned_process_keys: [
+        ...new Set(
+          pinnedEntries.flatMap(({ connection }) =>
+            connection.key.process_instance
+              ? [connection.key.process_instance]
+              : [],
+          ),
+        ),
+      ],
+      pinned_asns: [
+        ...new Set(
+          pinnedEntries.flatMap(({ connection }) =>
+            connection.asn ? [connection.asn.number] : [],
+          ),
+        ),
+      ],
+    },
+    created_at_ms: existing?.created_at_ms ?? 0,
+    updated_at_ms: existing?.updated_at_ms ?? 0,
+  });
   const saveInvestigation = async () => {
     const name = investigationName.trim();
     if (!name) return;
-    const saved = await desktopApi.saveInvestigation({
-      id: "",
-      name,
-      notes: investigationNotes.trim(),
-      query: {
-        filter: currentQuery || null,
-        from_ms: bounds?.start ?? null,
-        to_ms: bounds?.end ?? null,
-        session_id: selectedSession,
-        pinned_connection_ids: pinnedConnectionIds,
-        pinned_destination_ips: [
-          ...new Set(
-            pinnedEntries.map(
-              ({ connection }) => connection.key.remote.address,
-            ),
-          ),
-        ],
-        pinned_process_keys: [
-          ...new Set(
-            pinnedEntries.flatMap(({ connection }) =>
-              connection.key.process_instance
-                ? [connection.key.process_instance]
-                : [],
-            ),
-          ),
-        ],
-        pinned_asns: [
-          ...new Set(
-            pinnedEntries.flatMap(({ connection }) =>
-              connection.asn ? [connection.asn.number] : [],
-            ),
-          ),
-        ],
-      },
-      created_at_ms: 0,
-      updated_at_ms: 0,
-    });
+    const saved = await desktopApi.saveInvestigation(
+      buildInvestigation(activeInvestigation),
+    );
     setInvestigations((items) => [
       saved,
       ...items.filter((item) => item.id !== saved.id),
     ]);
-    setInvestigationName("");
-    setInvestigationNotes("");
+    setActiveInvestigation(saved);
   };
   const openInvestigation = (investigation: SavedInvestigation) => {
     setSelectedSession(investigation.query.session_id);
@@ -306,12 +330,16 @@ export function HistoryView({
     setPinnedConnectionIds(investigation.query.pinned_connection_ids);
     setInvestigationName(investigation.name);
     setInvestigationNotes(investigation.notes);
+    setInvestigationTags(investigation.tags.join(", "));
+    setActiveInvestigation(investigation);
     onQueryChange(investigation.query.filter ?? "");
   };
   const deleteInvestigation = async (id: string) => {
     if (!window.confirm(t("Delete this saved local investigation?"))) return;
-    if (await desktopApi.deleteInvestigation(id))
+    if (await desktopApi.deleteInvestigation(id)) {
       setInvestigations((items) => items.filter((item) => item.id !== id));
+      if (activeInvestigation?.id === id) setActiveInvestigation(null);
+    }
   };
   const startReenrichment = async () => {
     if (!selectedSession) return;
@@ -319,6 +347,62 @@ export function HistoryView({
     setReenrichmentJob(
       await desktopApi.startSessionReenrichment(selectedSession),
     );
+  };
+
+  useEffect(() => {
+    if (!activeInvestigation?.id || !investigationName.trim()) return;
+    const timer = window.setTimeout(() => {
+      void desktopApi
+        .saveInvestigation(buildInvestigation(activeInvestigation))
+        .then((saved) => {
+          setInvestigations((items) => [
+            saved,
+            ...items.filter((item) => item.id !== saved.id),
+          ]);
+        });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeInvestigation?.id,
+    bounds?.end,
+    bounds?.start,
+    currentQuery,
+    investigationName,
+    investigationNotes,
+    investigationTags,
+    pinnedConnectionIds,
+    range,
+    selectedSession,
+  ]);
+
+  const exportSabi = async (investigation: SavedInvestigation) => {
+    const safeName = investigation.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "investigation";
+    const result = await desktopApi.exportSabi({
+      path: `${safeName}-${Date.now()}.sabi`,
+      investigation_id: investigation.id,
+      redaction: {
+        local_ip: true,
+        executable_path: true,
+        user_names: true,
+      },
+    });
+    setSabiStatus(t("Exported {count} records to {path}", {
+      count: result.records,
+      path: result.path,
+    }));
+  };
+
+  const importSabi = async () => {
+    const path = sabiImportPath.trim();
+    if (!path) return;
+    const imported = await desktopApi.importSabi(path);
+    setImportedBundle(imported);
+    setSabiStatus(t("Verified read-only bundle with {count} connections.", {
+      count: imported.connections.length,
+    }));
   };
 
   return (
@@ -393,6 +477,12 @@ export function HistoryView({
             rows={2}
             value={investigationNotes}
           />
+          <input
+            aria-label={t("Investigation tags")}
+            onChange={(event) => setInvestigationTags(event.target.value)}
+            placeholder={t("Tags separated by commas")}
+            value={investigationTags}
+          />
           <div>
             <button
               className="button button--secondary"
@@ -422,7 +512,22 @@ export function HistoryView({
               onClick={() => void saveInvestigation()}
               type="button"
             >
-              {t("Save investigation")}
+              {activeInvestigation
+                ? t("Save now")
+                : t("Save investigation")}
+            </button>
+            <button
+              className="button button--secondary"
+              onClick={() => {
+                setActiveInvestigation(null);
+                setInvestigationName("");
+                setInvestigationNotes("");
+                setInvestigationTags("");
+                setPinnedConnectionIds([]);
+              }}
+              type="button"
+            >
+              {t("New workspace")}
             </button>
           </div>
           <small>
@@ -443,6 +548,13 @@ export function HistoryView({
                   {investigation.query.filter ?? t("No active filter")}
                 </code>
                 {investigation.notes && <p>{investigation.notes}</p>}
+                {investigation.tags.length > 0 && (
+                  <span className="investigation-tags">
+                    {investigation.tags.map((tag) => (
+                      <em key={tag}>{tag}</em>
+                    ))}
+                  </span>
+                )}
               </div>
               <span>
                 <button
@@ -451,6 +563,13 @@ export function HistoryView({
                   type="button"
                 >
                   {t("Open exact view")}
+                </button>
+                <button
+                  className="button button--secondary"
+                  onClick={() => void exportSabi(investigation)}
+                  type="button"
+                >
+                  {t("Export redacted .sabi")}
                 </button>
                 <button
                   aria-label={t("Delete investigation {name}", {
@@ -469,7 +588,54 @@ export function HistoryView({
             <p className="list-empty">{t("No saved investigations yet.")}</p>
           )}
         </div>
+        <div className="sabi-import-panel">
+          <div>
+            <strong>{t("Open portable investigation")}</strong>
+            <p>{t("The ZIP manifest, exact entry set, CRC and SHA-256 hashes are verified before opening. Imported evidence stays read-only and is never merged or uploaded.")}</p>
+          </div>
+          <input
+            aria-label={t(".sabi file path")}
+            onChange={(event) => setSabiImportPath(event.target.value)}
+            placeholder="C:\\Evidence\\investigation.sabi"
+            value={sabiImportPath}
+          />
+          <button className="button button--secondary" disabled={!sabiImportPath.trim()} onClick={() => void importSabi()} type="button">
+            {t("Verify and open read-only")}
+          </button>
+          {sabiStatus && <small role="status">{sabiStatus}</small>}
+        </div>
+        {importedBundle && (
+          <section className="sabi-readonly" aria-label={t("Imported read-only investigation")}>
+            <header>
+              <div><strong>{importedBundle.investigation.name}</strong><small>{t("READ-ONLY .SABI / schema {version}", { version: importedBundle.manifest.schema_version })}</small></div>
+              <button className="button button--secondary" onClick={() => setImportedBundle(null)} type="button">{t("Close bundle")}</button>
+            </header>
+            <p>{importedBundle.investigation.notes || t("No local notes in this bundle.")}</p>
+            <dl>
+              <div><dt>{t("Source path")}</dt><dd><code>{importedBundle.source_path}</code></dd></div>
+              <div><dt>{t("Connections")}</dt><dd>{importedBundle.connections.length}</dd></div>
+              <div><dt>{t("Timeline samples")}</dt><dd>{importedBundle.timeline.length}</dd></div>
+              <div><dt>{t("Verified entries")}</dt><dd>{Object.keys(importedBundle.manifest.entry_sha256).length}</dd></div>
+            </dl>
+          </section>
+        )}
       </section>
+      <QueryBuilder
+        connections={(history?.entries ?? []).map((entry) => entry.connection)}
+        onChange={onQueryChange}
+        query={currentQuery}
+        rangeLabel={
+          selectedSession
+            ? t("Selected retained session")
+            : investigationWindow
+              ? t("Saved exact time window")
+              : t(range.label)
+        }
+      />
+      <ContextProfiles
+        entries={history?.entries ?? []}
+        onFilter={onQueryChange}
+      />
       <section className="traffic-timeline-panel">
         <header>
           <div>
@@ -616,6 +782,25 @@ export function HistoryView({
           </button>
         </div>
       </div>
+      <EvidenceTable
+        entries={history?.entries ?? []}
+        loading={loading}
+        onOpen={({ session_id: sessionId, connection }) =>
+          onReconstruct(
+            Math.min(connection.last_seen_ms, connection.first_seen_ms + 1),
+            sessionId,
+            connection.id,
+          )
+        }
+        onTogglePin={(connectionId) =>
+          setPinnedConnectionIds((items) =>
+            items.includes(connectionId)
+              ? items.filter((id) => id !== connectionId)
+              : [...items, connectionId],
+          )
+        }
+        pinnedIds={pinnedConnectionIds}
+      />
       <div className="history-layout">
         <div className="history-sessions">
           <h2>{t("Sessions")}</h2>

@@ -1,6 +1,8 @@
 use sabicheiro_core::ProcessInfo;
 use std::{
     collections::HashMap,
+    fs,
+    path::Path,
     time::{Duration, Instant},
 };
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -40,6 +42,17 @@ impl ProcessResolver {
             .collect::<Vec<_>>();
         self.system
             .refresh_processes(ProcessesToUpdate::Some(&sysinfo_pids), true);
+        let mut parent_pids = unique
+            .iter()
+            .filter_map(|pid| self.system.process(Pid::from_u32(*pid)))
+            .filter_map(|process| process.parent())
+            .collect::<Vec<_>>();
+        parent_pids.sort_unstable();
+        parent_pids.dedup();
+        if !parent_pids.is_empty() {
+            self.system
+                .refresh_processes(ProcessesToUpdate::Some(&parent_pids), false);
+        }
         for pid in unique {
             let process = self.system.process(Pid::from_u32(pid));
             let info = process.map_or_else(
@@ -55,6 +68,19 @@ impl ProcessResolver {
                         .exe()
                         .and_then(|value| value.file_name())
                         .map(|value| value.to_string_lossy().into_owned());
+                    let parent_pid = process.parent().map(Pid::as_u32);
+                    let parent_instance = process.parent().and_then(|parent| {
+                        self.system.process(parent).map(|parent_process| {
+                            format!(
+                                "pid:{}:start:{}",
+                                parent.as_u32(),
+                                parent_process.start_time().saturating_mul(1_000)
+                            )
+                        })
+                    });
+                    let executable_revision_id = path
+                        .as_deref()
+                        .and_then(|path| executable_revision_id(Path::new(path)));
                     ProcessInfo {
                         pid: Some(pid),
                         name: process.name().to_string_lossy().into_owned(),
@@ -64,6 +90,13 @@ impl ProcessResolver {
                             process.start_time().min((i64::MAX / 1_000) as u64) as i64 * 1_000,
                         ),
                         icon_data_url: None,
+                        parent_pid,
+                        parent_instance,
+                        user_id: process.user_id().map(|user_id| format!("{user_id:?}")),
+                        session_id: process.session_id().map(Pid::as_u32),
+                        cgroup: process_cgroup(pid),
+                        network_namespace: process_network_namespace(pid),
+                        executable_revision_id,
                     }
                 },
             );
@@ -79,6 +112,53 @@ impl ProcessResolver {
                 ..ProcessInfo::default()
             })
     }
+}
+
+fn executable_revision_id(path: &Path) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |duration| {
+            duration.as_millis().min(u128::from(u64::MAX)) as u64
+        });
+    Some(format!(
+        "file:{}:{}:{}",
+        metadata.len(),
+        modified_ms,
+        path.to_string_lossy().to_ascii_lowercase()
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn process_cgroup(pid: u32) -> Option<String> {
+    fs::read_to_string(format!("/proc/{pid}/cgroup"))
+        .ok()
+        .and_then(|value| {
+            value
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map(str::to_owned)
+        })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_cgroup(_pid: u32) -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn process_network_namespace(pid: u32) -> Option<String> {
+    fs::read_link(format!("/proc/{pid}/ns/net"))
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_network_namespace(_pid: u32) -> Option<String> {
+    None
 }
 
 #[cfg(test)]

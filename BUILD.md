@@ -35,8 +35,9 @@ node scripts/audit-licenses.mjs
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
+node scripts/generate-sbom.mjs 0.4.1 docs/sbom-0.4.1.spdx.json
 rustup target add x86_64-unknown-linux-gnu
-cargo check -p sabicheiro-core -p sabicheiro-capture --all-targets \
+cargo check -p sabicheiro-capture --all-targets \
   --target x86_64-unknown-linux-gnu --locked
 ```
 
@@ -53,8 +54,9 @@ The output is under `target/release/bundle/nsis/`. Tauri names the setup executa
 from the configured product; the release workflow normalizes it to
 `Sabicheiro-Setup.exe`. MSI is optional and may require the Windows VBSCRIPT feature.
 The NSIS configuration installs per-user and supplies Start-menu/uninstall entries.
-The local `0.3.0` handoff copies the installer, portable executable, checksums and
-release notes into `release/Sabicheiro-0.3.0-windows-x64/`.
+The 0.4.1 validation artifact is `Sabicheiro_0.4.1_x64-setup.exe`. Keep generated
+bundles under ignored `target/`; publish only after copying the installer, portable
+executable, `docs/SHA256SUMS-0.4.1.txt`, SPDX SBOM and release notes together.
 
 ## Debian/Ubuntu x86_64
 
@@ -73,6 +75,11 @@ Fedora/Arch package prerequisites follow the official Tauri prerequisites page.
 Socket observation does not require dumpcap. To enable explicit packet recording,
 install the distro Wireshark/dumpcap package and configure its capture group or minimal
 capabilities according to distro policy; do not run the whole UI as root.
+
+`INET_DIAG` is the normal-user baseline. The 0.4.1 candidate does not yet ship a
+validated production eBPF stream; do not advertise event-mode Linux capture until the
+truth fixture passes both with the documented minimal capabilities and with the
+automatic `INET_DIAG` fallback.
 
 Tauri desktop bundles are native builds and are not cross-compiled from Windows. The
 included manual GitHub Actions matrix performs the Linux package build on a Linux runner;
@@ -94,12 +101,17 @@ cargo metadata --locked --format-version 1
 pnpm licenses list --prod --long
 pnpm licenses list --dev --long
 node scripts/audit-licenses.mjs
+node scripts/generate-sbom.mjs 0.4.1 docs/sbom-0.4.1.spdx.json
 ```
 
 Reject paid/commercial-only/network-service dependencies, update `DEPENDENCIES.md`, and
 ship required MIT/Apache/ISC/BSD/CC notices. `audit-licenses.mjs` reads only locked
 local Cargo metadata and the pnpm store; it makes no registry or API call. Never bundle
 Npcap.
+
+The SBOM generator reads locked offline Cargo metadata and installed packages from the
+frozen pnpm store. It emits deterministic SPDX 2.3 JSON; `SOURCE_DATE_EPOCH` may
+override the release timestamp. Regenerate the checksum after regenerating the SBOM.
 
 ## CI
 
@@ -118,7 +130,8 @@ Generated Tauri schemas under `apps/desktop/src-tauri/gen/` are intentionally ig
 Tauri regenerates them during development/build and they must not be committed.
 
 After packaging, record artifact size and SHA-256, launch the native executable as a
-normal user, exercise Demo and Live modes, and verify install/uninstall. Linux artifacts
+normal user, exercise all five primary areas, and verify install/uninstall plus the
+chosen data-retention behavior. Linux artifacts
 must be tested on Linux; Tauri bundles are not meaningfully validated by merely
 cross-compiling them from Windows. The current evidence is maintained in
 `docs/VALIDATION.md`.

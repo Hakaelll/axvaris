@@ -24,10 +24,10 @@ import {
 import { Icon } from "./components/Icon";
 import { FocusBar } from "./components/FocusBar";
 import { TopContext } from "./components/TopContext";
-import { ProcessView } from "./views/ProcessView";
-import { DestinationView } from "./views/DestinationView";
 import { HistoryView } from "./views/HistoryView";
 import { SettingsView } from "./views/SettingsView";
+import { TodayView } from "./views/TodayView";
+import { ExposureView, ExposureViewBoundary } from "./views/ExposureView";
 import { WorkspaceTabs } from "./components/WorkspaceTabs";
 import { NotificationCenter } from "./components/NotificationCenter";
 
@@ -88,8 +88,7 @@ const localizedFailureMessages: Record<string, string> = {
   timeline_not_found:
     "The selected saved connection is no longer available for its identity timeline.",
   reenrichment_invalid: "Select one retained session to re-enrich.",
-  reenrichment_active:
-    "This session already has an active re-enrichment job.",
+  reenrichment_active: "This session already has an active re-enrichment job.",
   reenrichment_not_found: "The local re-enrichment job is no longer available.",
   reenrichment_unavailable:
     "The derived GeoIP view could not be loaded; original observations were unchanged.",
@@ -110,6 +109,8 @@ const localizedFailureMessages: Record<string, string> = {
   output_path_exists: "That output already exists. Choose a new filename.",
   output_path_invalid: "The output filename or extension is invalid.",
   invalid_settings: "One of the local settings is outside its allowed range.",
+  autostart_unavailable:
+    "Per-user startup registration could not be changed. The previous setting was preserved.",
   operation_failed: "The operation could not be completed.",
 };
 
@@ -162,7 +163,7 @@ export default function App() {
   const showFilter = useCallback(
     (query: string) => {
       app.setQuery(query);
-      app.setPrimaryView("globe");
+      app.setPrimaryView("live");
     },
     [app.setPrimaryView, app.setQuery],
   );
@@ -182,7 +183,7 @@ export default function App() {
   const searchPreset = useCallback(
     (query: string) => {
       app.setQuery(query);
-      app.setPrimaryView("globe");
+      app.setPrimaryView("live");
       requestAnimationFrame(() => {
         const input =
           document.querySelector<HTMLInputElement>(".query-box input");
@@ -191,6 +192,15 @@ export default function App() {
       });
     },
     [app.setPrimaryView, app.setQuery],
+  );
+
+  const openEvidence = useCallback(
+    (connectionId: string | null, query: string) => {
+      app.setQuery(query);
+      app.setSelectedId(connectionId);
+      app.setPrimaryView("live");
+    },
+    [app.setPrimaryView, app.setQuery, app.setSelectedId],
   );
 
   useEffect(() => {
@@ -222,11 +232,11 @@ export default function App() {
           void app.setPaused(!app.paused);
         }
         if (event.key.toLowerCase() === "g") {
-          app.setPrimaryView("globe");
+          app.setPrimaryView("live");
           app.setViewMode("globe");
         }
         if (event.key.toLowerCase() === "m") {
-          app.setPrimaryView("globe");
+          app.setPrimaryView("live");
           app.setViewMode("map");
         }
         if (event.key.toLowerCase() === "r") {
@@ -255,7 +265,8 @@ export default function App() {
   return (
     <I18nProvider value={language}>
       <div
-        className={`app-shell density--${app.settings.ui_density}${app.settings.reduce_motion ? " reduce-motion" : ""}`}
+        className={`app-shell density--${app.settings.ui_density}${app.settings.reduce_motion ? " reduce-motion" : ""}${app.settings.enhanced_contrast ? " enhanced-contrast" : ""}`}
+        style={{ fontSize: `${app.settings.text_scale_percent}%` }}
       >
         <TopBar
           capture={app.snapshot.capture}
@@ -274,8 +285,36 @@ export default function App() {
           className={`main-stage main-stage--${app.primaryView}`}
           ref={mainStageRef}
         >
-          {app.primaryView === "globe" && (
-            <div className={`observatory${mapExpanded ? " is-map-expanded" : ""}`}>
+          {app.primaryView === "today" && (
+            <>
+              <TodayView
+                onOpenEvidence={openEvidence}
+                snapshot={app.snapshot}
+              />
+              {app.snapshot.capture.mode === "off" && (
+                <div className="today-onboarding">
+                  <FirstRun
+                    interfaces={app.interfaces}
+                    language={app.settings.ui_language}
+                    onDemo={() => void app.startCapture("demo", null)}
+                    onLanguage={(ui_language) =>
+                      void app.updateSettings({
+                        ...app.settings,
+                        ui_language,
+                      })
+                    }
+                    onLive={(networkInterface) =>
+                      void app.startCapture("live", networkInterface)
+                    }
+                  />
+                </div>
+              )}
+            </>
+          )}
+          {app.primaryView === "live" && (
+            <div
+              className={`observatory${mapExpanded ? " is-map-expanded" : ""}`}
+            >
               <section className="visual-canvas">
                 <div className="visual-canvas__heading">
                   <div>
@@ -404,7 +443,7 @@ export default function App() {
                         </p>
                         <button
                           className="button button--secondary"
-                          onClick={() => app.setPrimaryView("settings")}
+                          onClick={() => app.setPrimaryView("health")}
                           type="button"
                         >
                           {t("Open GeoIP settings")}
@@ -508,24 +547,7 @@ export default function App() {
               )}
             </div>
           )}
-          {app.primaryView === "processes" && (
-            <ProcessView
-              connections={app.snapshot.connections}
-              flowCountersAvailable={
-                app.snapshot.diagnostics.flow_counters_available
-              }
-              onFilter={showFilter}
-              processes={app.snapshot.processes}
-              rateHistory={app.processRateHistory}
-            />
-          )}
-          {app.primaryView === "destinations" && (
-            <DestinationView
-              destinations={app.snapshot.destinations}
-              onFilter={showFilter}
-            />
-          )}
-          {app.primaryView === "history" && (
+          {app.primaryView === "investigate" && (
             <HistoryView
               currentQuery={app.query}
               loadHistory={app.loadHistory}
@@ -536,7 +558,16 @@ export default function App() {
               }
             />
           )}
-          {app.primaryView === "settings" && (
+          {app.primaryView === "exposure" && (
+            <ExposureViewBoundary>
+              <ExposureView
+                onExport={() => openExport(app.snapshot.session?.id ?? null)}
+                onOpenEvidence={openEvidence}
+                snapshot={app.snapshot}
+              />
+            </ExposureViewBoundary>
+          )}
+          {app.primaryView === "health" && (
             <SettingsView
               focusRules={app.focusRules}
               geoStatus={app.geoStatus}

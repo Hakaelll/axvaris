@@ -40,6 +40,16 @@ interface SceneState {
   trafficSignature: string;
 }
 
+const SPAIN_LATITUDE = 40.4168;
+const SPAIN_LONGITUDE = -3.7038;
+const DEFAULT_CAMERA_DISTANCE = 3.05;
+
+function centerCameraOnSpain(camera: THREE.PerspectiveCamera) {
+  camera.position.set(
+    ...spherePoint(SPAIN_LONGITUDE, SPAIN_LATITUDE, DEFAULT_CAMERA_DISTANCE),
+  );
+}
+
 function makeBorderLines(): THREE.LineSegments {
   const vertices: number[] = [];
   for (const line of worldBorders()) {
@@ -109,7 +119,7 @@ export const GlobeScene = memo(function GlobeScene({
     if (!host) return;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
-    camera.position.set(0, 0.32, 3.05);
+    centerCameraOnSpain(camera);
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: true,
@@ -246,7 +256,10 @@ export const GlobeScene = memo(function GlobeScene({
       cancelAnimationFrame(state.animation);
       renderer.domElement.removeEventListener("pointerup", handlePointer);
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
-      renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
+      renderer.domElement.removeEventListener(
+        "pointerleave",
+        handlePointerLeave,
+      );
       resizeObserver.disconnect();
       controls.dispose();
       disposeGroup(traffic);
@@ -326,11 +339,7 @@ export const GlobeScene = memo(function GlobeScene({
         destination.clone().normalize(),
       );
       const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(
-          radius,
-          12,
-          8,
-        ),
+        new THREE.SphereGeometry(radius, 12, 8),
         new THREE.MeshBasicMaterial({ color: selected ? 0xe4f222 : 0xb1b9bd }),
       );
       const halo = new THREE.Mesh(
@@ -343,7 +352,12 @@ export const GlobeScene = memo(function GlobeScene({
         }),
       );
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(radius * 1.38, selected ? 0.0032 : 0.0022, 5, 24),
+        new THREE.TorusGeometry(
+          radius * 1.38,
+          selected ? 0.0032 : 0.0022,
+          5,
+          24,
+        ),
         new THREE.MeshBasicMaterial({
           color: selected ? 0xe4f222 : route.active ? 0xd6dde0 : 0x777f83,
           transparent: true,
@@ -417,7 +431,7 @@ export const GlobeScene = memo(function GlobeScene({
   const resetCamera = () => {
     const state = sceneRef.current;
     if (!state) return;
-    state.camera.position.set(0, 0.32, 3.05);
+    centerCameraOnSpain(state.camera);
     state.controls.target.set(0, 0, 0);
     state.controls.update();
   };
@@ -427,7 +441,10 @@ export const GlobeScene = memo(function GlobeScene({
     if (!state) return;
     const distance = Math.min(
       state.controls.maxDistance,
-      Math.max(state.controls.minDistance, state.camera.position.length() * factor),
+      Math.max(
+        state.controls.minDistance,
+        state.camera.position.length() * factor,
+      ),
     );
     state.camera.position.setLength(distance);
     state.controls.update();
@@ -444,13 +461,35 @@ export const GlobeScene = memo(function GlobeScene({
         ref={hostRef}
         role="img"
       />
-      <div className="globe-scene__controls" role="toolbar" aria-label={t("Globe controls")}>
-        <button aria-label={t("Zoom in")} onClick={() => zoomCamera(0.82)} type="button">+</button>
-        <button aria-label={t("Zoom out")} onClick={() => zoomCamera(1.22)} type="button">−</button>
-        <button onClick={resetCamera} type="button">{t("Reset camera")}</button>
+      <div
+        className="globe-scene__controls"
+        role="toolbar"
+        aria-label={t("Globe controls")}
+      >
+        <button
+          aria-label={t("Zoom in")}
+          onClick={() => zoomCamera(0.82)}
+          type="button"
+        >
+          +
+        </button>
+        <button
+          aria-label={t("Zoom out")}
+          onClick={() => zoomCamera(1.22)}
+          type="button"
+        >
+          −
+        </button>
+        <button onClick={resetCamera} type="button">
+          {t("Reset camera")}
+        </button>
       </div>
       {tooltip && (
-        <div className="globe-scene__tooltip" style={{ left: tooltip.x, top: tooltip.y }} role="status">
+        <div
+          className="globe-scene__tooltip"
+          style={{ left: tooltip.x, top: tooltip.y }}
+          role="status"
+        >
           {tooltip.text}
         </div>
       )}

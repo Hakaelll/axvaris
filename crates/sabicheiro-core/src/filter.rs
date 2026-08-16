@@ -28,6 +28,15 @@ pub enum FilterTerm {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConnectionFilter {
     pub terms: Vec<FilterTerm>,
+    pub expression: Option<FilterExpression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FilterExpression {
+    Term(FilterTerm),
+    And(Vec<FilterExpression>),
+    Or(Vec<FilterExpression>),
+    Not(Box<FilterExpression>),
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -38,86 +47,416 @@ pub enum FilterError {
     UnknownField(String),
     #[error("invalid value for {field}: {value}")]
     InvalidValue { field: String, value: String },
+    #[error("unexpected query token: {0}")]
+    UnexpectedToken(String),
+    #[error("missing closing parenthesis at position {0}")]
+    MissingClosingParenthesis(usize),
+    #[error("query operator is missing an operand at position {0}")]
+    MissingOperand(usize),
 }
 
 impl FromStr for ConnectionFilter {
     type Err = FilterError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let tokens = tokenize(input)?;
-        let mut terms = Vec::with_capacity(tokens.len());
-        for token in tokens {
-            let (negated, token) = token
-                .strip_prefix(['-', '!'])
-                .filter(|value| !value.is_empty())
-                .map_or((false, token.as_str()), |value| (true, value));
-            let Some((field, value)) = token.split_once(':') else {
-                let term = FilterTerm::Text(token.to_lowercase());
-                terms.push(if negated {
-                    FilterTerm::Not(Box::new(term))
-                } else {
-                    term
-                });
-                continue;
-            };
-            if value.is_empty() {
-                return Err(FilterError::InvalidValue {
-                    field: field.into(),
-                    value: value.into(),
-                });
-            }
-            let lower = value.to_lowercase();
-            let term = match field.to_lowercase().as_str() {
-                "process" => FilterTerm::Process(lower),
-                "country" => FilterTerm::Country(value.to_uppercase()),
-                "protocol" => match lower.as_str() {
-                    "tcp" => FilterTerm::Protocol(NetworkProtocol::Tcp),
-                    "udp" => FilterTerm::Protocol(NetworkProtocol::Udp),
-                    _ => return Err(invalid(field, value)),
-                },
-                "port" => FilterTerm::Port(value.parse().map_err(|_| invalid(field, value))?),
-                "direction" => match lower.as_str() {
-                    "in" | "inbound" => FilterTerm::Direction(Direction::Inbound),
-                    "out" | "outbound" => FilterTerm::Direction(Direction::Outbound),
-                    "unknown" => FilterTerm::Direction(Direction::Unknown),
-                    _ => return Err(invalid(field, value)),
-                },
-                "ip" => FilterTerm::Ip(value.parse().map_err(|_| invalid(field, value))?),
-                "domain" => FilterTerm::Domain(lower),
-                "state" => {
-                    FilterTerm::State(parse_state(&lower).ok_or_else(|| invalid(field, value))?)
-                }
-                "firstseen" => {
-                    FilterTerm::FirstSeen(parse_bool(&lower).ok_or_else(|| invalid(field, value))?)
-                }
-                "asn" => FilterTerm::Asn(value.parse().map_err(|_| invalid(field, value))?),
-                "cidr" => {
-                    let (address, prefix) =
-                        parse_cidr(value).ok_or_else(|| invalid(field, value))?;
-                    FilterTerm::Cidr(address, prefix)
-                }
-                "scope" => {
-                    FilterTerm::Scope(parse_scope(&lower).ok_or_else(|| invalid(field, value))?)
-                }
-                "geo" => FilterTerm::Geo(lower),
-                "source" => {
-                    FilterTerm::Source(parse_source(&lower).ok_or_else(|| invalid(field, value))?)
-                }
-                _ => return Err(FilterError::UnknownField(field.into())),
-            };
-            terms.push(if negated {
-                FilterTerm::Not(Box::new(term))
-            } else {
-                term
-            });
+        let lexemes = tokenize_expression(input)?;
+        if lexemes.is_empty() {
+            return Ok(Self::default());
         }
-        Ok(Self { terms })
+        let mut parser = ExpressionParser::new(&lexemes);
+        let expression = parser.parse_or()?;
+        if let Some(token) = parser.peek() {
+            return Err(FilterError::UnexpectedToken(token.label()));
+        }
+        let mut terms = Vec::new();
+        collect_terms(&expression, &mut terms);
+        Ok(Self {
+            terms,
+            expression: Some(expression),
+        })
     }
 }
 
 impl ConnectionFilter {
     pub fn matches(&self, connection: &Connection) -> bool {
-        self.terms.iter().all(|term| matches_term(term, connection))
+        self.expression.as_ref().map_or_else(
+            || self.terms.iter().all(|term| matches_term(term, connection)),
+            |expression| matches_expression(expression, connection),
+        )
+    }
+
+    #[must_use]
+    pub fn to_query_string(&self) -> String {
+        self.expression
+            .as_ref()
+            .map(expression_to_query)
+            .unwrap_or_else(|| {
+                self.terms
+                    .iter()
+                    .map(term_to_query)
+                    .collect::<Vec<_>>()
+                    .join(" AND ")
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum QueryLexeme {
+    Word(String),
+    And,
+    Or,
+    Not,
+    LeftParenthesis(usize),
+    RightParenthesis,
+}
+
+impl QueryLexeme {
+    fn label(&self) -> String {
+        match self {
+            Self::Word(value) => value.clone(),
+            Self::And => "AND".into(),
+            Self::Or => "OR".into(),
+            Self::Not => "NOT".into(),
+            Self::LeftParenthesis(_) => "(".into(),
+            Self::RightParenthesis => ")".into(),
+        }
+    }
+}
+
+struct ExpressionParser<'a> {
+    lexemes: &'a [QueryLexeme],
+    position: usize,
+}
+
+impl<'a> ExpressionParser<'a> {
+    fn new(lexemes: &'a [QueryLexeme]) -> Self {
+        Self {
+            lexemes,
+            position: 0,
+        }
+    }
+
+    fn peek(&self) -> Option<&'a QueryLexeme> {
+        self.lexemes.get(self.position)
+    }
+
+    fn next(&mut self) -> Option<&'a QueryLexeme> {
+        let value = self.peek();
+        self.position = self.position.saturating_add(usize::from(value.is_some()));
+        value
+    }
+
+    fn parse_or(&mut self) -> Result<FilterExpression, FilterError> {
+        let mut items = vec![self.parse_and()?];
+        while matches!(self.peek(), Some(QueryLexeme::Or)) {
+            self.next();
+            if self.peek().is_none() || matches!(self.peek(), Some(QueryLexeme::RightParenthesis)) {
+                return Err(FilterError::MissingOperand(self.position));
+            }
+            items.push(self.parse_and()?);
+        }
+        Ok(if items.len() == 1 {
+            items.remove(0)
+        } else {
+            FilterExpression::Or(items)
+        })
+    }
+
+    fn parse_and(&mut self) -> Result<FilterExpression, FilterError> {
+        let mut items = vec![self.parse_primary()?];
+        loop {
+            match self.peek() {
+                None | Some(QueryLexeme::Or | QueryLexeme::RightParenthesis) => break,
+                Some(QueryLexeme::And) => {
+                    self.next();
+                    if self.peek().is_none()
+                        || matches!(
+                            self.peek(),
+                            Some(
+                                QueryLexeme::And | QueryLexeme::Or | QueryLexeme::RightParenthesis
+                            )
+                        )
+                    {
+                        return Err(FilterError::MissingOperand(self.position));
+                    }
+                    items.push(self.parse_primary()?);
+                }
+                _ => items.push(self.parse_primary()?),
+            }
+        }
+        Ok(if items.len() == 1 {
+            items.remove(0)
+        } else {
+            FilterExpression::And(items)
+        })
+    }
+
+    fn parse_primary(&mut self) -> Result<FilterExpression, FilterError> {
+        match self.next() {
+            Some(QueryLexeme::Word(value)) => Ok(FilterExpression::Term(parse_filter_term(value)?)),
+            Some(QueryLexeme::Not) => {
+                if self.peek().is_none() {
+                    return Err(FilterError::MissingOperand(self.position));
+                }
+                Ok(FilterExpression::Not(Box::new(self.parse_primary()?)))
+            }
+            Some(QueryLexeme::LeftParenthesis(source_position)) => {
+                if matches!(self.peek(), Some(QueryLexeme::RightParenthesis)) {
+                    return Err(FilterError::MissingOperand(self.position));
+                }
+                let expression = self.parse_or()?;
+                if !matches!(self.next(), Some(QueryLexeme::RightParenthesis)) {
+                    return Err(FilterError::MissingClosingParenthesis(*source_position));
+                }
+                Ok(expression)
+            }
+            Some(token) => Err(FilterError::UnexpectedToken(token.label())),
+            None => Err(FilterError::MissingOperand(self.position)),
+        }
+    }
+}
+
+fn tokenize_expression(input: &str) -> Result<Vec<QueryLexeme>, FilterError> {
+    fn push_word(tokens: &mut Vec<QueryLexeme>, current: &mut String, quoted: bool) {
+        if current.is_empty() {
+            return;
+        }
+        let value = std::mem::take(current);
+        if quoted {
+            tokens.push(QueryLexeme::Word(value));
+            return;
+        }
+        match value.to_ascii_uppercase().as_str() {
+            "AND" => tokens.push(QueryLexeme::And),
+            "OR" => tokens.push(QueryLexeme::Or),
+            "NOT" => tokens.push(QueryLexeme::Not),
+            _ => tokens.push(QueryLexeme::Word(value)),
+        }
+    }
+
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut word_had_quote = false;
+    for (position, character) in input.char_indices() {
+        match character {
+            '"' => {
+                quoted = !quoted;
+                word_had_quote = true;
+            }
+            '(' if !quoted => {
+                push_word(&mut tokens, &mut current, word_had_quote);
+                word_had_quote = false;
+                tokens.push(QueryLexeme::LeftParenthesis(position));
+            }
+            ')' if !quoted => {
+                push_word(&mut tokens, &mut current, word_had_quote);
+                word_had_quote = false;
+                tokens.push(QueryLexeme::RightParenthesis);
+            }
+            value if value.is_whitespace() && !quoted => {
+                push_word(&mut tokens, &mut current, word_had_quote);
+                word_had_quote = false;
+            }
+            value => current.push(value),
+        }
+    }
+    if quoted {
+        return Err(FilterError::UnterminatedQuote);
+    }
+    push_word(&mut tokens, &mut current, word_had_quote);
+    Ok(tokens)
+}
+
+fn parse_filter_term(token: &str) -> Result<FilterTerm, FilterError> {
+    let (negated, token) = token
+        .strip_prefix(['-', '!'])
+        .filter(|value| !value.is_empty())
+        .map_or((false, token), |value| (true, value));
+    let term = if let Some((field, value)) = token.split_once(':') {
+        if value.is_empty() {
+            return Err(FilterError::InvalidValue {
+                field: field.into(),
+                value: value.into(),
+            });
+        }
+        let lower = value.to_lowercase();
+        match field.to_lowercase().as_str() {
+            "process" => FilterTerm::Process(lower),
+            "country" => FilterTerm::Country(value.to_uppercase()),
+            "protocol" => match lower.as_str() {
+                "tcp" => FilterTerm::Protocol(NetworkProtocol::Tcp),
+                "udp" => FilterTerm::Protocol(NetworkProtocol::Udp),
+                _ => return Err(invalid(field, value)),
+            },
+            "port" => FilterTerm::Port(value.parse().map_err(|_| invalid(field, value))?),
+            "direction" => match lower.as_str() {
+                "in" | "inbound" => FilterTerm::Direction(Direction::Inbound),
+                "out" | "outbound" => FilterTerm::Direction(Direction::Outbound),
+                "unknown" => FilterTerm::Direction(Direction::Unknown),
+                _ => return Err(invalid(field, value)),
+            },
+            "ip" => FilterTerm::Ip(value.parse().map_err(|_| invalid(field, value))?),
+            "domain" => FilterTerm::Domain(lower),
+            "state" => FilterTerm::State(parse_state(&lower).ok_or_else(|| invalid(field, value))?),
+            "firstseen" => {
+                FilterTerm::FirstSeen(parse_bool(&lower).ok_or_else(|| invalid(field, value))?)
+            }
+            "asn" => FilterTerm::Asn(value.parse().map_err(|_| invalid(field, value))?),
+            "cidr" => {
+                let (address, prefix) = parse_cidr(value).ok_or_else(|| invalid(field, value))?;
+                FilterTerm::Cidr(address, prefix)
+            }
+            "scope" => FilterTerm::Scope(parse_scope(&lower).ok_or_else(|| invalid(field, value))?),
+            "geo" => FilterTerm::Geo(lower),
+            "source" => {
+                FilterTerm::Source(parse_source(&lower).ok_or_else(|| invalid(field, value))?)
+            }
+            _ => return Err(FilterError::UnknownField(field.into())),
+        }
+    } else {
+        FilterTerm::Text(token.to_lowercase())
+    };
+    Ok(if negated {
+        FilterTerm::Not(Box::new(term))
+    } else {
+        term
+    })
+}
+
+fn collect_terms(expression: &FilterExpression, terms: &mut Vec<FilterTerm>) {
+    match expression {
+        FilterExpression::Term(term) => terms.push(term.clone()),
+        FilterExpression::And(items) | FilterExpression::Or(items) => {
+            for item in items {
+                collect_terms(item, terms);
+            }
+        }
+        FilterExpression::Not(item) => collect_terms(item, terms),
+    }
+}
+
+fn quote_query_value(value: &str) -> String {
+    if value
+        .chars()
+        .any(|character| character.is_whitespace() || matches!(character, '(' | ')'))
+    {
+        format!("\"{value}\"")
+    } else {
+        value.into()
+    }
+}
+
+fn term_to_query(term: &FilterTerm) -> String {
+    match term {
+        FilterTerm::Text(value) => quote_query_value(value),
+        FilterTerm::Process(value) => format!("process:{}", quote_query_value(value)),
+        FilterTerm::Country(value) => format!("country:{value}"),
+        FilterTerm::Protocol(value) => format!("protocol:{}", value.as_str()),
+        FilterTerm::Port(value) => format!("port:{value}"),
+        FilterTerm::Direction(Direction::Inbound) => "direction:in".into(),
+        FilterTerm::Direction(Direction::Outbound) => "direction:out".into(),
+        FilterTerm::Direction(Direction::Unknown) => "direction:unknown".into(),
+        FilterTerm::Ip(value) => format!("ip:{value}"),
+        FilterTerm::Domain(value) => format!("domain:{}", quote_query_value(value)),
+        FilterTerm::State(value) => format!(
+            "state:{}",
+            match value {
+                ConnectionState::Listening => "listening",
+                ConnectionState::Connecting => "connecting",
+                ConnectionState::Established => "established",
+                ConnectionState::Closing => "closing",
+                ConnectionState::Closed => "closed",
+                ConnectionState::Unknown => "unknown",
+            }
+        ),
+        FilterTerm::FirstSeen(value) => format!("firstseen:{value}"),
+        FilterTerm::Asn(value) => format!("asn:{value}"),
+        FilterTerm::Cidr(address, prefix) => format!("cidr:{address}/{prefix}"),
+        FilterTerm::Scope(value) => format!(
+            "scope:{}",
+            match value {
+                AddressScope::Global => "global",
+                AddressScope::Private => "private",
+                AddressScope::Loopback => "loopback",
+                AddressScope::LinkLocal => "link_local",
+                AddressScope::Multicast => "multicast",
+                AddressScope::Cgnat => "cgnat",
+                AddressScope::Documentation => "documentation",
+                AddressScope::Benchmark => "benchmark",
+                AddressScope::Reserved => "reserved",
+                AddressScope::Broadcast => "broadcast",
+                AddressScope::Unspecified => "unspecified",
+            }
+        ),
+        FilterTerm::Geo(value) => format!("geo:{}", quote_query_value(value)),
+        FilterTerm::Source(value) => format!(
+            "source:{}",
+            match value {
+                ObservationSource::WindowsIpHelper => "windows_ip_helper",
+                ObservationSource::WindowsEtw => "windows_etw",
+                ObservationSource::WindowsHelper => "windows_helper",
+                ObservationSource::LinuxInetDiag => "linux_inet_diag",
+                ObservationSource::LinuxEbpf => "linux_ebpf",
+                ObservationSource::LocalDns => "local_dns",
+                ObservationSource::LocalMmdb => "local_mmdb",
+                ObservationSource::HandshakeMetadata => "handshake_metadata",
+                ObservationSource::OfflineCatalog => "offline_catalog",
+                ObservationSource::UserAnnotation => "user_annotation",
+                ObservationSource::Demo => "demo",
+                ObservationSource::Historical => "historical",
+                ObservationSource::Unknown => "unknown",
+            }
+        ),
+        FilterTerm::Not(inner) => format!("-{}", term_to_query(inner)),
+    }
+}
+
+fn expression_to_query(expression: &FilterExpression) -> String {
+    expression_to_query_at_precedence(expression, 0)
+}
+
+fn expression_to_query_at_precedence(expression: &FilterExpression, parent: u8) -> String {
+    let (precedence, value) = match expression {
+        FilterExpression::Term(term) => (3, term_to_query(term)),
+        FilterExpression::Not(item) => (
+            3,
+            format!("NOT ({})", expression_to_query_at_precedence(item, 0)),
+        ),
+        FilterExpression::And(items) => (
+            2,
+            items
+                .iter()
+                .map(|item| expression_to_query_at_precedence(item, 2))
+                .collect::<Vec<_>>()
+                .join(" AND "),
+        ),
+        FilterExpression::Or(items) => (
+            1,
+            items
+                .iter()
+                .map(|item| expression_to_query_at_precedence(item, 1))
+                .collect::<Vec<_>>()
+                .join(" OR "),
+        ),
+    };
+    if precedence < parent {
+        format!("({value})")
+    } else {
+        value
+    }
+}
+
+fn matches_expression(expression: &FilterExpression, connection: &Connection) -> bool {
+    match expression {
+        FilterExpression::Term(term) => matches_term(term, connection),
+        FilterExpression::And(items) => items
+            .iter()
+            .all(|item| matches_expression(item, connection)),
+        FilterExpression::Or(items) => items
+            .iter()
+            .any(|item| matches_expression(item, connection)),
+        FilterExpression::Not(item) => !matches_expression(item, connection),
     }
 }
 
@@ -223,9 +562,14 @@ fn parse_source(value: &str) -> Option<ObservationSource> {
     match value {
         "windows_ip_helper" | "ip_helper" => Some(ObservationSource::WindowsIpHelper),
         "windows_etw" | "etw" => Some(ObservationSource::WindowsEtw),
+        "windows_helper" | "helper" => Some(ObservationSource::WindowsHelper),
         "linux_inet_diag" | "inet_diag" | "netlink" => Some(ObservationSource::LinuxInetDiag),
+        "linux_ebpf" | "ebpf" => Some(ObservationSource::LinuxEbpf),
         "local_dns" | "dns" => Some(ObservationSource::LocalDns),
         "local_mmdb" | "mmdb" | "geoip" => Some(ObservationSource::LocalMmdb),
+        "handshake_metadata" | "handshake" => Some(ObservationSource::HandshakeMetadata),
+        "offline_catalog" | "catalog" => Some(ObservationSource::OfflineCatalog),
+        "user_annotation" | "annotation" => Some(ObservationSource::UserAnnotation),
         "demo" => Some(ObservationSource::Demo),
         "historical" | "history" => Some(ObservationSource::Historical),
         "unknown" => Some(ObservationSource::Unknown),
@@ -258,30 +602,6 @@ fn parse_state(value: &str) -> Option<ConnectionState> {
         "unknown" => Some(ConnectionState::Unknown),
         _ => None,
     }
-}
-
-fn tokenize(input: &str) -> Result<Vec<String>, FilterError> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    for character in input.chars() {
-        match character {
-            '"' => quoted = !quoted,
-            value if value.is_whitespace() && !quoted => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-            }
-            value => current.push(value),
-        }
-    }
-    if quoted {
-        return Err(FilterError::UnterminatedQuote);
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    Ok(tokens)
 }
 
 fn searchable_text(connection: &Connection) -> String {
@@ -399,6 +719,58 @@ mod tests {
         assert!(matches!(
             "source:cloud".parse::<ConnectionFilter>(),
             Err(FilterError::InvalidValue { .. })
+        ));
+    }
+
+    #[test]
+    fn boolean_groups_respect_and_precedence_and_negation() {
+        let mut connection = Connection::placeholder(0);
+        connection.process.name = "Firefox Developer Edition".into();
+        connection.key.remote.port = 443;
+        connection.protocol = NetworkProtocol::Tcp;
+        let filter: ConnectionFilter =
+            "(process:\"Firefox Developer Edition\" AND port:443) OR (protocol:udp AND NOT (port:53))"
+                .parse()
+                .expect("valid grouped filter");
+        assert!(filter.matches(&connection));
+        connection.key.remote.port = 80;
+        assert!(!filter.matches(&connection));
+    }
+
+    #[test]
+    fn editor_round_trip_preserves_filter_semantics() {
+        let queries = [
+            "process:firefox AND port:443",
+            "country:ES OR country:PT",
+            "(source:etw OR source:ebpf) AND -scope:loopback",
+            "NOT (state:closed OR state:closing) AND protocol:tcp",
+            "domain:\"example service.test\" AND firstseen:true",
+            "(cidr:10.0.0.0/8 AND direction:out) OR ip:2001:db8::1",
+        ];
+        for query in queries {
+            let parsed: ConnectionFilter = query.parse().expect(query);
+            let serialized = parsed.to_query_string();
+            let reparsed: ConnectionFilter = serialized.parse().expect(&serialized);
+            assert_eq!(
+                parsed.expression, reparsed.expression,
+                "{query} -> {serialized}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_boolean_queries_report_structural_errors() {
+        assert!(matches!(
+            "process:x OR".parse::<ConnectionFilter>(),
+            Err(FilterError::MissingOperand(_))
+        ));
+        assert!(matches!(
+            "(process:x AND port:443".parse::<ConnectionFilter>(),
+            Err(FilterError::MissingClosingParenthesis(_))
+        ));
+        assert!(matches!(
+            "process:x AND AND port:443".parse::<ConnectionFilter>(),
+            Err(FilterError::MissingOperand(_))
         ));
     }
 }

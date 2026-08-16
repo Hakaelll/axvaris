@@ -3,8 +3,10 @@ import { desktopApi } from "../lib/backend";
 import { useI18n } from "../i18n";
 import type {
   Connection,
+  ConnectionContextResponse,
   ConnectionHistoryStats,
   IdentityTimelineEvent,
+  ExecutableInspectionStatus,
   RuleKind,
 } from "../types";
 import {
@@ -62,6 +64,9 @@ export function ConnectionInspector({
   const [identityTimeline, setIdentityTimeline] = useState<
     IdentityTimelineEvent[]
   >([]);
+  const [context, setContext] = useState<ConnectionContextResponse | null>(null);
+  const [executableInspection, setExecutableInspection] =
+    useState<ExecutableInspectionStatus | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +111,44 @@ export function ConnectionInspector({
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+    };
+  }, [connection.id]);
+
+  useEffect(() => {
+    if (
+      !executableInspection ||
+      !["queued", "running"].includes(executableInspection.state)
+    )
+      return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void desktopApi
+        .getExecutableInspection(executableInspection.id)
+        .then((status) => {
+          if (!cancelled) setExecutableInspection(status);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [executableInspection?.id, executableInspection?.state]);
+
+  useEffect(() => setExecutableInspection(null), [connection.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setContext(null);
+    void desktopApi
+      .getConnectionContext(connection.id)
+      .then((result) => {
+        if (!cancelled) setContext(result);
+      })
+      .catch(() => {
+        // Context remains explicitly unavailable; the observed endpoint stays visible.
+      });
+    return () => {
+      cancelled = true;
     };
   }, [connection.id]);
 
@@ -203,7 +246,78 @@ export function ConnectionInspector({
             {connection.process.executable_path ??
               t("Not exposed by the operating system")}
           </Field>
+          <Field label={t("Parent instance")} mono>
+            {connection.process.parent_instance ??
+              (connection.process.parent_pid
+                ? `PID ${connection.process.parent_pid}`
+                : t("Unavailable"))}
+          </Field>
+          <Field label={t("User / session")} mono>
+            {connection.process.user_id ?? t("Unavailable")} / {connection.process.session_id ?? "—"}
+          </Field>
+          <Field label={t("Namespace / cgroup")} mono>
+            {connection.process.network_namespace ?? connection.process.cgroup ?? t("Unavailable")}
+          </Field>
+          <Field label={t("Executable revision")} mono>
+            {connection.process.executable_revision_id ?? t("Not inspected yet")}
+          </Field>
         </dl>
+        <div className="executable-inspection">
+          <button
+            className="button button--secondary"
+            disabled={
+              !connection.key.process_instance ||
+              executableInspection?.state === "queued" ||
+              executableInspection?.state === "running"
+            }
+            onClick={() =>
+              connection.key.process_instance &&
+              void desktopApi
+                .startExecutableInspection(connection.key.process_instance, 256)
+                .then(setExecutableInspection)
+            }
+            type="button"
+          >
+            {t("Inspect executable locally")}
+          </button>
+          {(executableInspection?.state === "queued" ||
+            executableInspection?.state === "running") && (
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                void desktopApi.cancelExecutableInspection(
+                  executableInspection.id,
+                )
+              }
+              type="button"
+            >
+              {t("Cancel hashing")}
+            </button>
+          )}
+          {executableInspection && (
+            <div role="status">
+              <strong>{t(executableInspection.state)}</strong>
+              <p>{executableInspection.message && t(executableInspection.message)}</p>
+              {executableInspection.identity && (
+                <dl>
+                  <Field label="SHA-256" mono>
+                    {executableInspection.identity.sha256 ?? t("Not computed")}
+                  </Field>
+                  <Field label={t("Signature status")}>
+                    {t(executableInspection.identity.signature_status)}
+                  </Field>
+                  <Field label={t("File revision")} mono>
+                    {executableInspection.identity.revision_id}
+                  </Field>
+                  <Field label={t("Format / package")}>
+                    {executableInspection.identity.format ?? t("Unknown")} / {executableInspection.identity.package ?? t("Unknown")}
+                  </Field>
+                </dl>
+              )}
+            </div>
+          )}
+          <small>{t("Hash and signature are local identity evidence, never reputation or a safety verdict.")}</small>
+        </div>
       </section>
       <section className="inspector-section">
         <h3>{t("Endpoint")}</h3>
@@ -235,6 +349,67 @@ export function ConnectionInspector({
               t("Not applicable")}
           </Field>
         </dl>
+      </section>
+      <section className="inspector-section">
+        <h3>{t("Causal context")}</h3>
+        <dl>
+          <Field label={t("DNS relation")} mono>
+            {context?.dns?.confirmed
+              ? `${context.dns.confirmed.query_name} / ${t(context.dns.confirmed.quality)}`
+              : context?.dns?.candidates.length
+                ? t("{count} DNS candidates; none promoted to confirmed", {
+                    count: context.dns.candidates.length,
+                  })
+                : t("No causal DNS evidence")}
+          </Field>
+          <Field label={t("DNS limitation")}>
+            {context?.dns?.limitation ??
+              t("DoH, DoT or a prior shared cache may hide the originating query.")}
+          </Field>
+          <Field label={t("Network path")} mono>
+            {context
+              ? `${t(context.path.kind)} / ${context.path.interface_id ?? t("unknown interface")}`
+              : t("Checking native route…")}
+          </Field>
+          <Field label={t("Gateway pseudonym")} mono>
+            {context?.path.gateway_pseudonym ?? t("Unavailable")}
+          </Field>
+          <Field label={t("Route metric")}>
+            {context?.path.metric ?? t("Unavailable")}
+          </Field>
+          <Field label={t("Route evidence")}>
+            {context
+              ? `${t(context.path.source)} / ${t(context.path.quality)}`
+              : t("Unavailable")}
+          </Field>
+          <Field label={t("Route limitation")}>
+            {context?.path.limitation ?? t("None reported")}
+          </Field>
+          <Field label={t("Registrable domain")} mono>
+            {context?.registrableDomain ?? t("Unavailable")}
+          </Field>
+          <Field label={t("Usual service hint")}>
+            {context?.serviceHint
+              ? `${context.serviceHint.service_name} — ${context.serviceHint.wording}`
+              : t("No offline catalog hint")}
+          </Field>
+          <Field label={t("Observed port / protocol")} mono>
+            {context?.serviceHint
+              ? `${context.serviceHint.observed_port}/${context.serviceHint.observed_protocol}`
+              : `${connection.key.remote.port}/${connection.protocol}`}
+          </Field>
+        </dl>
+        {context?.dns?.candidates.length ? (
+          <ol className="causal-candidates">
+            {context.dns.candidates.map((candidate) => (
+              <li key={candidate.answer_id}>
+                <strong>{candidate.query_name}</strong>
+                <span>{candidate.reason}</span>
+                <small>{t(candidate.quality)}</small>
+              </li>
+            ))}
+          </ol>
+        ) : null}
       </section>
       <section className="inspector-section">
         <h3>{t("Estimated network location")}</h3>

@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let filter: ConnectionFilter = "scope:global protocol:tcp -domain:blocked.invalid".parse()?;
     let mut cases = Vec::new();
-    for count in [1_000, 10_000, 50_000] {
+    for count in [1_000, 10_000, 50_000, 100_000] {
         let generated = Instant::now();
         let connections = (0..count).map(connection).collect::<Vec<_>>();
         let generation_ms = generated.elapsed().as_secs_f64() * 1_000.0;

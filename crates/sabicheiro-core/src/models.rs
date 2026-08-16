@@ -328,7 +328,56 @@ impl ConnectionKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutableSignatureStatus {
+    Valid,
+    Invalid,
+    Unsigned,
+    Unsupported,
+    #[default]
+    NotChecked,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutableIdentity {
+    pub process_instance: Option<String>,
+    pub path: String,
+    pub revision_id: String,
+    pub size_bytes: u64,
+    pub modified_at_ms: Option<i64>,
+    pub sha256: Option<String>,
+    pub signature_status: ExecutableSignatureStatus,
+    pub package: Option<String>,
+    pub format: Option<String>,
+    pub computed_at_ms: i64,
+    pub limitation: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutableInspectionState {
+    #[default]
+    Queued,
+    Running,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutableInspectionStatus {
+    pub id: String,
+    pub process_instance: String,
+    pub state: ExecutableInspectionState,
+    pub identity: Option<ExecutableIdentity>,
+    pub started_at_ms: i64,
+    pub finished_at_ms: Option<i64>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ProcessInfo {
     pub pid: Option<u32>,
     pub name: String,
@@ -336,6 +385,13 @@ pub struct ProcessInfo {
     pub executable_path: Option<String>,
     pub started_at_ms: Option<i64>,
     pub icon_data_url: Option<String>,
+    pub parent_pid: Option<u32>,
+    pub parent_instance: Option<String>,
+    pub user_id: Option<String>,
+    pub session_id: Option<u32>,
+    pub cgroup: Option<String>,
+    pub network_namespace: Option<String>,
+    pub executable_revision_id: Option<String>,
 }
 
 impl Default for ProcessInfo {
@@ -347,6 +403,13 @@ impl Default for ProcessInfo {
             executable_path: None,
             started_at_ms: None,
             icon_data_url: None,
+            parent_pid: None,
+            parent_instance: None,
+            user_id: None,
+            session_id: None,
+            cgroup: None,
+            network_namespace: None,
+            executable_revision_id: None,
         }
     }
 }
@@ -377,9 +440,14 @@ pub enum EndpointRole {
 pub enum ObservationSource {
     WindowsIpHelper,
     WindowsEtw,
+    WindowsHelper,
     LinuxInetDiag,
+    LinuxEbpf,
     LocalDns,
     LocalMmdb,
+    HandshakeMetadata,
+    OfflineCatalog,
+    UserAnnotation,
     Demo,
     Historical,
     #[default]
@@ -391,6 +459,9 @@ pub enum ObservationSource {
 pub enum CorrelationQuality {
     Confirmed,
     Correlated,
+    Candidate,
+    SnapshotOnly,
+    Unknown,
     Approximate,
     #[default]
     Unavailable,
@@ -569,6 +640,7 @@ pub enum CounterSource {
     Unavailable,
     InterfaceAggregate,
     EtwFlow,
+    EbpfFlow,
     Demo,
 }
 
@@ -578,6 +650,7 @@ impl CounterSource {
             Self::Unavailable => "unavailable",
             Self::InterfaceAggregate => "interface_aggregate",
             Self::EtwFlow => "etw_flow",
+            Self::EbpfFlow => "ebpf_flow",
             Self::Demo => "demo",
         }
     }
@@ -795,12 +868,17 @@ pub struct InvestigationQuery {
     pub pinned_asns: Vec<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SavedInvestigation {
     pub id: String,
     pub name: String,
     pub query: InvestigationQuery,
     pub notes: String,
+    pub tags: Vec<String>,
+    pub selected_connection_id: Option<String>,
+    pub layout_json: String,
+    pub autosave_revision: u64,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -1039,6 +1117,7 @@ pub struct AppSettings {
     pub show_local_traffic: bool,
     pub show_listening_sockets: bool,
     pub reverse_dns_enabled: bool,
+    pub offline_enforced: bool,
     pub selected_interface: Option<String>,
     pub home_latitude: f64,
     pub home_longitude: f64,
@@ -1047,8 +1126,16 @@ pub struct AppSettings {
     pub feed_group_window_seconds: u32,
     pub active_workspace: ConnectionWorkspace,
     pub notification_rules: Vec<NotificationRule>,
+    pub notification_quiet_hours_enabled: bool,
+    pub notification_quiet_start_minute: u16,
+    pub notification_quiet_end_minute: u16,
     pub ephemeral_capture: bool,
     pub ui_density: UiDensity,
+    pub operation_profile: OperationProfile,
+    pub autostart_enabled: bool,
+    pub handshake_metadata_enabled: bool,
+    pub enhanced_contrast: bool,
+    pub text_scale_percent: u16,
 }
 
 impl Default for AppSettings {
@@ -1060,6 +1147,7 @@ impl Default for AppSettings {
             show_local_traffic: false,
             show_listening_sockets: false,
             reverse_dns_enabled: false,
+            offline_enforced: false,
             selected_interface: None,
             home_latitude: 40.4168,
             home_longitude: -3.7038,
@@ -1068,8 +1156,46 @@ impl Default for AppSettings {
             feed_group_window_seconds: 30,
             active_workspace: ConnectionWorkspace::Remote,
             notification_rules: Vec::new(),
+            notification_quiet_hours_enabled: false,
+            notification_quiet_start_minute: 22 * 60,
+            notification_quiet_end_minute: 7 * 60,
             ephemeral_capture: false,
             ui_density: UiDensity::Comfortable,
+            operation_profile: OperationProfile::Visible,
+            autostart_enabled: false,
+            handshake_metadata_enabled: false,
+            enhanced_contrast: false,
+            text_scale_percent: 100,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationProfile {
+    #[default]
+    Visible,
+    BackgroundLowResource,
+    InvestigationHighFidelity,
+    Ephemeral,
+}
+
+impl OperationProfile {
+    pub const fn poll_interval_ms(self) -> u64 {
+        match self {
+            Self::Visible => 750,
+            Self::BackgroundLowResource => 2_000,
+            Self::InvestigationHighFidelity => 200,
+            Self::Ephemeral => 750,
+        }
+    }
+
+    pub const fn evidence_queue_capacity(self) -> usize {
+        match self {
+            Self::Visible => 65_536,
+            Self::BackgroundLowResource => 16_384,
+            Self::InvestigationHighFidelity => 131_072,
+            Self::Ephemeral => 16_384,
         }
     }
 }
@@ -1376,6 +1502,38 @@ pub struct SupportBundleRequest {
     pub path: String,
     pub include_settings: bool,
     pub include_logs: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SabiExportRequest {
+    pub path: String,
+    pub investigation_id: String,
+    #[serde(default)]
+    pub redaction: ExportRedaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SabiManifest {
+    pub schema_version: u32,
+    pub app_version: String,
+    pub created_at_ms: i64,
+    pub investigation_id: String,
+    pub query: InvestigationQuery,
+    pub from_ms: Option<i64>,
+    pub to_ms: Option<i64>,
+    pub redaction: ExportRedaction,
+    pub dataset_sha256: Vec<String>,
+    pub entry_sha256: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportedSabiBundle {
+    pub source_path: String,
+    pub read_only: bool,
+    pub manifest: SabiManifest,
+    pub investigation: SavedInvestigation,
+    pub connections: Vec<HistoryEntry>,
+    pub timeline: Vec<TrafficSample>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

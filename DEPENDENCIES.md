@@ -1,6 +1,6 @@
 # Dependency and Cost Review
 
-Review date: 2026-08-12. Every required runtime feature has zero service/API cost.
+Review date: 2026-08-14. Every required runtime feature has zero service/API cost.
 Permissive-license notices are retained in release materials; DB-IP attribution is
 shown in Settings/About and release notices.
 
@@ -32,6 +32,8 @@ shown in Settings/About and release notices.
 | mmdb-writer (dev) | deterministic synthetic City/ASN MMDB fixtures | MIT | €0 | Development only | Test data is generated locally; no public-IP truth assertions |
 | DB-IP Lite | offline IP→city/ASN dataset | CC BY 4.0 | €0 | Allowed with attribution | Monthly public download; reduced accuracy; optional update |
 | Natural Earth | globe/map geography | Public domain | €0 | Allowed | Fully local; no tile provider |
+| IANA service registry release subset | offline port/service display hints | IANA licensing terms | €0 | Embedded reviewed subset | Never replaces the observed port/protocol |
+| Public Suffix List release subset | offline registrable-domain grouping | MPL-2.0 | €0 | Embedded reviewed subset | Unmodified release subset; no online query |
 | WebView2 | Windows webview runtime | Microsoft runtime terms | €0 | Evergreen/bootstrap permitted by Tauri | Included with supported Windows versions |
 | WebKitGTK | Linux system webview | LGPL-2.1+ components | €0 | Dynamically linked system dependency | Installed by distro, not modified/bundled by source tree |
 | Pktmon | optional Windows packet recording | Windows inbox component | €0 | Not redistributed | Windows 10 2004+/11; elevation may be required |
@@ -61,7 +63,7 @@ shown in Settings/About and release notices.
 
 ## Locked transitive audit
 
-The 2026-08-12 locked audit inspected every package manifest available locally:
+The 2026-08-14 locked audit inspected every package manifest available locally:
 
 - Cargo metadata: **519 packages**, zero missing license declarations. The set is
   composed of MIT/Apache/ISC/BSD/Zlib/Unicode/MPL-2.0 and other compatible permissive
@@ -75,3 +77,5 @@ when already installed; they are not linked into or redistributed with Sabicheir
 
 The lockfiles are the release bill of materials. Before release, run the dependency
 license audit described in `BUILD.md` and reconcile any new transitive license here.
+The versioned SPDX 2.3 machine-readable bill of materials is generated at
+`docs/sbom-0.4.1.spdx.json`; its checksum ships beside release artifacts.

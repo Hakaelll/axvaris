@@ -13,14 +13,18 @@ dataset download and system reverse DNS—are described below.
 - TCP/UDP protocol, direction and connection state;
 - PID, process name and executable path when the OS permits it;
 - timestamps, duration and available byte/packet counters;
-- interface identity and locally derived DNS/GeoIP/ASN metadata.
+- interface/route identity and locally derived DNS/GeoIP/ASN metadata;
+- optional local executable identity (revision, SHA-256 and signature/package status)
+  only when the user requests inspection.
 
 ## What is stored
 
-By default Sabicheiro retains aggregated connection metadata, one-second traffic
+By default Sabicheiro retains immutable evidence observations, projected connection
+metadata, one-second traffic
 samples and session summaries for seven days in a local SQLite database. Retention can
-be Off, 1, 7, 30, 90 days or Unlimited. Bookmarks, ignore/notification rules and
-settings are also local. The database lives in
+be Off, 1, 7, 30, 90 days or Unlimited. Bookmarks, rules, annotations, notification
+state, network-profile pseudonyms and settings are also local. Raw SSID, gateway and
+interface addresses are discarded when creating a network-profile identity. The database lives in
 the platform application-data directory:
 
 - Windows: `%APPDATA%\io.sabicheiro.desktop\` (resolved by Tauri).
@@ -47,6 +51,13 @@ only after the user explicitly selects **Start Recording**, chooses a destinatio
 accepts the permission requirement. Recording state, duration and size remain visible.
 PCAP/PCAPNG files may contain sensitive data and are never uploaded automatically.
 
+Optional handshake metadata is a separate mode, disabled by default and visibly
+indicated while active. It is limited to bounded TLS/QUIC identification fields such as
+version, SNI and ALPN when observable. Buffers have byte/time budgets, are zeroized on
+clear/drop and are not written as payload, keys or decrypted content. The mode's local
+start/stop audit contains settings and timestamps, not packet bytes. Sabicheiro does
+not perform MITM, install certificates or decrypt sessions.
+
 ## Network access by Sabicheiro
 
 Core monitoring requires no Sabicheiro service. Optional **Update GeoIP database**
@@ -55,6 +66,11 @@ the complete free dataset, never performs an IP-by-IP API query, and requires no
 account, key or subscription. No
 observed IP is sent to DB-IP; whole databases are downloaded and subsequent lookups
 remain offline. A failed update keeps the previous valid file.
+
+Both optional paths go through a typed local network-action broker. A grant binds the
+intent, fixed destination class, explicit consent identifier and response-size limit;
+each allowed/denied action is recorded locally with redacted detail. **Offline
+enforced** rejects every optional network grant even if another setting is enabled.
 
 **System reverse DNS lookups are disabled by default.** If the user enables them in
 Privacy settings, Sabicheiro asks the operating system resolver for PTR names of public
@@ -82,3 +98,9 @@ open or upload the result automatically and refuses to overwrite an existing pac
 recording. The support bundle uses an explicit allow-list and excludes connection/raw
 IP history, packet payloads, recordings and secrets. Rotated packet captures are
 bounded to four files.
+
+The `.sabi` investigation format is a versioned ZIP container with an exact bounded
+entry set, manifest hashes and CRC checks. Redaction can remove local IPs, users, paths
+and sensitive names before export. Imports open in a separate read-only workspace and
+are never merged into local history or uploaded automatically. A modified byte causes
+verification failure.

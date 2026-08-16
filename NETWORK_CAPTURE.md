@@ -14,6 +14,7 @@ commercially restricted driver while still providing real process-aware connecti
 | Per-flow bytes/packets | ETW event deltas when Windows permits the trace; otherwise explicitly unavailable | not supplied by `INET_DIAG` snapshots |
 | PCAPNG recording | inbox Pktmon adapter | locally installed dumpcap |
 | Normal UI privilege | current user | current user |
+| Optional event mode | ETW directly or through the bounded helper when approved | eBPF contract/fallback model; production native provider remains a release gate |
 
 Microsoft documents that `GetExtendedTcpTable` returns TCP endpoints and supports
 owner-PID tables for IPv4 and IPv6. `GetExtendedUdpTable` returns UDP endpoints with
@@ -58,6 +59,14 @@ kept IP Helper active and marked flow counters unavailable; it did not elevate t
 whole UI or invent per-flow rates. A controlled live ETW proof therefore remains `REVIEW` in
 `docs/VALIDATION.md`.
 
+The 0.4 optional helper is a separate minimal executable, not an elevated webview. Its
+named pipe uses a per-user ACL, a fresh 256-bit nonce and the native client PID. JSON
+frames reject unknown fields and are bounded by 64 KiB, 120 requests/second, 32 events
+per drain and a one-hour maximum stream request. Its closed operations are authenticate,
+capabilities/status, start/stop/drain and ping; it accepts no shell, URL, arbitrary
+path, packet-output destination or generic command. Installation/elevation lifecycle
+still requires native approved-environment validation before stable release.
+
 ### Packet recording: Pktmon
 
 Windows 10 build 19041+ and Windows 11 include Packet Monitor (`pktmon.exe`). Sabicheiro
@@ -89,7 +98,7 @@ detected as an optional backend, but it is never bundled or required for the cor
 
 ## Linux backend
 
-The provider sends bounded `SOCK_DIAG_BY_FAMILY` Netlink dumps for TCP/UDP over IPv4 and
+The baseline provider sends bounded `SOCK_DIAG_BY_FAMILY` Netlink dumps for TCP/UDP over IPv4 and
 IPv6 and parses `inet_diag_msg` using layouts checked against the Linux UAPI. It no
 longer reads the deprecated `/proc/net/{tcp,udp}*` socket tables. Socket inode ownership
 is still mapped through `/proc/<pid>/fd`, so `hidepid` and other-user permissions can
@@ -105,14 +114,21 @@ normal setup is the distro's Wireshark capture group/capability configuration so
 Tauri/UI process stays unprivileged. Rotation passes `files:4` and a per-file size;
 non-rotating capture uses a size autostop, and both modes accept a duration autostop.
 Sabicheiro does not silently install or redistribute dumpcap/libpcap. A separately
-packaged minimal helper remains outside the 0.3 local test release.
+packaged minimal helper remains optional.
+
+The shared evidence model defines an eBPF event source, capability discovery, drop
+counters, supervisor fallback and lifecycle-first queues. The shipped Linux runtime in
+this candidate still selects `INET_DIAG`; it does not load a BPF program and is not
+claimed to meet the event-provider recall target. A stable release requires a native
+tracepoint/CO-RE implementation and truth-fixture proof on Ubuntu/Debian with the
+documented minimal `CAP_BPF`/`CAP_PERFMON` policy plus automatic no-capability fallback.
 
 ### Alternatives evaluated
 
 - `/proc/net` parsing: removed because the kernel documents these socket tables as
   deprecated in favour of `tcp_diag`/`INET_DIAG`.
-- eBPF: optional future backend, not a baseline because kernel/BTF/privilege and distro
-  compatibility costs outweigh the v1 benefit.
+- eBPF: optional event backend under active validation; never the normal-user baseline
+  because kernel/BTF/privilege and distro compatibility vary.
 - libpcap: mature and free, but a system dependency and not sufficient by itself for
   reliable process attribution.
 
@@ -139,9 +155,13 @@ destination is hidden rather than presenting the VPN server as the destination.
 - Per-flow byte/packet counters are available only from accepted ETW events. Aggregate
   interface totals remain independently sourced and are never misrepresented as flow
   totals.
-- Reverse DNS is opt-in and may use the configured resolver. TLS/SNI parsing is not
-  implemented; encrypted DNS/TLS remains encrypted and no MITM is attempted.
-- Windows recording elevation is not yet isolated in a dedicated minimal helper.
+- Reverse DNS is opt-in and may use the configured resolver. The bounded TLS
+  ClientHello parser is implemented for explicit ephemeral metadata mode, but live
+  provider wiring and QUIC metadata proof remain review gates. Encrypted content stays
+  encrypted and no MITM is attempted.
+- The optional Windows helper isolates a closed event protocol, but approved elevated
+  deployment/upgrade/removal evidence remains open. Packet recording stays a separate
+  explicit OS-tool path.
 - Linux `INET_DIAG` and its native fixture suite compile for
   `x86_64-unknown-linux-gnu`, but provider/runtime and packaging proof have not been
   executed on Linux; see `docs/VALIDATION.md`.

@@ -1,6 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Connection } from "../../types";
 import { useI18n } from "../../i18n";
 import { groupVisualRoutes, routeLevel } from "../../lib/routes";
@@ -20,13 +19,12 @@ interface SceneState {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  controls: OrbitControls;
+  controls: GlobeControls;
   traffic: THREE.Group;
   animation: number;
   markerIds: Map<THREE.Object3D, string>;
   resizeObserver: ResizeObserver;
   pointer: THREE.Vector2;
-  raycaster: THREE.Raycaster;
   lastFrame: number;
   frameCount: number;
   fpsStarted: number;
@@ -43,6 +41,85 @@ interface SceneState {
 const SPAIN_LATITUDE = 40.4168;
 const SPAIN_LONGITUDE = -3.7038;
 const DEFAULT_CAMERA_DISTANCE = 3.05;
+
+interface GlobeControls {
+  target: THREE.Vector3;
+  minDistance: number;
+  maxDistance: number;
+  update: () => void;
+  dispose: () => void;
+}
+
+function createGlobeControls(
+  camera: THREE.PerspectiveCamera,
+  element: HTMLCanvasElement,
+): GlobeControls {
+  const spherical = new THREE.Spherical().setFromVector3(camera.position);
+  const target = new THREE.Vector3();
+  let drag: { pointerId: number; x: number; y: number; theta: number; phi: number } | null = null;
+  const controls: GlobeControls = {
+    target,
+    minDistance: 1.85,
+    maxDistance: 5.2,
+    update: () => {
+      spherical.radius = THREE.MathUtils.clamp(
+        camera.position.distanceTo(target),
+        controls.minDistance,
+        controls.maxDistance,
+      );
+      camera.position.setFromSpherical(spherical).add(target);
+      camera.lookAt(target);
+    },
+    dispose: () => {
+      element.removeEventListener("pointerdown", pointerDown);
+      element.removeEventListener("pointermove", pointerMove);
+      element.removeEventListener("pointerup", pointerUp);
+      element.removeEventListener("pointercancel", pointerUp);
+      element.removeEventListener("wheel", wheel);
+    },
+  };
+  const pointerDown = (event: PointerEvent) => {
+    if (event.button !== 0) return;
+    element.setPointerCapture(event.pointerId);
+    drag = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      theta: spherical.theta,
+      phi: spherical.phi,
+    };
+  };
+  const pointerMove = (event: PointerEvent) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    spherical.theta = drag.theta - (event.clientX - drag.x) * 0.006;
+    spherical.phi = THREE.MathUtils.clamp(
+      drag.phi - (event.clientY - drag.y) * 0.006,
+      0.08,
+      Math.PI - 0.08,
+    );
+    controls.update();
+  };
+  const pointerUp = (event: PointerEvent) => {
+    if (drag?.pointerId === event.pointerId) drag = null;
+  };
+  const wheel = (event: WheelEvent) => {
+    event.preventDefault();
+    spherical.radius = THREE.MathUtils.clamp(
+      spherical.radius * (event.deltaY > 0 ? 1.12 : 0.89),
+      controls.minDistance,
+      controls.maxDistance,
+    );
+    camera.position.setFromSpherical(spherical).add(target);
+    camera.lookAt(target);
+  };
+  element.addEventListener("pointerdown", pointerDown);
+  element.addEventListener("pointermove", pointerMove);
+  element.addEventListener("pointerup", pointerUp);
+  element.addEventListener("pointercancel", pointerUp);
+  element.addEventListener("wheel", wheel, { passive: false });
+  controls.update();
+  return controls;
+}
 
 function centerCameraOnSpain(camera: THREE.PerspectiveCamera) {
   camera.position.set(
@@ -156,16 +233,30 @@ export const GlobeScene = memo(function GlobeScene({
 
     const traffic = new THREE.Group();
     scene.add(traffic);
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enablePan = false;
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.055;
-    controls.minDistance = 1.85;
-    controls.maxDistance = 5.2;
-    controls.rotateSpeed = 0.42;
+    const controls = createGlobeControls(camera, renderer.domElement);
     const markerIds = new Map<THREE.Object3D, string>();
     const pointer = new THREE.Vector2();
-    const raycaster = new THREE.Raycaster();
+    const projectedMarker = new THREE.Vector3();
+
+    const markerAtPointer = () => {
+      let closest: THREE.Object3D | null = null;
+      let closestDistance = 0.0045;
+      for (const marker of markerIds.keys()) {
+        const worldPosition = marker.userData.worldPosition as
+          | THREE.Vector3
+          | undefined;
+        if (!worldPosition) continue;
+        projectedMarker.copy(worldPosition).project(camera);
+        const x = projectedMarker.x - pointer.x;
+        const y = projectedMarker.y - pointer.y;
+        const distance = x * x + y * y;
+        if (projectedMarker.z <= 1 && distance < closestDistance) {
+          closest = marker;
+          closestDistance = distance;
+        }
+      }
+      return closest;
+    };
 
     const resize = () => {
       const { width, height } = host.getBoundingClientRect();
@@ -182,18 +273,16 @@ export const GlobeScene = memo(function GlobeScene({
       const bounds = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
       pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
-      raycaster.setFromCamera(pointer, camera);
-      const hit = raycaster.intersectObjects([...markerIds.keys()], false)[0];
-      const id = hit ? markerIds.get(hit.object) : undefined;
+      const hit = markerAtPointer();
+      const id = hit ? markerIds.get(hit) : undefined;
       if (id) onSelectRef.current(id);
     };
     const handlePointerMove = (event: PointerEvent) => {
       const bounds = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
       pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
-      raycaster.setFromCamera(pointer, camera);
-      const hit = raycaster.intersectObjects([...markerIds.keys()], false)[0];
-      const text = hit?.object.userData.tooltip as string | undefined;
+      const hit = markerAtPointer();
+      const text = hit?.userData.tooltip as string | undefined;
       renderer.domElement.style.cursor = text ? "pointer" : "grab";
       setTooltip(
         text
@@ -219,7 +308,6 @@ export const GlobeScene = memo(function GlobeScene({
       markerIds,
       resizeObserver,
       pointer,
-      raycaster,
       animation: 0,
       lastFrame: performance.now(),
       frameCount: 0,
@@ -248,12 +336,25 @@ export const GlobeScene = memo(function GlobeScene({
         }
       }
       renderer.render(scene, camera);
-      state.animation = requestAnimationFrame(animate);
+      state.animation =
+        document.visibilityState === "visible"
+          ? requestAnimationFrame(animate)
+          : 0;
     };
-    state.animation = requestAnimationFrame(animate);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && state.animation === 0) {
+        state.lastFrame = performance.now();
+        state.animation = requestAnimationFrame(animate);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    if (document.visibilityState === "visible") {
+      state.animation = requestAnimationFrame(animate);
+    }
 
     return () => {
       cancelAnimationFrame(state.animation);
+      document.removeEventListener("visibilitychange", handleVisibility);
       renderer.domElement.removeEventListener("pointerup", handlePointer);
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener(
@@ -280,6 +381,9 @@ export const GlobeScene = memo(function GlobeScene({
     const state = sceneRef.current;
     if (!state) return;
     state.reduceMotion = reduceMotion;
+    state.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, reduceMotion ? 1.25 : 2),
+    );
     const [homeX, homeY, homeZ] = spherePoint(home[1], home[0], 1.012);
     const homePoint = new THREE.Vector3(homeX, homeY, homeZ);
     const located = connections.filter((connection) => connection.geo !== null);
@@ -314,20 +418,16 @@ export const GlobeScene = memo(function GlobeScene({
         midpoint,
         destination,
       );
-      const geometry = new THREE.TubeGeometry(
-        curve,
-        selected ? 44 : 28,
-        selected ? 0.006 : route.active ? 0.0035 : 0.0022,
-        5,
-        false,
+      const geometry = new THREE.BufferGeometry().setFromPoints(
+        curve.getPoints(selected ? 44 : 28),
       );
-      const material = new THREE.MeshBasicMaterial({
+      const material = new THREE.LineBasicMaterial({
         color: selected ? 0xe4f222 : route.active ? 0x8f989c : 0x555b5e,
         transparent: true,
         opacity: selected ? 1 : route.active ? 0.55 : 0.2,
         depthTest: true,
       });
-      state.traffic.add(new THREE.Mesh(geometry, material));
+      state.traffic.add(new THREE.Line(geometry, material));
 
       const radius = selected
         ? 0.026
@@ -351,22 +451,9 @@ export const GlobeScene = memo(function GlobeScene({
           depthWrite: false,
         }),
       );
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(
-          radius * 1.38,
-          selected ? 0.0032 : 0.0022,
-          5,
-          24,
-        ),
-        new THREE.MeshBasicMaterial({
-          color: selected ? 0xe4f222 : route.active ? 0xd6dde0 : 0x777f83,
-          transparent: true,
-          opacity: route.active ? 0.9 : 0.5,
-        }),
-      );
       if (connection.geo?.placement === "country_centroid") {
-        ring.scale.y = 0.62;
-        ring.rotation.z = Math.PI / 4;
+        halo.scale.y = 0.62;
+        halo.rotation.z = Math.PI / 4;
       }
       const selectionTarget =
         selectedId && route.memberIds.includes(selectedId)
@@ -374,9 +461,10 @@ export const GlobeScene = memo(function GlobeScene({
           : connection.id;
       marker.userData.connectionId = selectionTarget;
       marker.userData.connectionCount = route.count;
+      marker.userData.worldPosition = destination;
       marker.userData.tooltip = `${connection.geo?.country_name ?? connection.domain ?? connection.key.remote.address} / AS${connection.asn?.number ?? "?"} / ${route.count} / ${connection.geo?.precision ?? "unknown"}`;
       state.markerIds.set(marker, selectionTarget);
-      markerGroup.add(halo, ring, marker);
+      markerGroup.add(halo, marker);
       state.traffic.add(markerGroup);
       if (route.active && !reduceMotion) {
         const dot = new THREE.Mesh(

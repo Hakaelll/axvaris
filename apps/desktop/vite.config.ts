@@ -1,8 +1,19 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  resolve: {
+    alias: {
+      "#backend": decodeURIComponent(
+        new URL(
+          mode === "preview" ? "./src/lib/backend.ts" : "./src/lib/backend-tauri.ts",
+          import.meta.url,
+        ).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+      ),
+    },
+  },
+  publicDir: false,
   clearScreen: false,
   server: {
     strictPort: true,
@@ -13,6 +24,6 @@ export default defineConfig({
   envPrefix: ["VITE_", "TAURI_"],
   build: {
     target: "es2022",
-    sourcemap: true,
+    sourcemap: mode === "diagnostics" ? "hidden" : false,
   },
-});
+}));

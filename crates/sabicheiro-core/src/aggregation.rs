@@ -204,6 +204,7 @@ impl ConnectionAggregator {
     }
 
     pub fn prune(&mut self, now_ms: i64) {
+        let previous_len = self.connections.len();
         self.connections.retain(|_, connection| {
             connection.active
                 || connection
@@ -222,6 +223,9 @@ impl ConnectionAggregator {
             for (key, _) in ended.into_iter().take(excess) {
                 self.connections.remove(&key);
             }
+        }
+        if self.connections.len() != previous_len {
+            self.revision = self.revision.saturating_add(1);
         }
     }
 
@@ -551,8 +555,10 @@ mod tests {
 
         aggregator.prune(3_999);
         assert_eq!(aggregator.connection_count(), 1);
+        let revision = aggregator.revision();
         aggregator.prune(4_000);
         assert_eq!(aggregator.connection_count(), 0);
+        assert_eq!(aggregator.revision(), revision + 1);
     }
 
     #[test]

@@ -3,6 +3,48 @@
 All notable changes are documented here. Sabicheiro follows semantic versioning for
 its local desktop releases.
 
+## 0.4.2 — 2026-08-16 — Lightweight runtime
+
+### Added
+
+- Reproducible artifact, workspace-space, frontend reachability, IPC parity and direct
+  Rust dependency audits, plus a release-mode 100.000-row SQLite pagination harness.
+- Dashboard IPC counters for requests, serialized bytes, empty deltas and overlaps in
+  Data & Health.
+- SQLite v6 traffic rollups with interval provenance, deterministic migration backups
+  and stable `(last_seen_ms, id)` history cursors.
+
+### Changed
+
+- Today now opens directly without `FirstRun`; secondary views and dialogs load lazily,
+  and the production Tauri adapter no longer contains the deterministic preview data.
+- Dashboard polling is sequential and visibility/capture-aware, stable state returns a
+  bounded empty delta, Globe rendering stops while hidden and the native engine waits
+  for events/deadlines instead of waking every 200 ms while idle.
+- Demo is limited to four documentation destinations and one event per second, remains
+  entirely ephemeral, and never writes sessions, connections, samples or product state
+  to the real SQLite database.
+- Persistence upserts only changed connections, deduplicates stable samples, forces
+  lifecycle flushes, and uses 10 s/30 s normal/background sampling while preserving
+  genuine 1 s high-fidelity history.
+- The public frontend excludes source maps, the 2,4 MB logo and preview adapter; Map
+  uses shared 110 m geometry and Globe uses lighter controls/routes with full cleanup.
+- Release builds use size optimization, fat LTO, one codegen unit, aborting panics and
+  stripped symbols. Six additional unused IPC operations and one unused direct Rust
+  dependency were removed after automated consumer audits.
+
+### Validation status
+
+- Strict TypeScript/i18n, production/reachability audits, format, Clippy, locked license
+  and dependency audits, Linux capture source-check, 133 Rust tests, release build,
+  NSIS bundle, SPDX SBOM and artifact hashes pass.
+- Frontend is 1.163.691 B with no source maps; initial resources are 398.749 B. The
+  portable is 6.528.512 B and NSIS installer 2.851.022 B, reductions of 68,29 % and
+  67,19 % from 0.4.1.
+- The 100.000-row first page is 716.705 B and 5,77 ms p95. The native GUI launch/soak,
+  approved ETW, Linux packages and installer lifecycle remain explicitly unclaimed
+  because their required execution environments were unavailable.
+
 ## 0.4.1 — 2026-08-14 — Spain Focus
 
 ### Added

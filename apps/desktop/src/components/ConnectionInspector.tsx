@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { desktopApi } from "../lib/backend";
+import { desktopApi } from "#backend";
 import { useI18n } from "../i18n";
 import type {
   Connection,

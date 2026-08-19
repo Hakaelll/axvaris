@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-16T00:00:00.000Z",
+  "host": "Windows 10.0.26200 x86_64, normal-user session",
+  "nativeGuiLaunch": {
+    "state": "not_run",
+    "reason": "The execution approval service rejected the local GUI launch because its usage allowance was exhausted. The versioned scripts/measure-windows-launch.mjs probe remains ready for ten isolated cold-proxy and ten warm launches; no timing was inferred or fabricated."
+  },
+  "boundedRuntimeEvidence": {
+    "engineOffMinimumWakeupMs": 10000,
+    "demoMaximumWakeupMs": 1000,
+    "dashboardOverlaps": 0,
+    "stableEmptyDeltaMaximumBytes": 511,
+    "demoSimulatedSeconds": 600,
+    "demoPersistentRows": 0,
+    "modelSoakSeconds": 30,
+    "modelSoakMemoryGrowthBytes": 937984,
+    "modelSoakLatencyP95Ms": 14.6696
+  },
+  "manualPreviewEvidence": {
+    "state": "pass",
+    "flows": [
+      "Today opens directly without FirstRun",
+      "capture remains off until selected",
+      "Demo exposes two processes, TCP and UDP across four documentation destinations",
+      "Map 2D and Globe 3D render and respond to controls",
+      "History, Exposure and Data & Health lazy views open",
+      "English and Spanish UI render without console errors"
+    ],
+    "boundary": "Browser preview evidence validates UI behavior, not native capture, tray, installer lifecycle or egress."
+  }
+}

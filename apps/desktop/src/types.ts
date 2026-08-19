@@ -320,6 +320,10 @@ export interface Diagnostics {
   capture_generation: number;
   sequence_gaps: number;
   snapshot_resyncs: number;
+  dashboard_requests: number;
+  dashboard_bytes_serialized: number;
+  dashboard_empty_deltas: number;
+  dashboard_overlaps: number;
   storage_quick_check_ok: boolean;
   storage_last_check_ms: number | null;
   storage_wal_pages: number;
@@ -396,12 +400,12 @@ export interface DashboardUpdate {
   snapshot: DashboardSnapshot | null;
   upserted_connections: Connection[];
   removed_connection_ids: string[];
-  processes: ProcessSummary[];
-  destinations: DestinationSummary[];
-  stats: DashboardStats;
-  diagnostics: Diagnostics;
-  capture: CaptureSummary;
-  session: SessionSummary | null;
+  processes?: ProcessSummary[];
+  destinations?: DestinationSummary[];
+  stats?: DashboardStats;
+  diagnostics?: Diagnostics;
+  capture?: CaptureSummary;
+  session?: SessionSummary | null;
 }
 
 export interface NetworkInterface {
@@ -425,6 +429,12 @@ export interface HistoryQuery {
   session_id: string | null;
   query: string | null;
   limit: number;
+  cursor?: HistoryCursor | null;
+}
+
+export interface HistoryCursor {
+  last_seen_ms: number;
+  connection_id: string;
 }
 
 export interface HistoryEntry {
@@ -436,6 +446,8 @@ export interface HistoryResponse {
   entries: HistoryEntry[];
   sessions: SessionSummary[];
   recordings: RecordingSummary[];
+  next_cursor: HistoryCursor | null;
+  has_more: boolean;
 }
 
 export type RetentionPolicy =
@@ -575,6 +587,7 @@ export interface TrafficSample {
   timestamp_ms: number;
   session_id: string | null;
   process_key: string | null;
+  sample_interval_ms: number;
   counters: TrafficCounters;
   rates: TransferRates;
   source: CounterSource;

@@ -1,11 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { DesktopApi } from "./backend-contract";
 import type {
   AppSettings,
   CaptureSelfTest,
   CaptureMode,
   CaptureSummary,
   ConnectionHistoryStats,
-  ConnectionAnnotation,
   ConnectionContextResponse,
   Connection,
   ComparisonExportRequest,
@@ -21,7 +21,6 @@ import type {
   HistoryQuery,
   HistoryResponse,
   IdentityTimelineEvent,
-  InvestigationQuery,
   ImportedSabiBundle,
   ListenerSnapshot,
   LocalDataCategory,
@@ -29,7 +28,6 @@ import type {
   NetworkInterface,
   NetworkProfile,
   NotificationState,
-  OfflineCatalogIdentity,
   ProcessSummary,
   ReenrichmentJobStatus,
   RecordingRequest,
@@ -47,7 +45,6 @@ import type {
   TimelineQuery,
   TrafficSample,
   TrafficCounters,
-  AsnProfile,
   TodayCardState,
 } from "../types";
 
@@ -69,132 +66,68 @@ const zeroTraffic = (): TrafficCounters => ({
 
 const previewDestinations = [
   [
-    "Firefox",
+    "Demo Browser",
     4812,
-    "firefox.exe",
-    "142.250.184.206",
-    "google.com",
-    "US",
-    "United States",
-    "Mountain View",
-    37.386,
-    -122.084,
-    15169,
-    "Google LLC",
+    "demo-browser.exe",
+    "192.0.2.10",
+    "portal.invalid",
+    "ES",
+    "Spain",
+    "Madrid",
+    40.4168,
+    -3.7038,
+    64496,
+    "Example Network A",
     "tcp",
     443,
   ],
   [
-    "Discord",
-    7204,
-    "Discord.exe",
-    "162.159.135.234",
-    "gateway.discord.gg",
-    "NL",
-    "Netherlands",
-    "Amsterdam",
-    52.3676,
-    4.9041,
-    13335,
-    "Cloudflare, Inc.",
+    "Demo Browser",
+    4812,
+    "demo-browser.exe",
+    "198.51.100.20",
+    "media.invalid",
+    "US",
+    "United States",
+    "New York",
+    40.7128,
+    -74.006,
+    64497,
+    "Example Network B",
     "udp",
     443,
   ],
   [
-    "Steam",
-    9140,
-    "steam.exe",
-    "23.45.67.89",
-    "cdn.steampowered.com",
+    "Demo Updater",
+    7204,
+    "demo-updater.exe",
+    "203.0.113.30",
+    "updates.invalid",
+    "JP",
+    "Japan",
+    "Tokyo",
+    35.6762,
+    139.6503,
+    64498,
+    "Example Network C",
+    "tcp",
+    443,
+  ],
+  [
+    "Demo Updater",
+    7204,
+    "demo-updater.exe",
+    "192.0.2.40",
+    "status.invalid",
     "DE",
     "Germany",
     "Frankfurt",
     50.1109,
     8.6821,
-    20001,
-    "Akamai Technologies",
-    "tcp",
-    443,
-  ],
-  [
-    "Windows Services",
-    1268,
-    "svchost.exe",
-    "13.107.42.12",
-    "settings-win.data.microsoft.com",
-    "IE",
-    "Ireland",
-    "Dublin",
-    53.3498,
-    -6.2603,
-    8075,
-    "Microsoft Corporation",
-    "tcp",
-    443,
-  ],
-  [
-    "Dropbox",
-    5622,
-    "Dropbox.exe",
-    "162.125.6.6",
-    "client.dropbox.com",
-    "US",
-    "United States",
-    "San Jose",
-    37.3382,
-    -121.8863,
-    19670,
-    "Dropbox, Inc.",
-    "tcp",
-    443,
-  ],
-  [
-    "Firefox",
-    4812,
-    "firefox.exe",
-    "104.16.123.96",
-    "developer.mozilla.org",
-    "GB",
-    "United Kingdom",
-    "London",
-    51.5072,
-    -0.1276,
-    13335,
-    "Cloudflare, Inc.",
-    "tcp",
-    443,
-  ],
-  [
-    "Spotify",
-    6410,
-    "Spotify.exe",
-    "35.186.224.25",
-    "audio-fa.scdn.co",
-    "SE",
-    "Sweden",
-    "Stockholm",
-    59.3293,
-    18.0686,
-    15169,
-    "Google Cloud",
-    "tcp",
-    443,
-  ],
-  [
-    "Git",
-    10422,
-    "git.exe",
-    "140.82.121.4",
-    "github.com",
-    "US",
-    "United States",
-    "San Francisco",
-    37.7749,
-    -122.4194,
-    36444,
-    "GitHub, Inc.",
-    "tcp",
-    443,
+    64499,
+    "Example Network D",
+    "udp",
+    53,
   ],
 ] as const;
 
@@ -512,6 +445,10 @@ function makePreviewSnapshot(): DashboardSnapshot {
       capture_generation: previewMode === "off" ? 0 : 1,
       sequence_gaps: 0,
       snapshot_resyncs: 0,
+      dashboard_requests: Math.max(1, Math.floor((now - previewStarted) / 5_000)),
+      dashboard_bytes_serialized: 48_000,
+      dashboard_empty_deltas: Math.max(0, Math.floor((now - previewStarted) / 7_500)),
+      dashboard_overlaps: 0,
       storage_quick_check_ok: true,
       storage_last_check_ms: now,
       storage_wal_pages: 0,
@@ -631,9 +568,6 @@ async function call<T>(
 }
 
 export const desktopApi = {
-  async getSnapshot(): Promise<DashboardSnapshot> {
-    return isDesktop ? call("get_snapshot") : makePreviewSnapshot();
-  },
   async getDashboardUpdate(
     afterSequence: number | null,
   ): Promise<DashboardUpdate> {
@@ -763,6 +697,8 @@ export const desktopApi = {
                 status: previewRecording.status,
               },
             ],
+      next_cursor: null,
+      has_more: false,
     };
   },
   async saveInvestigation(
@@ -794,18 +730,6 @@ export const desktopApi = {
       (item) => item.id !== id,
     );
     return previous !== previewInvestigations.length;
-  },
-  async queryInvestigation(query: InvestigationQuery) {
-    if (isDesktop)
-      return call<HistoryResponse["entries"]>("query_investigation", { query });
-    const history = await this.queryHistory({
-      from_ms: query.from_ms,
-      to_ms: query.to_ms,
-      session_id: query.session_id,
-      query: query.filter,
-      limit: 100_000,
-    });
-    return history.entries;
   },
   async saveLocalRule(rule: LocalRule): Promise<LocalRule> {
     if (isDesktop) return call("save_local_rule", { rule });
@@ -904,9 +828,6 @@ export const desktopApi = {
       ? call("list_today_card_states")
       : structuredClone(previewTodayCards);
   },
-  async listConnectionAnnotations(limit = 10_000): Promise<ConnectionAnnotation[]> {
-    return isDesktop ? call("list_connection_annotations", { limit }) : [];
-  },
   async captureListenerSnapshot(): Promise<ListenerSnapshot> {
     if (isDesktop) return call("capture_listener_snapshot");
     return {
@@ -973,57 +894,6 @@ export const desktopApi = {
       registrableDomain: connection.domain,
     };
   },
-  async getOfflineCatalogs(): Promise<OfflineCatalogIdentity[]> {
-    return isDesktop
-      ? call("get_offline_catalogs")
-      : [
-          {
-            name: "IANA service names (preview)",
-            snapshot_date: "2026-08-13",
-            source: "IANA",
-            license: "IANA licensing terms",
-            sha256: "preview",
-          },
-        ];
-  },
-  async getAsnProfile(
-    number: number,
-    query: HistoryQuery | null = null,
-  ): Promise<AsnProfile> {
-    if (isDesktop) return call("get_asn_profile", { number, query });
-    const connections = makePreviewSnapshot().connections.filter(
-      (connection) => connection.asn?.number === number,
-    );
-    return {
-      number,
-      organization: connections[0]?.asn?.organization ?? null,
-      observed_ips: [...new Set(connections.map((item) => item.key.remote.address))],
-      process_names: [...new Set(connections.map((item) => item.process.name))],
-      session_ids: [`preview-session-${previewStarted}`],
-      connection_ids: connections.map((item) => item.id),
-      estimated_countries: [
-        ...new Set(
-          connections.flatMap((item) => item.geo?.country_name ?? []),
-        ),
-      ],
-      traffic: connections.reduce<TrafficCounters>(
-        (total, connection) => ({
-          bytes_sent: total.bytes_sent + connection.traffic.bytes_sent,
-          bytes_received: total.bytes_received + connection.traffic.bytes_received,
-          packets_sent: total.packets_sent + connection.traffic.packets_sent,
-          packets_received:
-            total.packets_received + connection.traffic.packets_received,
-        }),
-        zeroTraffic(),
-      ),
-      first_seen_ms: connections.length
-        ? Math.min(...connections.map((item) => item.first_seen_ms))
-        : null,
-      last_seen_ms: connections.length
-        ? Math.max(...connections.map((item) => item.last_seen_ms))
-        : null,
-    };
-  },
   async getIdentityTimeline(
     connectionId: string,
     sessionId: string | null,
@@ -1084,6 +954,7 @@ export const desktopApi = {
         timestamp_ms: query.to_ms - (count - index - 1) * bucket,
         session_id: query.session_id,
         process_key: query.process_key,
+        sample_interval_ms: bucket,
         rates,
         counters: {
           bytes_sent: Math.round(rates.up_bytes_per_second * (bucket / 1_000)),
@@ -1335,8 +1206,8 @@ export const desktopApi = {
       current_asn: connection.asn,
     }));
   },
-  async getStorageHealth(): Promise<StorageHealth> {
-    if (isDesktop) return call("get_storage_health");
+  async compactStorage(): Promise<StorageHealth> {
+    if (isDesktop) return call("compact_storage");
     return {
       quick_check_ok: true,
       detail: "ok",
@@ -1346,9 +1217,6 @@ export const desktopApi = {
       database_size_bytes: 2_281_472,
       checked_at_ms: Date.now(),
     };
-  },
-  async compactStorage(): Promise<StorageHealth> {
-    return isDesktop ? call("compact_storage") : this.getStorageHealth();
   },
   async clearLocalData(
     category: LocalDataCategory,
@@ -1522,4 +1390,4 @@ export const desktopApi = {
     if (isDesktop)
       return call("report_ui_diagnostics", { renderFps, droppedUiEvents });
   },
-};
+} satisfies DesktopApi;

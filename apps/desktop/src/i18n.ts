@@ -260,10 +260,6 @@ const spanish: Record<string, string> = {
     "Qué está escuchando, desde cuándo y dónde podría alcanzar su bind. No se realiza ningún escaneo de red.",
   "Wildcard means all local interfaces; it does not prove Internet accessibility.":
     "Wildcard significa todas las interfaces locales; no demuestra accesibilidad desde Internet.",
-  scope_device: "nuevo para el equipo",
-  scope_application: "nuevo para la aplicación",
-  scope_profile: "nuevo para el perfil",
-  scope_health: "estado del proveedor",
   Primary: "Navegación principal",
   Globe: "Globo",
   Map: "Mapa",
@@ -290,18 +286,6 @@ const spanish: Record<string, string> = {
   "Open command palette": "Abrir la paleta de comandos",
   "Command palette (Ctrl+K)": "Paleta de comandos (Ctrl+K)",
   "Open settings": "Abrir los ajustes",
-  "LOCAL NETWORK OBSERVABILITY": "OBSERVABILIDAD DE RED LOCAL",
-  "See where your computer connects.":
-    "Descubre a dónde se conecta tu ordenador.",
-  "Sabicheiro observes operating-system socket metadata and keeps its history on this device. It does not inspect payloads during normal capture.":
-    "Sabicheiro observa los metadatos de conexiones del sistema operativo y conserva el historial en este dispositivo. Durante la captura normal no inspecciona el contenido de los paquetes.",
-  "Start live capture": "Iniciar captura en vivo",
-  "Explore deterministic demo": "Explorar demostración reproducible",
-  "No account or telemetry": "Sin cuenta ni telemetría",
-  "Local SQLite history": "Historial SQLite local",
-  "Free local GeoIP": "GeoIP local y gratuito",
-  "Live capture may require elevated OS permissions for complete process attribution. Demo mode never touches the network.":
-    "La atribución completa de procesos puede requerir permisos elevados. El modo demostración nunca accede a la red.",
   "Live network metrics": "Métricas de red en vivo",
   ACTIVE: "ACTIVAS",
   DOWN: "BAJADA",
@@ -320,33 +304,16 @@ const spanish: Record<string, string> = {
   DESTINATION: "DESTINO",
   DOMAIN: "DOMINIO",
   PORT: "PUERTO",
-  "NETWORK ACTIVITY": "ACTIVIDAD DE RED",
-  "Applications observed opening local network sockets.":
-    "Aplicaciones observadas abriendo conexiones de red locales.",
-  "{count} observed": "{count} observados",
   Process: "Proceso",
   Connections: "Conexiones",
   Countries: "Países",
   Traffic: "Tráfico",
   unknown: "desconocido",
-  "{count} total": "{count} en total",
   destinations: "destinos",
-  "{rate} now": "{rate} ahora",
-  "No processes match the current view.":
-    "Ningún proceso coincide con la vista actual.",
-  "REMOTE INFRASTRUCTURE": "INFRAESTRUCTURA REMOTA",
-  "Domains, IP addresses, networks and countries contacted by local processes.":
-    "Dominios, direcciones IP, redes y países contactados por procesos locales.",
-  "Filter by country": "Filtrar por país",
   Destination: "Destino",
   Network: "Red",
-  "Unresolved domain": "Dominio sin resolver",
   Unknown: "Desconocido",
-  "No local GeoIP match": "Sin coincidencia GeoIP local",
   active: "activas",
-  "No destinations match the current view.":
-    "Ningún destino coincide con la vista actual.",
-  "{active} active · {total} seen": "{active} activas · {total} observadas",
   "LOCAL EVIDENCE": "EVIDENCIA LOCAL",
   "Open retained sessions or scrub local metadata with Time Machine.":
     "Abre sesiones conservadas o recorre los metadatos locales con la Máquina del Tiempo.",
@@ -466,11 +433,6 @@ const spanish: Record<string, string> = {
   "Coalesce the same process, remote IP, port and protocol.":
     "Agrupa el mismo proceso, IP remota, puerto y protocolo.",
   "Show local traffic": "Mostrar tráfico local",
-  "Include loopback, LAN and private-address destinations in lists.":
-    "Incluye destinos loopback, LAN y direcciones privadas en las listas.",
-  "Show listening sockets": "Mostrar sockets en escucha",
-  "Include bound TCP/UDP listeners separately from real remote connections.":
-    "Incluye los listeners TCP/UDP locales por separado de las conexiones remotas reales.",
   "Live device interface total": "Total en vivo de la interfaz del equipo",
   "Observed connection total": "Total de conexiones observadas",
   "Socket metadata only": "Solo metadatos del socket",
@@ -518,12 +480,6 @@ const spanish: Record<string, string> = {
   "Optional local DB-IP Lite data. Location is approximate and never authoritative.":
     "Datos locales opcionales de DB-IP Lite. La ubicación es aproximada y nunca autoritativa.",
   "GeoIP database": "Base de datos GeoIP",
-  "Version {version} · updated {date}":
-    "Versión {version} · actualizada {date}",
-  "Not installed; public IPs remain unlocated.":
-    "No instalada; las IP públicas seguirán sin ubicación.",
-  "Check free update": "Buscar actualización gratuita",
-  "Install free database": "Instalar base de datos gratuita",
   "Visual preferences never change captured evidence.":
     "Las preferencias visuales nunca cambian la evidencia capturada.",
   "Reduce motion": "Reducir movimiento",
@@ -544,13 +500,17 @@ const spanish: Record<string, string> = {
   "World map showing filtered network destinations":
     "Mapa mundial con destinos de red filtrados",
   "Approximate home location": "Ubicación local aproximada",
-  "{count} connection to {destination}": "{count} conexión con {destination}",
-  "{count} connections to {destination}":
-    "{count} conexiones con {destination}",
   "Interactive globe showing filtered network destinations. Use the connection feed for a keyboard-accessible alternative.":
     "Globo interactivo con destinos de red filtrados. Usa el feed de conexiones como alternativa accesible mediante teclado.",
   "Loading local globe...": "Cargando globo local...",
   "Loading detailed local map...": "Cargando mapa local detallado...",
+  "Loading local history...": "Cargando historial local...",
+  "Loading exposure data...": "Cargando datos de exposición...",
+  "Loading local settings...": "Cargando ajustes locales...",
+  "Traffic samples: every {seconds} seconds; high fidelity preserves one-second detail.":
+    "Muestras de tráfico: cada {seconds} segundos; la alta fidelidad conserva detalle de un segundo.",
+  "Loading next page...": "Cargando página siguiente...",
+  "Load 500 more records": "Cargar 500 registros más",
   "GLOBAL ROUTES": "RUTAS GLOBALES",
   "{count} active": "{count} activas",
   "{count} countries": "{count} países",
@@ -570,20 +530,15 @@ const spanish: Record<string, string> = {
   "Selected route": "Ruta seleccionada",
   "Drag to rotate / scroll to zoom":
     "Arrastra para girar / desplaza para ampliar",
-  "Unknown capture error": "Error de captura desconocido",
   "Capture stopped": "Captura detenida",
   "Starting local observability engine...":
     "Iniciando el motor local de observabilidad...",
   "Command palette": "Paleta de comandos",
   "Type a command...": "Escribe un comando...",
-  "Open globe": "Abrir globo",
   "Switch to 3D globe": "Cambiar al globo 3D",
   "Switch to 2D map": "Cambiar al mapa 2D",
-  "Open processes": "Abrir procesos",
-  "Open destinations": "Abrir destinos",
   "Search process": "Buscar proceso",
   "Search destination": "Buscar destino",
-  "Open history": "Abrir historial",
   "Resume visualization": "Reanudar visualización",
   "Pause visualization": "Pausar visualización",
   "Stop packet recording": "Detener grabación de paquetes",
@@ -661,8 +616,6 @@ const spanish: Record<string, string> = {
   "Diagnostic support bundle": "Paquete de soporte de diagnóstico",
   "Review and export versions, redacted settings and local logs. Connection history, raw IPs, payloads, recordings and secrets are excluded.":
     "Revisa y exporta versiones, ajustes anonimizados y registros locales. Se excluyen el historial de conexiones, las IP sin anonimizar, los contenidos, las grabaciones y los secretos.",
-  "Review exactly what is included: versions and redacted diagnostics, with optional redacted settings and local application logs.":
-    "Revisa exactamente qué se incluye: versiones y diagnóstico anonimizado, con ajustes anonimizados y registros locales opcionales.",
   "Support bundle filename": "Nombre del paquete de soporte",
   "Redacted settings": "Ajustes anonimizados",
   "Local application logs": "Registros locales de la aplicación",
@@ -676,12 +629,9 @@ const spanish: Record<string, string> = {
   "ASN MMDB": "MMDB de ASN",
   "IP geolocation by DB-IP.com, licensed under CC BY 4.0":
     "Geolocalización IP de DB-IP.com, con licencia CC BY 4.0",
-  "Choose a DB-IP Lite or compatible City/ASN MMDB already on this device. Sabicheiro validates its edition and checksum before an atomic local install.":
-    "Elige una base DB-IP Lite o una MMDB City/ASN compatible ya presente en este equipo. Sabicheiro valida la edición y la suma de verificación antes de instalarla localmente de forma atómica.",
   "MMDB kind": "Tipo de MMDB",
   "MMDB file path": "Ruta del archivo MMDB",
   "Verify and import": "Verificar e importar",
-  EDITION: "EDICIÓN",
   Available: "Disponible",
   Unavailable: "No disponible",
   "EVENT SOURCE": "ORIGEN DE EVENTOS",
@@ -702,8 +652,6 @@ const spanish: Record<string, string> = {
   "Process attribution is working": "La atribución de procesos funciona",
   "The proof socket could not be attributed":
     "No se pudo atribuir el socket de prueba",
-  "The current Sabicheiro process was resolved from a real loopback connection.":
-    "El proceso actual de Sabicheiro se identificó mediante una conexión real de bucle local.",
   "Socket visibility works, but the operating system did not expose the proof PID in time.":
     "Los sockets son visibles, pero el sistema operativo no expuso a tiempo el PID de prueba.",
   "Socket table proof failed": "Falló la prueba de la tabla de sockets",
@@ -721,14 +669,6 @@ const spanish: Record<string, string> = {
   "Download the free dataset or import a City MMDB from Settings; observed IPs are never uploaded.":
     "Descarga el conjunto gratuito o importa una MMDB City desde Ajustes; las IP observadas nunca se suben.",
   "Local history storage is available": "El historial local está disponible",
-  "Development preview adapter is available.":
-    "El adaptador de la vista previa de desarrollo está disponible.",
-  "Development preview uses deterministic local data.":
-    "La vista previa de desarrollo usa datos locales reproducibles.",
-  "Preview hostnames are deterministic and local.":
-    "Los nombres de host de la vista previa son reproducibles y locales.",
-  "Development preview dataset.":
-    "Conjunto de datos de la vista previa de desarrollo.",
   "TRAFFIC TIMELINE": "LÍNEA TEMPORAL DE TRÁFICO",
   "Stored rates / {source}": "Tasas guardadas / {source}",
   "Traffic resolution": "Resolución del tráfico",
@@ -752,10 +692,6 @@ const spanish: Record<string, string> = {
   "Saved comparison to {path}": "Comparación guardada en {path}",
   Earlier: "Anterior",
   Later: "Posterior",
-  "Recent process traffic sparkline":
-    "Minigráfico de tráfico reciente del proceso",
-  "per-flow events": "eventos por flujo",
-  "interface aggregate only": "solo total de interfaz",
   "Geography is not available yet": "La geografía todavía no está disponible",
   "Connections are still captured. Install or import a free local City MMDB to place public destinations on the map.":
     "Las conexiones se siguen capturando. Instala o importa una MMDB City local y gratuita para situar los destinos públicos en el mapa.",
@@ -813,7 +749,6 @@ const spanish: Record<string, string> = {
   "{count} estimated connections to {destination}":
     "{count} conexiones estimadas con {destination}",
   "{count} pinned connections": "{count} conexiones fijadas",
-  "{count} recurrences": "{count} recurrencias",
   "A cancelable local job creates a derived view. Original IPs, timestamps, evidence and observed enrichment are never overwritten.":
     "Un trabajo local cancelable crea una vista derivada. Las IP, marcas temporales, evidencias y enriquecimiento observados nunca se sobrescriben.",
   "Accuracy radius": "Radio de precisión",
@@ -825,8 +760,6 @@ const spanish: Record<string, string> = {
   "At capture": "Al capturar",
   Built: "Compilada",
   "Cancel job": "Cancelar trabajo",
-  "canonical IPs with traceable local evidence":
-    "IP canónicas con evidencia local rastreable",
   "Capability coverage": "Cobertura de capacidades",
   "Capture generation": "Generación de captura",
   "Check and compact SQLite": "Comprobar y compactar SQLite",
@@ -856,7 +789,6 @@ const spanish: Record<string, string> = {
   "Delete selected data": "Eliminar datos seleccionados",
   "Delete this saved local investigation?":
     "¿Eliminar esta investigación local guardada?",
-  "Destination intelligence": "Inteligencia de destinos",
   Diagnostic: "Diagnóstico",
   "DNS cache": "Caché DNS",
   "Downloads happen only after this action and fetch the complete free dataset over HTTPS. Observed IPs are never sent.":
@@ -866,12 +798,10 @@ const spanish: Record<string, string> = {
   endpoint: "extremo",
   "Endpoint role": "Rol del extremo",
   "Ephemeral capture": "Captura efímera",
-  "Estimated countries": "Países estimados",
   "Estimated network location": "Ubicación de red estimada",
   Evidence: "Evidencia",
   "Evidence sequence": "Secuencia de evidencia",
   "Expand map": "Ampliar mapa",
-  "Filter this ASN": "Filtrar este ASN",
   "Flow generation": "Generación de flujo",
   "Frame selection": "Encuadrar selección",
   Generation: "Generación",
@@ -883,9 +813,9 @@ const spanish: Record<string, string> = {
   "Interface density": "Densidad de interfaz",
   "Investigation name": "Nombre de la investigación",
   "IPC GAPS / RESYNCS": "HUECOS IPC / RESINCRONIZACIONES",
+  "IPC REQUESTS / EMPTY": "PETICIONES IPC / VACÍAS",
+  "IPC BYTES / OVERLAPS": "BYTES IPC / SOLAPAMIENTOS",
   "Last operation": "Última operación",
-  "Loading ASN": "Cargando ASN",
-  "LOCAL ASN PROFILE": "PERFIL ASN LOCAL",
   "Local data category": "Categoría de datos locales",
   "Local data controls": "Controles de datos locales",
   "Local investigation workspaces": "Espacios de investigación locales",
@@ -903,14 +833,11 @@ const spanish: Record<string, string> = {
   "Not exposed": "No expuesto",
   "Not installed": "No instalada",
   "Not provided": "No proporcionado",
-  OBSERVED: "OBSERVADO",
   "Observed family": "Familia observada",
   "Observed IPs": "IP observadas",
-  "OBSERVED IPS": "IP OBSERVADAS",
   "Observed versus current GeoIP": "GeoIP observado frente al actual",
   Offline: "Sin conexión",
   "Open exact view": "Abrir vista exacta",
-  ORGANIZATION: "ORGANIZACIÓN",
   ORPHANED: "HUÉRFANOS",
   "OS source": "Fuente del SO",
   "Permanently delete the selected local data? This cannot be undone inside Sabicheiro.":
@@ -928,7 +855,6 @@ const spanish: Record<string, string> = {
   "Redact local IP addresses": "Anonimizar direcciones IP locales",
   "Redact user names in paths": "Anonimizar nombres de usuario en rutas",
   "Redacted self-test report": "Informe anonimizado de autoprueba",
-  "Related processes": "Procesos relacionados",
   "Remove database": "Eliminar base de datos",
   "Remove executable paths": "Eliminar rutas de ejecutables",
   "Remove this local MMDB and its backup?":
@@ -948,15 +874,12 @@ const spanish: Record<string, string> = {
   "SAVED INVESTIGATIONS": "INVESTIGACIONES GUARDADAS",
   "Select one retained session to enable re-enrichment.":
     "Selecciona una sesión conservada para habilitar el reenriquecimiento.",
-  SESSIONS: "SESIONES",
   "Show feed": "Mostrar feed",
   "Showing the first 100 of {count} rows.":
     "Mostrando las primeras 100 de {count} filas.",
   Source: "Fuente",
   "SQLite integrity check failed": "Falló la comprobación de integridad SQLite",
   "SQLite integrity check passed": "La comprobación de integridad SQLite pasó",
-  "The organization describes the observed network record; it does not prove ownership of a domain, service or content.":
-    "La organización describe el registro de red observado; no demuestra la propiedad de un dominio, servicio o contenido.",
   TRAFFIC: "TRÁFICO",
   Updated: "Actualizada",
   Version: "Versión",
@@ -973,8 +896,6 @@ const spanish: Record<string, string> = {
   queued: "en cola",
   "{backend}; {depth}/{capacity} queued":
     "{backend}; {depth}/{capacity} en cola",
-  "Local deterministic preview dataset":
-    "Conjunto de datos local reproducible de previsualización",
   running: "en curso",
   completed: "completado",
   cancelled: "cancelado",
@@ -1077,10 +998,6 @@ const spanish: Record<string, string> = {
     "Activa el DNS inverso en Ajustes solo si deseas enriquecer nombres de host.",
   "Import a free local City/ASN MMDB or use the explicit free dataset update.":
     "Importa una MMDB City/ASN local gratuita o usa la actualización gratuita explícita.",
-  "UDP fixture is available in native integration tests":
-    "La fixture UDP está disponible en las pruebas de integración nativas",
-  "IPv6 availability depends on the local operating-system stack":
-    "La disponibilidad de IPv6 depende de la pila local del sistema operativo",
   "Process instance observed": "Instancia de proceso observada",
   "Process instance was not available":
     "La instancia de proceso no estaba disponible",
@@ -1091,12 +1008,6 @@ const spanish: Record<string, string> = {
   "Connection closed": "Conexión cerrada",
   "Derived view saved; original observations remain unchanged.":
     "Vista derivada guardada; las observaciones originales permanecen sin cambios.",
-  "Derived preview view saved; observations were unchanged.":
-    "Vista derivada de previsualización guardada; las observaciones no cambiaron.",
-  "Preview job complete.": "Trabajo de previsualización completado.",
-  "Deterministic preview is capturing":
-    "La previsualización reproducible está capturando",
-  "Start Demo capture.": "Inicia la captura Demo.",
   "Unterminated quoted value": "Valor entre comillas sin terminar",
   "Use tcp or udp": "Usa tcp o udp",
   "Port must be between 0 and 65535": "El puerto debe estar entre 0 y 65535",

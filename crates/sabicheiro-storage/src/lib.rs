@@ -3,13 +3,13 @@ use sabicheiro_core::{
     AppSettings, BaselineBook, Bookmark, Connection, ConnectionAnnotation, ConnectionFilter,
     ConnectionHistoryStats, CounterSource, DerivedGeoEnrichment, EvidenceJournalStats,
     EvidenceObservation, EvidenceQuery, ExportFormat, ExportRedaction, ExportRequest, ExportResult,
-    FocusRules, HandshakeModeAudit, HistoryEntry, HistoryQuery, IgnoreRule, InvestigationQuery,
-    ListenerExposure, ListenerSnapshot, LocalNotificationRecord, LocalRule, LocalRuleAction,
-    NetworkActionAudit, NetworkActionIntent, NetworkDestinationClass, NetworkProfile,
-    NotificationState, RecordingState, RecordingStatus, RecordingSummary, RecoveryReport,
-    RetentionBatchResult, RetentionEstimate, RetentionPolicy, RetentionTier, RuleKind, RuleMatch,
-    SavedInvestigation, SessionSummary, StorageHealth, TimelineQuery, TodayCardState,
-    TrafficCounters, TrafficSample, TransferRates,
+    FocusRules, HandshakeModeAudit, HistoryCursor, HistoryEntry, HistoryQuery, IgnoreRule,
+    InvestigationQuery, ListenerExposure, ListenerSnapshot, LocalNotificationRecord, LocalRule,
+    LocalRuleAction, NetworkActionAudit, NetworkActionIntent, NetworkDestinationClass,
+    NetworkProfile, NotificationState, RecordingState, RecordingStatus, RecordingSummary,
+    RecoveryReport, RetentionBatchResult, RetentionEstimate, RetentionPolicy, RetentionTier,
+    RuleKind, RuleMatch, SavedInvestigation, SessionSummary, StorageHealth, TimelineQuery,
+    TodayCardState, TrafficCounters, TrafficSample, TransferRates,
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -18,8 +18,35 @@ use std::{
 };
 use thiserror::Error;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const MAX_QUERY_LIMIT: usize = 100_000;
+const V6_TRAFFIC_ROLLUPS_SQL: &str = "
+CREATE INDEX IF NOT EXISTS idx_connections_history_cursor
+  ON connections(last_seen_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_connections_session_cursor
+  ON connections(session_id, last_seen_ms DESC, id DESC);
+CREATE TABLE IF NOT EXISTS traffic_rollups (
+  resolution_ms INTEGER NOT NULL,
+  bucket_ms INTEGER NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  process_key TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL,
+  sample_interval_ms INTEGER NOT NULL,
+  sample_count INTEGER NOT NULL,
+  bytes_sent INTEGER NOT NULL,
+  bytes_received INTEGER NOT NULL,
+  packets_sent INTEGER NOT NULL,
+  packets_received INTEGER NOT NULL,
+  down_rate_sum REAL NOT NULL,
+  up_rate_sum REAL NOT NULL,
+  packet_rate_sum REAL NOT NULL,
+  PRIMARY KEY(resolution_ms, bucket_ms, session_id, process_key, source)
+);
+CREATE INDEX IF NOT EXISTS idx_traffic_rollups_time
+  ON traffic_rollups(resolution_ms, bucket_ms);
+CREATE INDEX IF NOT EXISTS idx_traffic_rollups_session_process
+  ON traffic_rollups(session_id, process_key, resolution_ms, bucket_ms);
+";
 const V5_PRODUCT_TABLES_SQL: &str = "
 CREATE TABLE IF NOT EXISTS local_rules (
   id TEXT PRIMARY KEY,
@@ -129,6 +156,13 @@ pub struct Storage {
     path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistoryPage {
+    pub entries: Vec<HistoryEntry>,
+    pub next_cursor: Option<HistoryCursor>,
+    pub has_more: bool,
+}
+
 impl Storage {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref();
@@ -143,6 +177,7 @@ impl Storage {
         storage.configure()?;
         storage.migrate()?;
         storage.ensure_v5_extensions()?;
+        storage.ensure_v6_extensions()?;
         Ok(storage)
     }
 
@@ -155,6 +190,7 @@ impl Storage {
         storage.configure()?;
         storage.migrate()?;
         storage.ensure_v5_extensions()?;
+        storage.ensure_v6_extensions()?;
         Ok(storage)
     }
 
@@ -185,8 +221,11 @@ impl Storage {
         if (1..4).contains(&current) {
             self.back_up_before_version(current, 4)?;
         }
-        if (1..SCHEMA_VERSION).contains(&current) {
+        if (1..5).contains(&current) {
             self.back_up_before_version(current, 5)?;
+        }
+        if (1..SCHEMA_VERSION).contains(&current) {
+            self.back_up_before_version(current, 6)?;
         }
         if current < 1 {
             let transaction = self.connection.transaction()?;
@@ -229,6 +268,15 @@ impl Storage {
             migration_v5(&transaction)?;
             transaction.execute(
                 "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
+                params![5, chrono::Utc::now().timestamp_millis()],
+            )?;
+            transaction.commit()?;
+        }
+        if current < 6 {
+            let transaction = self.connection.transaction()?;
+            migration_v6(&transaction)?;
+            transaction.execute(
+                "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
                 params![SCHEMA_VERSION, chrono::Utc::now().timestamp_millis()],
             )?;
             transaction.commit()?;
@@ -244,6 +292,17 @@ impl Storage {
             )?;
         }
         self.connection.execute_batch(V5_PRODUCT_TABLES_SQL)?;
+        Ok(())
+    }
+
+    fn ensure_v6_extensions(&self) -> Result<(), StorageError> {
+        if !table_has_column(&self.connection, "traffic_samples", "sample_interval_ms")? {
+            self.connection.execute_batch(
+                "ALTER TABLE traffic_samples
+                   ADD COLUMN sample_interval_ms INTEGER NOT NULL DEFAULT 1000;",
+            )?;
+        }
+        self.connection.execute_batch(V6_TRAFFIC_ROLLUPS_SQL)?;
         Ok(())
     }
 
@@ -574,7 +633,7 @@ impl Storage {
         let (observations, first_utc_ms, last_utc_ms, providers, gaps) =
             self.connection.query_row(
                 "SELECT COUNT(*), MIN(utc_ms), MAX(utc_ms), COUNT(DISTINCT provider_id),
-                    SUM(CASE WHEN kind='provider_gap' THEN 1 ELSE 0 END)
+                    COALESCE(SUM(CASE WHEN kind='provider_gap' THEN 1 ELSE 0 END), 0)
              FROM evidence_journal",
                 [],
                 |row| {
@@ -613,12 +672,19 @@ impl Storage {
             "last_seen_ms",
             cutoff_utc_ms,
         )?;
-        let samples = count_before(
+        let raw_samples = count_before(
             &self.connection,
             "traffic_samples",
             "timestamp_ms",
             cutoff_utc_ms,
         )?;
+        let compacted_samples = count_before(
+            &self.connection,
+            "traffic_rollups",
+            "bucket_ms",
+            cutoff_utc_ms,
+        )?;
+        let samples = raw_samples.saturating_add(compacted_samples);
         let rollups = self.connection.query_row(
             "SELECT COUNT(*) FROM evidence_rollups WHERE day_utc < ?1",
             params![cutoff_utc_ms.div_euclid(86_400_000)],
@@ -629,6 +695,7 @@ impl Storage {
                (SELECT COUNT(*) FROM evidence_journal) +
                (SELECT COUNT(*) FROM connections) +
                (SELECT COUNT(*) FROM traffic_samples) +
+               (SELECT COUNT(*) FROM traffic_rollups) +
                (SELECT COUNT(*) FROM evidence_rollups)",
             [],
             |row| row.get::<_, i64>(0),
@@ -675,6 +742,47 @@ impl Storage {
         }
         let limit = batch_size.clamp(1, 10_000) as i64;
         let transaction = self.connection.transaction()?;
+        if tier == RetentionTier::TrafficSamples {
+            let removed_raw = transaction.execute(
+                "DELETE FROM traffic_samples WHERE rowid IN (
+                   SELECT rowid FROM traffic_samples WHERE timestamp_ms < ?1
+                   ORDER BY timestamp_ms LIMIT ?2
+                 )",
+                params![cutoff_utc_ms, limit],
+            )?;
+            let remaining_limit = limit.saturating_sub(removed_raw as i64);
+            let removed_rollups = if remaining_limit > 0 {
+                transaction.execute(
+                    "DELETE FROM traffic_rollups WHERE rowid IN (
+                       SELECT rowid FROM traffic_rollups WHERE bucket_ms < ?1
+                       ORDER BY bucket_ms LIMIT ?2
+                     )",
+                    params![cutoff_utc_ms, remaining_limit],
+                )?
+            } else {
+                0
+            };
+            transaction.commit()?;
+            let remaining = count_before(
+                &self.connection,
+                "traffic_samples",
+                "timestamp_ms",
+                cutoff_utc_ms,
+            )?
+            .saturating_add(count_before(
+                &self.connection,
+                "traffic_rollups",
+                "bucket_ms",
+                cutoff_utc_ms,
+            )?);
+            let removed = removed_raw.saturating_add(removed_rollups);
+            return Ok(RetentionBatchResult {
+                removed_by_tier: [(tier, removed as u64)].into_iter().collect(),
+                remaining_eligible_rows: remaining.max(0) as u64,
+                cancelled: false,
+                compact_recommended: removed > 0 && remaining == 0,
+            });
+        }
         if tier == RetentionTier::Connections {
             transaction.execute(
                 "INSERT INTO evidence_rollups(
@@ -903,19 +1011,11 @@ impl Storage {
     }
 
     pub fn query_history(&self, query: &HistoryQuery) -> Result<Vec<HistoryEntry>, StorageError> {
-        let limit = query.limit.clamp(1, MAX_QUERY_LIMIT) as i64;
-        let mut statement = self.connection.prepare(
-            "SELECT session_id, connection_json FROM connections
-             WHERE (?1 IS NULL OR last_seen_ms >= ?1)
-               AND (?2 IS NULL OR first_seen_ms <= ?2)
-               AND (?3 IS NULL OR session_id = ?3)
-             ORDER BY last_seen_ms DESC
-             LIMIT ?4",
-        )?;
-        let rows = statement.query_map(
-            params![query.from_ms, query.to_ms, query.session_id, limit],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )?;
+        self.query_history_page(query).map(|page| page.entries)
+    }
+
+    pub fn query_history_page(&self, query: &HistoryQuery) -> Result<HistoryPage, StorageError> {
+        let limit = query.limit.clamp(1, MAX_QUERY_LIMIT);
         let filter = query
             .query
             .as_deref()
@@ -924,21 +1024,90 @@ impl Storage {
             .transpose()
             .map_err(|error| StorageError::InvalidFilter(error.to_string()))?;
 
-        let mut entries = Vec::new();
-        for row in rows {
-            let (session_id, json) = row?;
-            let connection: Connection = serde_json::from_str(&json)?;
-            if filter
-                .as_ref()
-                .is_none_or(|candidate| candidate.matches(&connection))
-            {
-                entries.push(HistoryEntry {
-                    session_id,
-                    connection,
+        let mut cursor = query.cursor.clone();
+        let mut entries = Vec::with_capacity(limit.min(5_000));
+        loop {
+            let fetch_limit = limit.saturating_sub(entries.len()).clamp(64, 5_000);
+            let mut sql = String::from(
+                "SELECT id, last_seen_ms, session_id, connection_json FROM connections WHERE 1=1",
+            );
+            let mut parameters = Vec::<rusqlite::types::Value>::with_capacity(7);
+            if let Some(from_ms) = query.from_ms {
+                parameters.push(from_ms.into());
+                sql.push_str(&format!(" AND last_seen_ms >= ?{}", parameters.len()));
+            }
+            if let Some(to_ms) = query.to_ms {
+                parameters.push(to_ms.into());
+                sql.push_str(&format!(" AND first_seen_ms <= ?{}", parameters.len()));
+            }
+            if let Some(session_id) = &query.session_id {
+                parameters.push(session_id.clone().into());
+                sql.push_str(&format!(" AND session_id = ?{}", parameters.len()));
+            }
+            if let Some(cursor) = &cursor {
+                parameters.push(cursor.last_seen_ms.into());
+                let timestamp_parameter = parameters.len();
+                parameters.push(cursor.connection_id.clone().into());
+                let id_parameter = parameters.len();
+                sql.push_str(&format!(
+                    " AND (last_seen_ms, id) < (?{timestamp_parameter}, ?{id_parameter})"
+                ));
+            }
+            parameters.push((fetch_limit as i64).into());
+            sql.push_str(&format!(
+                " ORDER BY last_seen_ms DESC, id DESC LIMIT ?{}",
+                parameters.len()
+            ));
+            let mut statement = self.connection.prepare_cached(&sql)?;
+            let rows = statement
+                .query_map(rusqlite::params_from_iter(parameters.iter()), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            if rows.is_empty() {
+                return Ok(HistoryPage {
+                    entries,
+                    next_cursor: None,
+                    has_more: false,
+                });
+            }
+            let row_count = rows.len();
+            for (index, (id, last_seen_ms, session_id, json)) in rows.into_iter().enumerate() {
+                cursor = Some(HistoryCursor {
+                    last_seen_ms,
+                    connection_id: id,
+                });
+                let connection: Connection = serde_json::from_str(&json)?;
+                if filter
+                    .as_ref()
+                    .is_none_or(|candidate| candidate.matches(&connection))
+                {
+                    entries.push(HistoryEntry {
+                        session_id,
+                        connection,
+                    });
+                    if entries.len() == limit {
+                        return Ok(HistoryPage {
+                            entries,
+                            next_cursor: cursor,
+                            has_more: index + 1 < row_count || row_count == fetch_limit,
+                        });
+                    }
+                }
+            }
+            if row_count < fetch_limit {
+                return Ok(HistoryPage {
+                    entries,
+                    next_cursor: None,
+                    has_more: false,
                 });
             }
         }
-        Ok(entries)
     }
 
     pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionSummary>, StorageError> {
@@ -1266,6 +1435,7 @@ impl Storage {
         if days == 0 {
             let removed = self.connection.execute("DELETE FROM connections", [])?;
             self.connection.execute("DELETE FROM traffic_samples", [])?;
+            self.connection.execute("DELETE FROM traffic_rollups", [])?;
             self.connection.execute("DELETE FROM recordings", [])?;
             self.connection.execute("DELETE FROM sessions", [])?;
             return Ok(removed);
@@ -1287,6 +1457,10 @@ impl Storage {
             "DELETE FROM traffic_samples WHERE timestamp_ms < ?1",
             params![cutoff],
         )?;
+        self.connection.execute(
+            "DELETE FROM traffic_rollups WHERE bucket_ms < ?1",
+            params![cutoff],
+        )?;
         Ok(removed)
     }
 
@@ -1296,10 +1470,12 @@ impl Storage {
             let mut statement = transaction.prepare(
                 "INSERT INTO traffic_samples(
                    session_id, timestamp_ms, process_key, source,
+                   sample_interval_ms,
                    bytes_sent, bytes_received, packets_sent, packets_received,
                    down_bytes_per_second, up_bytes_per_second, packets_per_second
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(session_id, timestamp_ms, process_key, source) DO UPDATE SET
+                   sample_interval_ms = excluded.sample_interval_ms,
                    bytes_sent = excluded.bytes_sent,
                    bytes_received = excluded.bytes_received,
                    packets_sent = excluded.packets_sent,
@@ -1314,6 +1490,7 @@ impl Storage {
                     sample.timestamp_ms,
                     sample.process_key.as_deref().unwrap_or(""),
                     sample.source.as_str(),
+                    sample.sample_interval_ms.min(i64::MAX as u64) as i64,
                     sample.counters.bytes_sent.min(i64::MAX as u64) as i64,
                     sample.counters.bytes_received.min(i64::MAX as u64) as i64,
                     sample.counters.packets_sent.min(i64::MAX as u64) as i64,
@@ -1339,19 +1516,39 @@ impl Storage {
         }
         let bucket = query.resolution.bucket_ms();
         let mut statement = self.connection.prepare(
-            "SELECT (timestamp_ms / ?1) * ?1 AS bucket_ms,
-                    session_id, NULLIF(process_key, ''), source,
+            "WITH combined AS (
+               SELECT timestamp_ms, COALESCE(session_id, '') AS session_id,
+                      process_key, source, sample_interval_ms, 1 AS sample_count,
+                      bytes_sent, bytes_received, packets_sent, packets_received,
+                      down_bytes_per_second AS down_rate_sum,
+                      up_bytes_per_second AS up_rate_sum,
+                      packets_per_second AS packet_rate_sum
+               FROM traffic_samples
+               WHERE timestamp_ms BETWEEN ?2 AND ?3
+                 AND (?4 IS NULL OR session_id = ?4)
+                 AND ((?5 IS NULL AND process_key = '') OR process_key = ?5)
+               UNION ALL
+               SELECT bucket_ms AS timestamp_ms, session_id, process_key, source,
+                      sample_interval_ms, sample_count,
+                      bytes_sent, bytes_received, packets_sent, packets_received,
+                      down_rate_sum, up_rate_sum, packet_rate_sum
+               FROM traffic_rollups
+               WHERE bucket_ms <= ?3
+                 AND bucket_ms + resolution_ms > ?2
+                 AND (?4 IS NULL OR session_id = ?4)
+                 AND ((?5 IS NULL AND process_key = '') OR process_key = ?5)
+             )
+             SELECT (timestamp_ms / ?1) * ?1 AS output_bucket_ms,
+                    NULLIF(session_id, ''), NULLIF(process_key, ''), source,
+                    MAX(sample_interval_ms),
                     SUM(bytes_sent), SUM(bytes_received),
                     SUM(packets_sent), SUM(packets_received),
-                    AVG(down_bytes_per_second), AVG(up_bytes_per_second),
-                    AVG(packets_per_second)
-             FROM traffic_samples
-             WHERE timestamp_ms BETWEEN ?2 AND ?3
-               AND (?4 IS NULL OR session_id = ?4)
-               AND (?5 IS NULL OR process_key = ?5)
-               AND ((?5 IS NULL AND process_key = '') OR ?5 IS NOT NULL)
-             GROUP BY bucket_ms, session_id, process_key, source
-             ORDER BY bucket_ms ASC
+                    SUM(down_rate_sum) / MAX(1, SUM(sample_count)),
+                    SUM(up_rate_sum) / MAX(1, SUM(sample_count)),
+                    SUM(packet_rate_sum) / MAX(1, SUM(sample_count))
+             FROM combined
+             GROUP BY output_bucket_ms, session_id, process_key, source
+             ORDER BY output_bucket_ms ASC
              LIMIT 10000",
         )?;
         let rows = statement.query_map(
@@ -1368,6 +1565,7 @@ impl Storage {
                     timestamp_ms: row.get(0)?,
                     session_id: row.get(1)?,
                     process_key: row.get(2)?,
+                    sample_interval_ms: row.get::<_, i64>(4)?.max(1) as u64,
                     source: match source.as_str() {
                         "interface_aggregate" => CounterSource::InterfaceAggregate,
                         "etw_flow" => CounterSource::EtwFlow,
@@ -1375,20 +1573,96 @@ impl Storage {
                         _ => CounterSource::Unavailable,
                     },
                     counters: TrafficCounters {
-                        bytes_sent: row.get::<_, i64>(4)?.max(0) as u64,
-                        bytes_received: row.get::<_, i64>(5)?.max(0) as u64,
-                        packets_sent: row.get::<_, i64>(6)?.max(0) as u64,
-                        packets_received: row.get::<_, i64>(7)?.max(0) as u64,
+                        bytes_sent: row.get::<_, i64>(5)?.max(0) as u64,
+                        bytes_received: row.get::<_, i64>(6)?.max(0) as u64,
+                        packets_sent: row.get::<_, i64>(7)?.max(0) as u64,
+                        packets_received: row.get::<_, i64>(8)?.max(0) as u64,
                     },
                     rates: TransferRates {
-                        down_bytes_per_second: row.get(8)?,
-                        up_bytes_per_second: row.get(9)?,
-                        packets_per_second: row.get(10)?,
+                        down_bytes_per_second: row.get(9)?,
+                        up_bytes_per_second: row.get(10)?,
+                        packets_per_second: row.get(11)?,
                     },
                 })
             },
         )?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn compact_traffic_samples(&mut self, now_ms: i64) -> Result<usize, StorageError> {
+        const RAW_WINDOW_MS: i64 = 60 * 60 * 1_000;
+        const MINUTE_WINDOW_MS: i64 = 24 * 60 * 60 * 1_000;
+        let raw_cutoff = now_ms.saturating_sub(RAW_WINDOW_MS);
+        let minute_cutoff = now_ms.saturating_sub(MINUTE_WINDOW_MS);
+        let transaction = self.connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO traffic_rollups(
+               resolution_ms, bucket_ms, session_id, process_key, source,
+               sample_interval_ms, sample_count,
+               bytes_sent, bytes_received, packets_sent, packets_received,
+               down_rate_sum, up_rate_sum, packet_rate_sum
+             )
+             SELECT 60000, (timestamp_ms / 60000) * 60000,
+                    COALESCE(session_id, ''), process_key, source,
+                    60000, COUNT(*),
+                    SUM(bytes_sent), SUM(bytes_received),
+                    SUM(packets_sent), SUM(packets_received),
+                    SUM(down_bytes_per_second), SUM(up_bytes_per_second),
+                    SUM(packets_per_second)
+             FROM traffic_samples
+             WHERE timestamp_ms < ?1 AND sample_interval_ms > 1000
+             GROUP BY (timestamp_ms / 60000), session_id, process_key, source
+             ON CONFLICT(resolution_ms, bucket_ms, session_id, process_key, source)
+             DO UPDATE SET
+               sample_count = sample_count + excluded.sample_count,
+               bytes_sent = bytes_sent + excluded.bytes_sent,
+               bytes_received = bytes_received + excluded.bytes_received,
+               packets_sent = packets_sent + excluded.packets_sent,
+               packets_received = packets_received + excluded.packets_received,
+               down_rate_sum = down_rate_sum + excluded.down_rate_sum,
+               up_rate_sum = up_rate_sum + excluded.up_rate_sum,
+               packet_rate_sum = packet_rate_sum + excluded.packet_rate_sum",
+            params![raw_cutoff],
+        )?;
+        let removed_raw = transaction.execute(
+            "DELETE FROM traffic_samples
+             WHERE timestamp_ms < ?1 AND sample_interval_ms > 1000",
+            params![raw_cutoff],
+        )?;
+        transaction.execute(
+            "INSERT INTO traffic_rollups(
+               resolution_ms, bucket_ms, session_id, process_key, source,
+               sample_interval_ms, sample_count,
+               bytes_sent, bytes_received, packets_sent, packets_received,
+               down_rate_sum, up_rate_sum, packet_rate_sum
+             )
+             SELECT 3600000, (bucket_ms / 3600000) * 3600000,
+                    session_id, process_key, source, 3600000, SUM(sample_count),
+                    SUM(bytes_sent), SUM(bytes_received),
+                    SUM(packets_sent), SUM(packets_received),
+                    SUM(down_rate_sum), SUM(up_rate_sum), SUM(packet_rate_sum)
+             FROM traffic_rollups
+             WHERE resolution_ms = 60000 AND bucket_ms < ?1
+             GROUP BY (bucket_ms / 3600000), session_id, process_key, source
+             ON CONFLICT(resolution_ms, bucket_ms, session_id, process_key, source)
+             DO UPDATE SET
+               sample_count = sample_count + excluded.sample_count,
+               bytes_sent = bytes_sent + excluded.bytes_sent,
+               bytes_received = bytes_received + excluded.bytes_received,
+               packets_sent = packets_sent + excluded.packets_sent,
+               packets_received = packets_received + excluded.packets_received,
+               down_rate_sum = down_rate_sum + excluded.down_rate_sum,
+               up_rate_sum = up_rate_sum + excluded.up_rate_sum,
+               packet_rate_sum = packet_rate_sum + excluded.packet_rate_sum",
+            params![minute_cutoff],
+        )?;
+        let removed_minutes = transaction.execute(
+            "DELETE FROM traffic_rollups
+             WHERE resolution_ms = 60000 AND bucket_ms < ?1",
+            params![minute_cutoff],
+        )?;
+        transaction.commit()?;
+        Ok(removed_raw.saturating_add(removed_minutes))
     }
 
     pub fn save_investigation(
@@ -1934,6 +2208,7 @@ impl Storage {
             session_id: query.session_id.clone(),
             query: query.filter.clone(),
             limit: MAX_QUERY_LIMIT,
+            cursor: None,
         })?;
         if query.pinned_connection_ids.is_empty()
             && query.pinned_destination_ips.is_empty()
@@ -2039,7 +2314,8 @@ impl Storage {
     }
 
     pub fn clear_sessions(&self) -> Result<usize, StorageError> {
-        Ok(self.connection.execute("DELETE FROM sessions", [])?)
+        let rollups = self.connection.execute("DELETE FROM traffic_rollups", [])?;
+        Ok(rollups.saturating_add(self.connection.execute("DELETE FROM sessions", [])?))
     }
 
     pub fn clear_all_user_data(&self) -> Result<usize, StorageError> {
@@ -2059,6 +2335,7 @@ impl Storage {
             "today_cards",
             "listener_snapshots",
             "handshake_mode_audit",
+            "traffic_rollups",
         ] {
             removed += self
                 .connection
@@ -2079,6 +2356,7 @@ impl Storage {
             session_id: request.session_id.clone(),
             query: request.query.clone(),
             limit: MAX_QUERY_LIMIT,
+            cursor: None,
         };
         let mut entries = self.query_history(&query)?;
         if let Some(process_key) = &request.process_key {
@@ -2398,11 +2676,21 @@ fn count_before(
             "evidence_journal",
             "connections",
             "traffic_samples",
+            "traffic_rollups",
             "evidence_rollups"
         ]
         .contains(&table)
     );
-    debug_assert!(["utc_ms", "last_seen_ms", "timestamp_ms", "day_utc"].contains(&time_column));
+    debug_assert!(
+        [
+            "utc_ms",
+            "last_seen_ms",
+            "timestamp_ms",
+            "bucket_ms",
+            "day_utc"
+        ]
+        .contains(&time_column)
+    );
     connection.query_row(
         &format!("SELECT COUNT(*) FROM {table} WHERE {time_column} < ?1"),
         params![cutoff],
@@ -2680,6 +2968,14 @@ fn migration_v5(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
          );",
     )?;
     transaction.execute_batch(V5_PRODUCT_TABLES_SQL)
+}
+
+fn migration_v6(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
+    transaction.execute_batch(
+        "ALTER TABLE traffic_samples
+           ADD COLUMN sample_interval_ms INTEGER NOT NULL DEFAULT 1000;",
+    )?;
+    transaction.execute_batch(V6_TRAFFIC_ROLLUPS_SQL)
 }
 
 fn validate_export_path(value: &str, format: ExportFormat) -> Result<PathBuf, StorageError> {
@@ -3260,6 +3556,88 @@ mod tests {
     }
 
     #[test]
+    fn new_database_contains_no_example_or_demo_rows() {
+        let storage = Storage::in_memory().expect("storage");
+        assert!(storage.list_sessions(100).expect("sessions").is_empty());
+        assert!(
+            storage
+                .query_history(&HistoryQuery::default())
+                .expect("connections")
+                .is_empty()
+        );
+        assert_eq!(storage.evidence_stats().expect("evidence").observations, 0);
+        assert!(
+            storage
+                .list_investigations()
+                .expect("investigations")
+                .is_empty()
+        );
+        assert!(storage.list_local_rules().expect("rules").is_empty());
+        assert!(
+            storage
+                .list_notifications(100)
+                .expect("notifications")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn history_cursor_pages_are_stable_bounded_and_complete() {
+        let mut storage = Storage::in_memory().expect("storage");
+        storage.start_session("paged", 1_000).expect("session");
+        let connections = (0..1_205)
+            .map(|index| {
+                let mut connection = sample_connection();
+                connection.id = format!("paged-{index:06}");
+                connection.first_seen_ms = 1_000 + index;
+                connection.last_seen_ms = 2_000 + index;
+                connection.process.name = if index % 2 == 0 {
+                    "Browser".into()
+                } else {
+                    "Updater".into()
+                };
+                connection
+            })
+            .collect::<Vec<_>>();
+        for chunk in connections.chunks(250) {
+            storage
+                .save_connections("paged", chunk)
+                .expect("save history chunk");
+        }
+
+        let mut cursor = None;
+        let mut ids = std::collections::HashSet::new();
+        let mut pages = 0;
+        loop {
+            let page = storage
+                .query_history_page(&HistoryQuery {
+                    session_id: Some("paged".into()),
+                    limit: 500,
+                    cursor,
+                    ..HistoryQuery::default()
+                })
+                .expect("history page");
+            if pages == 0 {
+                assert!(serde_json::to_vec(&page.entries).expect("page JSON").len() < 1_048_576);
+            }
+            for entry in &page.entries {
+                assert!(
+                    ids.insert(entry.connection.id.clone()),
+                    "duplicate cursor row"
+                );
+            }
+            pages += 1;
+            if !page.has_more {
+                assert!(page.next_cursor.is_none());
+                break;
+            }
+            cursor = page.next_cursor;
+        }
+        assert_eq!(pages, 3);
+        assert_eq!(ids.len(), connections.len());
+    }
+
+    #[test]
     fn traffic_timeline_roundtrips_resolution_and_counter_provenance() {
         let mut storage = Storage::in_memory().expect("storage");
         storage.start_session("s1", 1_000).expect("session");
@@ -3269,6 +3647,7 @@ mod tests {
                     timestamp_ms: 1_100,
                     session_id: Some("s1".into()),
                     process_key: None,
+                    sample_interval_ms: 1_000,
                     counters: TrafficCounters {
                         bytes_sent: 100,
                         bytes_received: 200,
@@ -3286,6 +3665,7 @@ mod tests {
                     timestamp_ms: 1_600,
                     session_id: Some("s1".into()),
                     process_key: None,
+                    sample_interval_ms: 1_000,
                     counters: TrafficCounters {
                         bytes_sent: 300,
                         bytes_received: 400,
@@ -3303,6 +3683,7 @@ mod tests {
                     timestamp_ms: 1_600,
                     session_id: Some("s1".into()),
                     process_key: Some("browser:7".into()),
+                    sample_interval_ms: 1_000,
                     counters: TrafficCounters {
                         bytes_sent: 25,
                         bytes_received: 50,
@@ -3348,6 +3729,99 @@ mod tests {
         assert_eq!(process[0].process_key.as_deref(), Some("browser:7"));
         assert_eq!(process[0].counters.bytes_received, 50);
         assert_eq!(process[0].source, CounterSource::EtwFlow);
+    }
+
+    #[test]
+    fn normal_eight_hour_samples_compact_while_high_fidelity_stays_raw() {
+        const HOUR_MS: i64 = 3_600_000;
+        let mut storage = Storage::in_memory().expect("storage");
+        storage.start_session("normal", 0).expect("normal session");
+        storage
+            .start_session("precise", 0)
+            .expect("precise session");
+        let normal = (0..(8 * 60 * 6))
+            .map(|index| TrafficSample {
+                timestamp_ms: i64::from(index) * 10_000,
+                session_id: Some("normal".into()),
+                process_key: None,
+                sample_interval_ms: 10_000,
+                counters: TrafficCounters {
+                    bytes_sent: 10,
+                    bytes_received: 20,
+                    packets_sent: 1,
+                    packets_received: 2,
+                },
+                rates: TransferRates {
+                    down_bytes_per_second: 2.0,
+                    up_bytes_per_second: 1.0,
+                    packets_per_second: 0.3,
+                },
+                source: CounterSource::InterfaceAggregate,
+            })
+            .collect::<Vec<_>>();
+        for chunk in normal.chunks(500) {
+            storage.save_traffic_samples(chunk).expect("normal samples");
+        }
+        let precise = (0..120)
+            .map(|index| TrafficSample {
+                timestamp_ms: i64::from(index) * 1_000,
+                session_id: Some("precise".into()),
+                process_key: None,
+                sample_interval_ms: 1_000,
+                counters: TrafficCounters::default(),
+                rates: TransferRates::default(),
+                source: CounterSource::InterfaceAggregate,
+            })
+            .collect::<Vec<_>>();
+        storage
+            .save_traffic_samples(&precise)
+            .expect("precise samples");
+
+        storage
+            .compact_traffic_samples(48 * HOUR_MS)
+            .expect("compact samples");
+        let normal_rows = storage
+            .connection
+            .query_row(
+                "SELECT
+                   (SELECT COUNT(*) FROM traffic_samples WHERE session_id='normal') +
+                   (SELECT COUNT(*) FROM traffic_rollups WHERE session_id='normal')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("normal row count");
+        let precise_rows = storage
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM traffic_samples WHERE session_id='precise'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("precise row count");
+        assert!(normal_rows <= 24, "normal row count was {normal_rows}");
+        assert_eq!(precise_rows, 120);
+
+        let timeline = storage
+            .query_timeline(&TimelineQuery {
+                from_ms: 0,
+                to_ms: 8 * HOUR_MS,
+                session_id: Some("normal".into()),
+                process_key: None,
+                resolution: TimelineResolution::OneHour,
+            })
+            .expect("compacted timeline");
+        assert_eq!(timeline.len(), 8);
+        assert_eq!(
+            timeline
+                .iter()
+                .map(|sample| sample.counters.bytes_received)
+                .sum::<u64>(),
+            normal.len() as u64 * 20
+        );
+        assert!(timeline.iter().all(|sample| {
+            (sample.rates.down_bytes_per_second - 2.0).abs() < f64::EPSILON
+                && sample.sample_interval_ms == HOUR_MS as u64
+        }));
     }
 
     #[test]
@@ -3735,6 +4209,7 @@ mod tests {
                 2 => migration_v2(&transaction).expect("v2"),
                 3 => migration_v3(&transaction).expect("v3"),
                 4 => migration_v4(&transaction).expect("v4"),
+                5 => migration_v5(&transaction).expect("v5"),
                 _ => unreachable!("supported legacy schema"),
             }
             transaction
@@ -3792,6 +4267,37 @@ mod tests {
                 })
                 .expect("backup version");
             assert_eq!(backup_version, version);
+        }
+    }
+
+    #[test]
+    fn every_legacy_schema_creates_a_readable_pre_v6_backup() {
+        for version in 1..=5 {
+            let directory = tempfile::tempdir().expect("tempdir");
+            let path = directory.path().join(format!("legacy-v{version}.sqlite3"));
+            create_legacy_database(&path, version);
+            let storage = Storage::open(&path).expect("migrate legacy database");
+            assert_eq!(
+                storage
+                    .connection
+                    .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .expect("schema version"),
+                SCHEMA_VERSION
+            );
+            drop(storage);
+            let backup = path.with_extension(format!("pre-v6-from-v{version}.bak"));
+            assert!(backup.is_file());
+            let backup_connection = SqliteConnection::open(backup).expect("open backup");
+            assert_eq!(
+                backup_connection
+                    .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .expect("backup version"),
+                version
+            );
         }
     }
 

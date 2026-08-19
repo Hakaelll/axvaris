@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
@@ -22,6 +22,14 @@ thiserror = "2"
 tracing = "0.1"
 
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
+opt-level = "z"
+panic = "abort"
 strip = "symbols"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"

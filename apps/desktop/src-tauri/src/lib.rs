@@ -4,24 +4,23 @@ use sabicheiro_capture::WindowsEventCapture;
 use sabicheiro_capture::{
     BoundedEvidenceQueue, EvidenceFusion, EvidenceSequencer, FlowCorrelator,
     NetworkCaptureProvider, PipelineQueueClass, PipelineStage, ProviderAction, ProviderSupervisor,
-    RecordingController, SnapshotDiffer, inspect_executable, lookup_network_path, replay_evidence,
-    system_provider,
+    RecordingController, SnapshotDiffer, inspect_executable, lookup_network_path, system_provider,
 };
 use sabicheiro_core::{
-    AddressFamily, AppSettings, AsnProfile, Bookmark, CapabilityAvailability, CaptureCapability,
+    AddressFamily, AppSettings, Bookmark, CapabilityAvailability, CaptureCapability,
     CaptureCapabilityKind, CaptureMode, CaptureSelfTest, CaptureStatus, CaptureSummary,
-    ComparisonRow, Connection, ConnectionAggregator, ConnectionAnnotation, ConnectionHistoryStats,
+    ComparisonRow, Connection, ConnectionAggregator, ConnectionFilter, ConnectionHistoryStats,
     ConnectionKey, CorrelationQuality, CounterSource, DashboardSnapshot, DashboardUpdate,
     DerivedGeoEnrichment, Diagnostics, DnsAnswerEvidence, DnsCausalGraph, DnsCausalRelation,
     ExecutableInspectionState, ExecutableInspectionStatus, ExportFormat, ExportRequest,
-    ExportResult, FocusRules, GeoDatabaseStatus, HandshakeModeAudit, HistoryEntry, HistoryQuery,
-    IdentityEventKind, IdentityTimelineEvent, IgnoreRule, ImportedSabiBundle, InvestigationQuery,
+    ExportResult, FocusRules, GeoDatabaseStatus, HandshakeModeAudit, HistoryCursor, HistoryEntry,
+    HistoryQuery, IdentityEventKind, IdentityTimelineEvent, IgnoreRule, ImportedSabiBundle,
     ListenerExposure, ListenerScope, ListenerSnapshot, LocalDataCategory, LocalDataRemovalResult,
-    LocalNotificationRecord, LocalRule, LocalRuleAction, NetworkActionAudit, NetworkActionBroker,
-    NetworkActionGrant, NetworkActionIntent, NetworkActionPolicy, NetworkEventKind,
-    NetworkPathEvidence, NetworkPathKind, NetworkProfile, NetworkProtocol, NormalizedNetworkEvent,
-    NotificationCenterEngine, NotificationState, ObservationSource, OfflineCatalogIdentity,
-    OfflineServiceHint, ProviderCapability, ProviderDescriptor, ProviderMode, QuietHours,
+    LocalNotificationRecord, LocalRule, LocalRuleAction, NetworkActionBroker, NetworkActionGrant,
+    NetworkActionIntent, NetworkActionPolicy, NetworkEventKind, NetworkPathEvidence,
+    NetworkPathKind, NetworkProfile, NetworkProtocol, NormalizedNetworkEvent,
+    NotificationCenterEngine, NotificationState, ObservationSource, OfflineServiceHint,
+    OperationProfile, ProviderCapability, ProviderDescriptor, ProviderMode, QuietHours,
     RecordingRequest, RecordingState, RecordingStatus, RecordingSummary, ReenrichmentJobState,
     ReenrichmentJobStatus, RetentionPolicy, RuleContext, RuleKind, RuleMatch, SabiExportRequest,
     SabiManifest, SavedInvestigation, SelfTestCheck, SelfTestLevel, SessionComparison,
@@ -33,13 +32,13 @@ use sabicheiro_geo::{
     AddressScope, DnsResolver, GeoDatabaseKind, GeoLookup, LocalGeoResolver, import_mmdb,
     remove_mmdb, rollback_mmdb, update_dbip_lite,
 };
-use sabicheiro_storage::{Storage, projection_sha256};
+use sabicheiro_storage::Storage;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::{self, OpenOptions},
-    io::{Seek, Write},
+    io::{self, Seek, Write},
     net::IpAddr,
     path::{Path, PathBuf},
     sync::{
@@ -57,8 +56,8 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
 };
 
-const TICK_INTERVAL: Duration = Duration::from_millis(200);
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(750);
+const DEMO_EVENT_INTERVAL: Duration = Duration::from_secs(1);
 const PERSIST_INTERVAL: Duration = Duration::from_secs(1);
 const DIAGNOSTICS_INTERVAL: Duration = Duration::from_secs(2);
 const INTERFACE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
@@ -225,6 +224,7 @@ struct Runtime {
     reenrichment_jobs: Mutex<HashMap<String, ReenrichmentJobControl>>,
     executable_jobs: Mutex<HashMap<String, ExecutableInspectionJobControl>>,
     shutdown: AtomicBool,
+    worker: Mutex<Option<thread::Thread>>,
     data_directory: PathBuf,
     logging: Option<LocalLogging>,
 }
@@ -304,16 +304,10 @@ struct HistoryResponse {
     entries: Vec<HistoryEntry>,
     sessions: Vec<SessionSummary>,
     recordings: Vec<RecordingSummary>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectionReplayResult {
-    projection_version: u32,
-    observations: usize,
-    connections: usize,
-    provider_gaps: usize,
-    result_sha256: String,
+    #[serde(rename = "next_cursor")]
+    next_cursor: Option<HistoryCursor>,
+    #[serde(rename = "has_more")]
+    has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -606,7 +600,14 @@ struct Engine {
     network_metrics: Networks,
     network_rates: TransferRates,
     last_capture_poll: Instant,
+    last_demo_event: Instant,
     last_persist: Instant,
+    last_persisted_revision: u64,
+    persisted_connections: HashMap<String, Connection>,
+    last_baseline_persist: Instant,
+    last_traffic_sample: Instant,
+    last_traffic_write: Instant,
+    last_traffic_signature: Vec<TrafficSample>,
     last_diagnostics: Instant,
     last_interface_refresh: Instant,
     last_retention_cleanup: Instant,
@@ -617,12 +618,21 @@ struct Engine {
     paused_at_revision: u64,
     ipc_sequence: u64,
     ipc_baseline: Option<DashboardSnapshot>,
+    ipc_metrics: IpcMetrics,
     subsystem_states: HashMap<String, (SubsystemStatus, i64)>,
     last_tick_at: Instant,
     network_signature: String,
     active_network_profile_id: Option<String>,
     local_rules: Vec<LocalRule>,
     notification_center: NotificationCenterEngine,
+}
+
+#[derive(Debug, Default)]
+struct IpcMetrics {
+    requests: u64,
+    bytes_serialized: u64,
+    empty_deltas: u64,
+    overlaps: u64,
 }
 
 impl Runtime {
@@ -726,7 +736,14 @@ impl Runtime {
                 network_metrics: Networks::new_with_refreshed_list(),
                 network_rates: TransferRates::default(),
                 last_capture_poll: Instant::now() - LIVE_POLL_INTERVAL,
+                last_demo_event: Instant::now() - DEMO_EVENT_INTERVAL,
                 last_persist: Instant::now(),
+                last_persisted_revision: 0,
+                persisted_connections: HashMap::new(),
+                last_baseline_persist: Instant::now(),
+                last_traffic_sample: Instant::now(),
+                last_traffic_write: Instant::now(),
+                last_traffic_signature: Vec::new(),
                 last_diagnostics: Instant::now() - DIAGNOSTICS_INTERVAL,
                 last_interface_refresh: Instant::now() - INTERFACE_REFRESH_INTERVAL,
                 last_retention_cleanup: Instant::now(),
@@ -737,6 +754,7 @@ impl Runtime {
                 paused_at_revision: 0,
                 ipc_sequence: 0,
                 ipc_baseline: None,
+                ipc_metrics: IpcMetrics::default(),
                 subsystem_states: HashMap::new(),
                 last_tick_at: Instant::now(),
                 network_signature: String::new(),
@@ -747,6 +765,7 @@ impl Runtime {
             reenrichment_jobs: Mutex::new(HashMap::new()),
             executable_jobs: Mutex::new(HashMap::new()),
             shutdown: AtomicBool::new(false),
+            worker: Mutex::new(None),
             data_directory,
             logging,
         }
@@ -757,17 +776,27 @@ impl Runtime {
         let _ = thread::Builder::new()
             .name("sabicheiro-capture".into())
             .spawn(move || {
+                if let Ok(mut worker) = runtime.worker.lock() {
+                    *worker = Some(thread::current());
+                }
                 while !runtime.shutdown.load(Ordering::Relaxed) {
-                    let started = Instant::now();
-                    if let Ok(mut engine) = runtime.engine.lock() {
+                    let wait = if let Ok(mut engine) = runtime.engine.lock() {
                         engine.tick();
-                    }
-                    let elapsed = started.elapsed();
-                    if elapsed < TICK_INTERVAL {
-                        thread::sleep(TICK_INTERVAL - elapsed);
-                    }
+                        engine.next_wakeup()
+                    } else {
+                        Duration::from_secs(1)
+                    };
+                    thread::park_timeout(wait);
                 }
             });
+    }
+
+    fn wake(&self) {
+        if let Ok(worker) = self.worker.lock()
+            && let Some(worker) = worker.as_ref()
+        {
+            worker.unpark();
+        }
     }
 
     fn shutdown(&self) {
@@ -775,6 +804,7 @@ impl Runtime {
             logging.info("Sabicheiro desktop runtime stopping");
         }
         self.shutdown.store(true, Ordering::Relaxed);
+        self.wake();
         if let Ok(mut engine) = self.engine.lock() {
             if engine.recording.state().status == RecordingStatus::Recording
                 || (engine.recording.state().status == RecordingStatus::Error
@@ -788,6 +818,36 @@ impl Runtime {
 }
 
 impl Engine {
+    fn next_wakeup(&self) -> Duration {
+        fn remaining(last: Instant, interval: Duration) -> Duration {
+            interval.saturating_sub(last.elapsed())
+        }
+
+        let capture = match self.capture_mode {
+            CaptureMode::Off => Duration::from_secs(15),
+            CaptureMode::Demo => remaining(self.last_demo_event, DEMO_EVENT_INTERVAL),
+            CaptureMode::Live => remaining(
+                self.last_capture_poll,
+                Duration::from_millis(self.settings.operation_profile.poll_interval_ms()),
+            ),
+        };
+        let diagnostics_interval = if self.capture_mode == CaptureMode::Off {
+            Duration::from_secs(15)
+        } else {
+            DIAGNOSTICS_INTERVAL
+        };
+        let mut wait = capture
+            .min(remaining(self.last_diagnostics, diagnostics_interval))
+            .min(remaining(
+                self.last_retention_cleanup,
+                RETENTION_CLEANUP_INTERVAL,
+            ));
+        if self.capture_mode != CaptureMode::Off {
+            wait = wait.min(remaining(self.last_persist, PERSIST_INTERVAL));
+        }
+        wait.clamp(Duration::from_millis(10), Duration::from_secs(15))
+    }
+
     fn tick(&mut self) {
         let now_ms = sabicheiro_core::now_ms();
         self.provider_supervisor.tick(now_ms);
@@ -805,10 +865,12 @@ impl Engine {
         self.refresh_selected_interface();
         match self.capture_mode {
             CaptureMode::Off => {}
-            CaptureMode::Demo => {
+            CaptureMode::Demo if self.last_demo_event.elapsed() >= DEMO_EVENT_INTERVAL => {
+                self.last_demo_event = Instant::now();
                 let events = self.demo.next_batch(now_ms);
                 self.process_events(events, true);
             }
+            CaptureMode::Demo => {}
             CaptureMode::Live
                 if self.last_capture_poll.elapsed()
                     >= Duration::from_millis(
@@ -877,7 +939,7 @@ impl Engine {
 
         if self.capture_mode != CaptureMode::Off && self.last_persist.elapsed() >= PERSIST_INTERVAL
         {
-            self.persist(now_ms);
+            self.persist(now_ms, false);
             self.last_persist = Instant::now();
         }
         let evidence_stats = self.evidence_storage_queue.stats(
@@ -893,7 +955,12 @@ impl Engine {
                 "The evidence consumer lost lifecycle order under backpressure; socket state was explicitly reconciled.",
             );
         }
-        if self.last_diagnostics.elapsed() >= DIAGNOSTICS_INTERVAL {
+        let diagnostics_interval = if self.capture_mode == CaptureMode::Off {
+            Duration::from_secs(15)
+        } else {
+            DIAGNOSTICS_INTERVAL
+        };
+        if self.last_diagnostics.elapsed() >= diagnostics_interval {
             self.refresh_diagnostics();
             self.last_diagnostics = Instant::now();
         }
@@ -901,7 +968,16 @@ impl Engine {
             if let Err(error) = self.storage.cleanup(self.settings.retention, now_ms) {
                 self.diagnostics.last_error = Some(error.to_string());
             }
-            let _ = self.storage.optimize();
+            if self.capture_mode == CaptureMode::Off
+                || self.settings.operation_profile == OperationProfile::BackgroundLowResource
+            {
+                if let Err(error) = self.storage.compact_traffic_samples(now_ms) {
+                    self.diagnostics.last_error = Some(error.to_string());
+                }
+            }
+            if self.capture_mode == CaptureMode::Off {
+                let _ = self.storage.optimize();
+            }
             self.refresh_storage_health();
             self.last_retention_cleanup = Instant::now();
         }
@@ -1223,7 +1299,12 @@ impl Engine {
     }
 
     fn evaluate_local_rules(&mut self, connection: &Connection, occurred_at_ms: i64) {
-        if self.local_rules.is_empty() {
+        if self.local_rules.is_empty()
+            || self
+                .session
+                .as_ref()
+                .is_some_and(|session| session.ephemeral)
+        {
             return;
         }
         let listener_scope = if connection.state == sabicheiro_core::ConnectionState::Listening {
@@ -1576,7 +1657,7 @@ impl Engine {
         true
     }
 
-    fn persist(&mut self, now_ms: i64) {
+    fn persist(&mut self, now_ms: i64, force: bool) {
         let _ = self.flush_evidence_journal();
         if self
             .session
@@ -1589,10 +1670,40 @@ impl Engine {
         let Some(session_id) = self.session.as_ref().map(|session| session.id.clone()) else {
             return;
         };
-        let connections = self.aggregator.connections().cloned().collect::<Vec<_>>();
-        if let Err(error) = self.storage.save_connections(&session_id, &connections) {
-            self.diagnostics.last_error = Some(error.to_string());
+        let revision = self.aggregator.revision();
+        let connections_changed = force || revision != self.last_persisted_revision;
+        let mut connections =
+            connections_changed.then(|| self.aggregator.connections().cloned().collect::<Vec<_>>());
+        if let Some(current) = connections.as_ref() {
+            let changed = current
+                .iter()
+                .filter(|connection| {
+                    self.persisted_connections
+                        .get(&connection.id)
+                        .is_none_or(|previous| previous != *connection)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if let Err(error) = self.storage.save_connections(&session_id, &changed) {
+                self.diagnostics.last_error = Some(error.to_string());
+            } else {
+                self.persisted_connections = current
+                    .iter()
+                    .cloned()
+                    .map(|connection| (connection.id.clone(), connection))
+                    .collect();
+                self.last_persisted_revision = revision;
+            }
         }
+        let sample_interval = self.settings.operation_profile.traffic_sample_interval();
+        if !force && self.last_traffic_sample.elapsed() < sample_interval {
+            self.update_session_summary(now_ms);
+            return;
+        }
+        self.last_traffic_sample = Instant::now();
+        let connections = connections
+            .take()
+            .unwrap_or_else(|| self.aggregator.connections().cloned().collect::<Vec<_>>());
         let timestamp_ms = (now_ms / 1_000) * 1_000;
         let global_rates = if self.capture_mode == CaptureMode::Live {
             self.network_rates
@@ -1615,6 +1726,7 @@ impl Engine {
             timestamp_ms,
             session_id: Some(session_id.clone()),
             process_key: None,
+            sample_interval_ms: sample_interval.as_millis().try_into().unwrap_or(u64::MAX),
             counters: counters_from_rates(global_rates),
             rates: global_rates,
             source: global_source,
@@ -1647,18 +1759,39 @@ impl Engine {
                         timestamp_ms,
                         session_id: Some(session_id.clone()),
                         process_key: Some(process_key),
+                        sample_interval_ms: sample_interval
+                            .as_millis()
+                            .try_into()
+                            .unwrap_or(u64::MAX),
                         counters: counters_from_rates(rates),
                         rates,
                         source,
                     }),
             );
         }
-        if let Err(error) = self.storage.save_traffic_samples(&samples) {
-            self.diagnostics.last_error = Some(error.to_string());
+        let mut signature = samples.clone();
+        for sample in &mut signature {
+            sample.timestamp_ms = 0;
         }
-        if self.capture_mode == CaptureMode::Live && !self.settings.ephemeral_capture {
+        let write_sample = force
+            || self.last_traffic_write.elapsed() >= Duration::from_secs(60)
+            || signature != self.last_traffic_signature;
+        if write_sample {
+            if let Err(error) = self.storage.save_traffic_samples(&samples) {
+                self.diagnostics.last_error = Some(error.to_string());
+            } else {
+                self.last_traffic_signature = signature;
+                self.last_traffic_write = Instant::now();
+            }
+        }
+        if self.capture_mode == CaptureMode::Live
+            && !self.settings.ephemeral_capture
+            && (force || self.last_baseline_persist.elapsed() >= Duration::from_secs(30))
+        {
             if let Err(error) = self.storage.save_baselines(self.aggregator.baselines()) {
                 self.diagnostics.last_error = Some(error.to_string());
+            } else {
+                self.last_baseline_persist = Instant::now();
             }
         }
         self.update_session_summary(now_ms);
@@ -1724,6 +1857,12 @@ impl Engine {
             PipelineStage::Storage,
             self.settings.operation_profile.evidence_queue_capacity(),
         );
+        self.persisted_connections.clear();
+        self.last_persisted_revision = 0;
+        self.last_traffic_signature.clear();
+        self.last_traffic_sample = Instant::now();
+        self.last_traffic_write = Instant::now();
+        self.last_baseline_persist = Instant::now();
         self.last_event_capture_drops = 0;
         self.provider_supervisor = ProviderSupervisor::default();
         self.diagnostics.capture_generation = self.capture_generation;
@@ -1756,6 +1895,7 @@ impl Engine {
             }
             CaptureMode::Demo => {
                 self.demo = sabicheiro_core::DemoGenerator::new(self.settings.demo_seed);
+                self.last_demo_event = Instant::now() - DEMO_EVENT_INTERVAL;
                 self.capture_status = CaptureStatus::Capturing;
                 self.diagnostics.backend = "deterministic-demo".into();
                 self.diagnostics.capture_event_source = "deterministic_demo".into();
@@ -1812,12 +1952,15 @@ impl Engine {
     }
 
     fn start_session(&mut self, started_at_ms: i64) -> Result<(), CommandError> {
-        let id = if self.settings.ephemeral_capture {
+        let ephemeral = self.settings.ephemeral_capture || self.capture_mode == CaptureMode::Demo;
+        let id = if self.capture_mode == CaptureMode::Demo {
+            format!("demo-{started_at_ms}")
+        } else if ephemeral {
             format!("ephemeral-{started_at_ms}")
         } else {
             format!("session-{started_at_ms}")
         };
-        if !self.settings.ephemeral_capture {
+        if !ephemeral {
             self.storage
                 .start_session(&id, started_at_ms)
                 .map_err(|error| CommandError::recoverable("storage_unavailable", error))?;
@@ -1831,7 +1974,7 @@ impl Engine {
             country_count: 0,
             destination_count: 0,
             recording_count: 0,
-            ephemeral: self.settings.ephemeral_capture,
+            ephemeral,
             traffic: TrafficCounters::default(),
         });
         Ok(())
@@ -1840,6 +1983,13 @@ impl Engine {
     fn stop_current_session(&mut self, ended_at_ms: i64) {
         if self.session.is_none() {
             return;
+        }
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|session| !session.ephemeral)
+        {
+            self.persist(ended_at_ms, true);
         }
         while self
             .evidence_storage_queue
@@ -1944,6 +2094,33 @@ impl Engine {
             self.diagnostics.sequence_gaps = self.diagnostics.sequence_gaps.saturating_add(1);
             self.diagnostics.snapshot_resyncs = self.diagnostics.snapshot_resyncs.saturating_add(1);
         }
+        if client_in_sync
+            && self.ipc_baseline.as_ref().is_some_and(|previous| {
+                previous.revision == self.aggregator.revision()
+                    && previous.capture == self.capture_summary()
+                    && previous.diagnostics == self.diagnostics
+                    && previous.session == self.session
+            })
+        {
+            self.ipc_sequence = next_sequence;
+            let update = DashboardUpdate {
+                sequence: next_sequence,
+                base_revision: self.aggregator.revision(),
+                revision: self.aggregator.revision(),
+                generated_at_ms: sabicheiro_core::now_ms(),
+                resync_required: false,
+                snapshot: None,
+                upserted_connections: Vec::new(),
+                removed_connection_ids: Vec::new(),
+                processes: None,
+                destinations: None,
+                stats: None,
+                diagnostics: None,
+                capture: None,
+                session: None,
+            };
+            return self.record_dashboard_update(update);
+        }
         let snapshot = self.snapshot();
         let baseline = self.ipc_baseline.as_ref();
         let can_delta = client_in_sync
@@ -1984,9 +2161,33 @@ impl Engine {
             };
 
         let base_revision = baseline.map_or(0, |previous| previous.revision);
+        let processes = can_delta
+            .then(|| baseline.filter(|previous| previous.processes != snapshot.processes))
+            .flatten()
+            .map(|_| snapshot.processes.clone());
+        let destinations = can_delta
+            .then(|| baseline.filter(|previous| previous.destinations != snapshot.destinations))
+            .flatten()
+            .map(|_| snapshot.destinations.clone());
+        let stats = can_delta
+            .then(|| baseline.filter(|previous| previous.stats != snapshot.stats))
+            .flatten()
+            .map(|_| snapshot.stats.clone());
+        let diagnostics = can_delta
+            .then(|| baseline.filter(|previous| previous.diagnostics != snapshot.diagnostics))
+            .flatten()
+            .map(|_| snapshot.diagnostics.clone());
+        let capture = can_delta
+            .then(|| baseline.filter(|previous| previous.capture != snapshot.capture))
+            .flatten()
+            .map(|_| snapshot.capture.clone());
+        let session = can_delta
+            .then(|| baseline.filter(|previous| previous.session != snapshot.session))
+            .flatten()
+            .map(|_| snapshot.session.clone());
         self.ipc_sequence = next_sequence;
         self.ipc_baseline = Some(snapshot.clone());
-        DashboardUpdate {
+        let update = DashboardUpdate {
             sequence: next_sequence,
             base_revision,
             revision: snapshot.revision,
@@ -1995,16 +2196,43 @@ impl Engine {
             snapshot: full_snapshot,
             upserted_connections,
             removed_connection_ids,
-            processes: snapshot.processes,
-            destinations: snapshot.destinations,
-            stats: snapshot.stats,
-            diagnostics: snapshot.diagnostics,
-            capture: snapshot.capture,
-            session: snapshot.session,
+            processes,
+            destinations,
+            stats,
+            diagnostics,
+            capture,
+            session,
+        };
+        self.record_dashboard_update(update)
+    }
+
+    fn record_dashboard_update(&mut self, update: DashboardUpdate) -> DashboardUpdate {
+        self.ipc_metrics.requests = self.ipc_metrics.requests.saturating_add(1);
+        let bytes = serde_json::to_vec(&update)
+            .map_or(0, |payload| payload.len())
+            .try_into()
+            .unwrap_or(u64::MAX);
+        self.ipc_metrics.bytes_serialized = self.ipc_metrics.bytes_serialized.saturating_add(bytes);
+        if update.snapshot.is_none()
+            && update.upserted_connections.is_empty()
+            && update.removed_connection_ids.is_empty()
+            && update.processes.is_none()
+            && update.destinations.is_none()
+            && update.stats.is_none()
+            && update.diagnostics.is_none()
+            && update.capture.is_none()
+            && update.session.is_none()
+        {
+            self.ipc_metrics.empty_deltas = self.ipc_metrics.empty_deltas.saturating_add(1);
         }
+        update
     }
 
     fn refresh_diagnostics(&mut self) {
+        self.diagnostics.dashboard_requests = self.ipc_metrics.requests;
+        self.diagnostics.dashboard_bytes_serialized = self.ipc_metrics.bytes_serialized;
+        self.diagnostics.dashboard_empty_deltas = self.ipc_metrics.empty_deltas;
+        self.diagnostics.dashboard_overlaps = self.ipc_metrics.overlaps;
         if let Ok(pid) = sysinfo::get_current_pid() {
             self.process_metrics
                 .refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
@@ -2433,16 +2661,6 @@ impl Engine {
 }
 
 #[tauri::command]
-fn get_snapshot(state: State<'_, AppState>) -> Result<DashboardSnapshot, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))
-        .map(|mut engine| engine.snapshot())
-}
-
-#[tauri::command]
 fn get_dashboard_update(
     after_sequence: Option<u64>,
     state: State<'_, AppState>,
@@ -2460,12 +2678,14 @@ fn set_capture_state(
     request: SetCaptureRequest,
     state: State<'_, AppState>,
 ) -> Result<CaptureSummary, CommandError> {
-    state
+    let result = state
         .0
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .set_capture(request)
+        .set_capture(request);
+    state.0.wake();
+    result
 }
 
 #[tauri::command]
@@ -2935,9 +3155,74 @@ fn query_history(
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
-    let entries = engine
+    if engine.capture_mode == CaptureMode::Demo
+        && engine.session.as_ref().is_some_and(|session| {
+            query
+                .session_id
+                .as_ref()
+                .is_none_or(|requested| requested == &session.id)
+        })
+    {
+        let filter = query
+            .query
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(str::parse::<ConnectionFilter>)
+            .transpose()
+            .map_err(|error| CommandError::recoverable("invalid_filter", error))?;
+        let session = engine.session.clone().expect("demo session checked above");
+        let mut connections = engine
+            .aggregator
+            .connections()
+            .filter(|connection| {
+                query
+                    .from_ms
+                    .is_none_or(|from| connection.last_seen_ms >= from)
+                    && query.to_ms.is_none_or(|to| connection.first_seen_ms <= to)
+                    && filter
+                        .as_ref()
+                        .is_none_or(|candidate| candidate.matches(connection))
+                    && query.cursor.as_ref().is_none_or(|cursor| {
+                        connection.last_seen_ms < cursor.last_seen_ms
+                            || (connection.last_seen_ms == cursor.last_seen_ms
+                                && connection.id < cursor.connection_id)
+                    })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        connections.sort_by(|left, right| {
+            right
+                .last_seen_ms
+                .cmp(&left.last_seen_ms)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        let limit = query.limit.clamp(1, 5_000);
+        let has_more = connections.len() > limit;
+        connections.truncate(limit);
+        let next_cursor = has_more.then(|| {
+            let last = connections.last().expect("non-empty paginated demo page");
+            HistoryCursor {
+                last_seen_ms: last.last_seen_ms,
+                connection_id: last.id.clone(),
+            }
+        });
+        return Ok(HistoryResponse {
+            entries: connections
+                .into_iter()
+                .map(|connection| HistoryEntry {
+                    session_id: session.id.clone(),
+                    connection,
+                })
+                .collect(),
+            sessions: vec![session],
+            recordings: Vec::new(),
+            next_cursor,
+            has_more,
+        });
+    }
+    let page = engine
         .storage
-        .query_history(&query)
+        .query_history_page(&query)
         .map_err(|error| CommandError::recoverable("history_unavailable", error))?;
     let sessions = engine
         .storage
@@ -2948,55 +3233,11 @@ fn query_history(
         .list_recordings(query.session_id.as_deref(), 1_000)
         .map_err(|error| CommandError::recoverable("history_unavailable", error))?;
     Ok(HistoryResponse {
-        entries,
+        entries: page.entries,
         sessions,
         recordings,
-    })
-}
-
-#[tauri::command]
-fn replay_evidence_projection(
-    session_id: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<ProjectionReplayResult, CommandError> {
-    let engine = state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
-    let observations = engine
-        .storage
-        .load_observations_for_replay(session_id.as_deref())
-        .map_err(|error| CommandError::recoverable("replay_unavailable", error))?;
-    let observation_count = observations.len();
-    let first_observation_id = observations.first().map(|item| item.id.clone());
-    let last_observation_id = observations.last().map(|item| item.id.clone());
-    let fusion = replay_evidence(observations);
-    let provider_gaps = fusion.gaps.len();
-    let mut aggregator = ConnectionAggregator::default();
-    aggregator.apply_batch(fusion.events);
-    let mut connections = aggregator.connections().cloned().collect::<Vec<_>>();
-    connections.sort_by(|left, right| left.id.cmp(&right.id));
-    let result_sha256 = projection_sha256(&connections)
-        .map_err(|error| CommandError::recoverable("replay_unavailable", error))?;
-    engine
-        .storage
-        .record_projection_run(
-            "connections",
-            1,
-            first_observation_id.as_deref(),
-            last_observation_id.as_deref(),
-            observation_count,
-            &result_sha256,
-            sabicheiro_core::now_ms(),
-        )
-        .map_err(|error| CommandError::recoverable("replay_unavailable", error))?;
-    Ok(ProjectionReplayResult {
-        projection_version: 1,
-        observations: observation_count,
-        connections: connections.len(),
-        provider_gaps,
-        result_sha256,
+        next_cursor: page.next_cursor,
+        has_more: page.has_more,
     })
 }
 
@@ -3063,21 +3304,6 @@ fn delete_investigation(id: String, state: State<'_, AppState>) -> Result<bool, 
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
         .storage
         .delete_investigation(&id)
-        .map_err(|error| CommandError::recoverable("investigation_unavailable", error))
-}
-
-#[tauri::command]
-fn query_investigation(
-    query: InvestigationQuery,
-    state: State<'_, AppState>,
-) -> Result<Vec<HistoryEntry>, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .query_investigation(&query)
         .map_err(|error| CommandError::recoverable("investigation_unavailable", error))
 }
 
@@ -3289,21 +3515,6 @@ fn list_today_card_states(state: State<'_, AppState>) -> Result<Vec<TodayCardSta
 }
 
 #[tauri::command]
-fn list_connection_annotations(
-    limit: usize,
-    state: State<'_, AppState>,
-) -> Result<Vec<ConnectionAnnotation>, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .list_connection_annotations(limit)
-        .map_err(|error| CommandError::recoverable("annotations_unavailable", error))
-}
-
-#[tauri::command]
 fn capture_listener_snapshot(state: State<'_, AppState>) -> Result<ListenerSnapshot, CommandError> {
     let engine = state
         .0
@@ -3450,56 +3661,11 @@ fn get_connection_context(
     })
 }
 
-#[tauri::command]
-fn list_handshake_mode_audit(
-    limit: usize,
-    state: State<'_, AppState>,
-) -> Result<Vec<HandshakeModeAudit>, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .list_handshake_mode_audit(limit)
-        .map_err(|error| CommandError::recoverable("handshake_audit_unavailable", error))
-}
-
-#[tauri::command]
-fn get_offline_catalogs() -> Vec<OfflineCatalogIdentity> {
-    sabicheiro_core::offline_catalog_identities()
-}
-
-#[tauri::command]
-fn get_asn_profile(
-    number: u32,
-    query: Option<HistoryQuery>,
-    state: State<'_, AppState>,
-) -> Result<AsnProfile, CommandError> {
-    if number == 0 {
-        return Err(CommandError::recoverable(
-            "asn_profile_invalid",
-            "ASN number must be greater than zero",
-        ));
-    }
-    let engine = state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
-    let mut query = query.unwrap_or_default();
-    query.limit = query.limit.max(100_000);
-    let entries = engine
-        .storage
-        .query_history(&query)
-        .map_err(|error| CommandError::recoverable("asn_profile_unavailable", error))?;
-    Ok(build_asn_profile(number, &entries))
-}
-
-fn build_asn_profile(number: u32, entries: &[HistoryEntry]) -> AsnProfile {
-    let mut profile = AsnProfile {
+#[cfg(test)]
+fn build_asn_profile(number: u32, entries: &[HistoryEntry]) -> sabicheiro_core::AsnProfile {
+    let mut profile = sabicheiro_core::AsnProfile {
         number,
-        ..AsnProfile::default()
+        ..sabicheiro_core::AsnProfile::default()
     };
     let mut ips = BTreeSet::new();
     let mut processes = BTreeSet::new();
@@ -3768,6 +3934,7 @@ fn build_session_comparison(
             session_id: Some(session_id.to_owned()),
             query: None,
             limit: 10_000,
+            cursor: None,
         })
     };
     let left = load(left_session_id)
@@ -3878,7 +4045,10 @@ fn clear_session(state: State<'_, AppState>) -> Result<CaptureSummary, CommandEr
         mode: engine.capture_mode,
         selected_interface: engine.selected_interface.clone(),
     };
-    engine.set_capture(request)
+    let result = engine.set_capture(request);
+    drop(engine);
+    state.0.wake();
+    result
 }
 
 #[tauri::command]
@@ -3965,7 +4135,10 @@ fn update_settings(
             .map_err(|error| CommandError::recoverable("storage_unavailable", error))?;
     }
     engine.settings = settings;
-    Ok(engine.settings.clone())
+    let saved = engine.settings.clone();
+    drop(engine);
+    state.0.wake();
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -4090,6 +4263,7 @@ fn reconstruct_history(
             session_id,
             query,
             limit: 10_000,
+            cursor: None,
         })
         .map_err(|error| CommandError::recoverable("history_unavailable", error))?;
     Ok(reconstruct_at(&entries, at_ms))
@@ -4440,6 +4614,7 @@ fn start_executable_inspection(
                         session_id: None,
                         query: None,
                         limit: 100_000,
+                        cursor: None,
                     })
                     .ok()?
                     .into_iter()
@@ -4602,33 +4777,6 @@ fn set_retention(
     engine.settings.retention = retention;
     let _ = engine.storage.save_settings(&engine.settings);
     Ok(removed)
-}
-
-#[tauri::command]
-fn get_storage_health(state: State<'_, AppState>) -> Result<StorageHealth, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .health_check()
-        .map_err(|error| CommandError::recoverable("storage_unavailable", error))
-}
-
-#[tauri::command]
-fn list_network_actions(
-    limit: Option<usize>,
-    state: State<'_, AppState>,
-) -> Result<Vec<NetworkActionAudit>, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .list_network_actions(limit.unwrap_or(100))
-        .map_err(|error| CommandError::recoverable("network_audit_unavailable", error))
 }
 
 #[tauri::command]
@@ -5534,21 +5682,25 @@ fn start_recording(
     request.output_path = prepare_output_path(&runtime.data_directory, &request.output_path)?
         .to_string_lossy()
         .into_owned();
-    runtime
+    let result = runtime
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .start_recording(request)
+        .start_recording(request);
+    runtime.wake();
+    result
 }
 
 #[tauri::command]
 fn stop_recording(state: State<'_, AppState>) -> Result<RecordingState, CommandError> {
-    state
+    let result = state
         .0
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .stop_recording()
+        .stop_recording();
+    state.0.wake();
+    result
 }
 
 #[tauri::command]
@@ -5606,6 +5758,15 @@ fn report_ui_diagnostics(
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
     engine.diagnostics.render_fps = render_fps.clamp(0.0, 240.0);
     engine.diagnostics.dropped_ui_events = dropped_ui_events;
+    if let Some(value) =
+        std::env::var_os("SABICHEIRO_QA_READY_FILE").filter(|value| !value.is_empty())
+    {
+        let path = PathBuf::from(value);
+        if path.is_absolute() {
+            let payload = format!("{{\"ready_at_ms\":{}}}\n", sabicheiro_core::now_ms());
+            let _ = fs::write(path, payload);
+        }
+    }
     Ok(())
 }
 
@@ -5909,7 +6070,21 @@ fn configure_autostart(_enabled: bool) -> Result<(), String> {
 pub fn run() {
     let application = tauri::Builder::default()
         .setup(|app| {
-            let data_directory = app.path().app_data_dir()?;
+            let default_data_directory = app.path().app_data_dir()?;
+            let data_directory = match std::env::var_os("SABICHEIRO_QA_DATA_DIR") {
+                Some(value) if !value.is_empty() => {
+                    let candidate = PathBuf::from(value);
+                    if !candidate.is_absolute() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "SABICHEIRO_QA_DATA_DIR must be an absolute path",
+                        )
+                        .into());
+                    }
+                    candidate
+                }
+                _ => default_data_directory,
+            };
             fs::create_dir_all(&data_directory)?;
             let logging = setup_logging(&data_directory);
             let runtime = Arc::new(Runtime::new(data_directory, logging));
@@ -5926,18 +6101,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_snapshot,
             get_dashboard_update,
             set_capture_state,
             list_interfaces,
             run_capture_self_test,
             set_view_paused,
             query_history,
-            replay_evidence_projection,
             save_investigation,
             list_investigations,
             delete_investigation,
-            query_investigation,
             save_local_rule,
             list_local_rules,
             delete_local_rule,
@@ -5948,13 +6120,9 @@ pub fn run() {
             rename_network_profile,
             save_today_card_state,
             list_today_card_states,
-            list_connection_annotations,
             capture_listener_snapshot,
             list_listener_snapshots,
             get_connection_context,
-            list_handshake_mode_audit,
-            get_offline_catalogs,
-            get_asn_profile,
             get_identity_timeline,
             query_traffic_timeline,
             compare_sessions,
@@ -5978,8 +6146,6 @@ pub fn run() {
             get_executable_inspection,
             cancel_executable_inspection,
             get_session_geo_view,
-            get_storage_health,
-            list_network_actions,
             compact_storage,
             clear_local_data,
             get_geo_database_status,
@@ -6168,6 +6334,14 @@ mod command_tests {
         assert!(!second.resync_required);
         assert!(second.snapshot.is_none());
         assert_eq!(second.base_revision, first.revision);
+        assert!(second.processes.is_none());
+        assert!(second.destinations.is_none());
+        assert!(second.stats.is_none());
+        assert!(second.diagnostics.is_none());
+        assert!(serde_json::to_vec(&second).expect("serialize delta").len() < 512);
+        assert_eq!(engine.ipc_metrics.requests, 2);
+        assert_eq!(engine.ipc_metrics.empty_deltas, 1);
+        assert_eq!(engine.ipc_metrics.overlaps, 0);
         assert_eq!(engine.diagnostics.sequence_gaps, 0);
 
         let stale = engine.update(Some(first.sequence));
@@ -6179,6 +6353,176 @@ mod command_tests {
         drop(engine);
         drop(runtime);
         fs::remove_dir_all(directory).expect("remove IPC fixture directory");
+    }
+
+    #[test]
+    fn idle_engine_waits_for_deadlines_instead_of_fixed_ticks() {
+        let (runtime, directory) = isolated_runtime("idle-deadline-test");
+        let mut engine = runtime.engine.lock().expect("runtime state");
+        assert_eq!(engine.capture_mode, CaptureMode::Off);
+        assert!(engine.next_wakeup() >= Duration::from_secs(10));
+        engine
+            .set_capture(SetCaptureRequest {
+                mode: CaptureMode::Demo,
+                selected_interface: None,
+            })
+            .expect("start demo");
+        assert!(engine.next_wakeup() <= Duration::from_secs(1));
+        engine
+            .set_capture(SetCaptureRequest {
+                mode: CaptureMode::Off,
+                selected_interface: None,
+            })
+            .expect("stop demo");
+
+        drop(engine);
+        drop(runtime);
+        fs::remove_dir_all(directory).expect("remove idle fixture directory");
+    }
+
+    #[test]
+    fn stable_persistence_deduplicates_samples_and_forced_stop_is_durable() {
+        let (runtime, directory) = isolated_runtime("incremental-persistence-test");
+        let database_path = directory.join("sabicheiro.sqlite3");
+        let started_at_ms = (sabicheiro_core::now_ms() / 1_000) * 1_000;
+        let session_id;
+        {
+            let mut engine = runtime.engine.lock().expect("runtime state");
+            engine.capture_mode = CaptureMode::Live;
+            engine
+                .start_session(started_at_ms)
+                .expect("start persisted session");
+            session_id = engine.session.as_ref().expect("session").id.clone();
+            let events = engine.demo.next_batch(started_at_ms);
+            engine.process_events(events, false);
+            engine.last_traffic_sample = Instant::now() - Duration::from_secs(11);
+            engine.last_traffic_write = Instant::now() - Duration::from_secs(61);
+            engine.persist(started_at_ms, false);
+
+            engine.last_traffic_sample = Instant::now() - Duration::from_secs(11);
+            engine.persist(started_at_ms + 10_000, false);
+            let stable = engine
+                .storage
+                .query_timeline(&TimelineQuery {
+                    from_ms: started_at_ms,
+                    to_ms: started_at_ms + 10_000,
+                    session_id: Some(session_id.clone()),
+                    process_key: None,
+                    resolution: TimelineResolution::OneSecond,
+                })
+                .expect("stable samples");
+            assert_eq!(stable.len(), 1, "identical state should not add a sample");
+
+            engine.persist(started_at_ms + 20_000, true);
+            let forced = engine
+                .storage
+                .query_timeline(&TimelineQuery {
+                    from_ms: started_at_ms,
+                    to_ms: started_at_ms + 20_000,
+                    session_id: Some(session_id.clone()),
+                    process_key: None,
+                    resolution: TimelineResolution::OneSecond,
+                })
+                .expect("forced samples");
+            assert_eq!(forced.len(), 2);
+            engine.stop_current_session(started_at_ms + 30_000);
+        }
+        drop(runtime);
+
+        let reopened = Storage::open(&database_path).expect("reopen persisted database");
+        assert_eq!(
+            reopened
+                .query_history(&HistoryQuery {
+                    session_id: Some(session_id.clone()),
+                    ..HistoryQuery::default()
+                })
+                .expect("durable history")
+                .len(),
+            1
+        );
+        let session = reopened
+            .list_sessions(10)
+            .expect("durable session")
+            .into_iter()
+            .find(|session| session.id == session_id)
+            .expect("finished session");
+        assert_eq!(session.ended_at_ms, Some(started_at_ms + 30_000));
+        drop(reopened);
+        fs::remove_dir_all(directory).expect("remove persistence fixture directory");
+    }
+
+    #[test]
+    fn ten_minutes_of_demo_remain_in_memory_and_leave_history_empty() {
+        let (runtime, directory) = isolated_runtime("demo-isolation-test");
+        let mut engine = runtime.engine.lock().expect("runtime state");
+        engine
+            .set_capture(SetCaptureRequest {
+                mode: CaptureMode::Demo,
+                selected_interface: None,
+            })
+            .expect("start isolated demo");
+        let started_at_ms = sabicheiro_core::now_ms();
+        for second in 0..600_i64 {
+            let now_ms = started_at_ms.saturating_add(second.saturating_mul(1_000));
+            let events = engine.demo.next_batch(now_ms);
+            assert!(events.len() <= 1);
+            engine.process_events(events, true);
+            engine.persist(now_ms, true);
+            assert!(engine.aggregator.connection_count() <= 4);
+        }
+        assert!(
+            engine
+                .session
+                .as_ref()
+                .is_some_and(|session| session.ephemeral)
+        );
+        assert!(
+            engine
+                .storage
+                .list_sessions(100)
+                .expect("stored sessions")
+                .is_empty()
+        );
+        assert!(
+            engine
+                .storage
+                .query_history(&HistoryQuery::default())
+                .expect("stored history")
+                .is_empty()
+        );
+        assert_eq!(
+            engine
+                .storage
+                .evidence_stats()
+                .expect("evidence stats")
+                .observations,
+            0
+        );
+        assert!(
+            engine
+                .storage
+                .list_investigations()
+                .expect("investigations")
+                .is_empty()
+        );
+        assert!(engine.storage.list_local_rules().expect("rules").is_empty());
+        assert!(
+            engine
+                .storage
+                .list_notifications(100)
+                .expect("notifications")
+                .is_empty()
+        );
+        engine
+            .set_capture(SetCaptureRequest {
+                mode: CaptureMode::Off,
+                selected_interface: None,
+            })
+            .expect("stop isolated demo");
+
+        drop(engine);
+        drop(runtime);
+        fs::remove_dir_all(directory).expect("remove demo fixture directory");
     }
 
     #[test]

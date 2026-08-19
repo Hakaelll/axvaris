@@ -12,7 +12,7 @@ import type {
   TrafficSample,
 } from "../types";
 import { formatBytes, formatDateTime, formatDuration } from "../lib/format";
-import { desktopApi } from "../lib/backend";
+import { desktopApi } from "#backend";
 import { EvidenceTable } from "../components/EvidenceTable";
 import { QueryBuilder } from "../components/QueryBuilder";
 import { ContextProfiles } from "../components/ContextProfiles";
@@ -55,6 +55,11 @@ export function HistoryView({
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [cursorMs, setCursorMs] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [prefetchedPage, setPrefetchedPage] = useState<{
+    cursorKey: string;
+    response: HistoryResponse;
+  } | null>(null);
   const [traffic, setTraffic] = useState<TrafficSample[]>([]);
   const [trafficResolution, setTrafficResolution] =
     useState<TimelineResolution>("one_minute");
@@ -91,20 +96,27 @@ export function HistoryView({
     void desktopApi.listInvestigations().then(setInvestigations);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    const fromMs = investigationWindow
+  const historyQuery = useMemo<HistoryQuery>(() => ({
+    from_ms: investigationWindow
       ? investigationWindow.from_ms
       : selectedSession || range.milliseconds === null
         ? null
-        : Date.now() - range.milliseconds;
+        : Date.now() - range.milliseconds,
+    to_ms: investigationWindow?.to_ms ?? null,
+    session_id: selectedSession,
+    query: currentQuery || null,
+    limit: 500,
+    cursor: null,
+  }), [currentQuery, investigationWindow, range, selectedSession]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setHistory(null);
+    setPrefetchedPage(null);
     void loadHistory({
-      from_ms: fromMs,
-      to_ms: investigationWindow?.to_ms ?? null,
-      session_id: selectedSession,
-      query: currentQuery || null,
-      limit: 100_000,
+      ...historyQuery,
+      cursor: null,
     }).then(
       (result) => {
         if (!cancelled) {
@@ -116,7 +128,48 @@ export function HistoryView({
     return () => {
       cancelled = true;
     };
-  }, [currentQuery, investigationWindow, loadHistory, range, selectedSession]);
+  }, [historyQuery, loadHistory]);
+
+  useEffect(() => {
+    const cursor = history?.next_cursor;
+    if (!history?.has_more || !cursor || loadingMore) return;
+    const cursorKey = `${cursor.last_seen_ms}:${cursor.connection_id}`;
+    if (prefetchedPage?.cursorKey === cursorKey) return;
+    let cancelled = false;
+    void loadHistory({ ...historyQuery, cursor }).then((response) => {
+      if (!cancelled && response) setPrefetchedPage({ cursorKey, response });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [history?.has_more, history?.next_cursor, historyQuery, loadHistory, loadingMore, prefetchedPage?.cursorKey]);
+
+  const loadNextPage = async () => {
+    if (!history?.has_more || !history.next_cursor || loadingMore) return;
+    setLoadingMore(true);
+    const cursorKey = `${history.next_cursor.last_seen_ms}:${history.next_cursor.connection_id}`;
+    const next =
+      prefetchedPage?.cursorKey === cursorKey
+        ? prefetchedPage.response
+        : await loadHistory({
+            ...historyQuery,
+            cursor: history.next_cursor,
+          });
+    if (next) {
+      setHistory((current) =>
+        current
+          ? {
+              ...next,
+              entries: [...current.entries, ...next.entries],
+              sessions: current.sessions,
+              recordings: current.recordings,
+            }
+          : next,
+      );
+    }
+    setPrefetchedPage(null);
+    setLoadingMore(false);
+  };
 
   useEffect(() => {
     if (
@@ -801,6 +854,18 @@ export function HistoryView({
         }
         pinnedIds={pinnedConnectionIds}
       />
+      {history?.has_more && (
+        <div className="history-page-action">
+          <button
+            className="button button--secondary"
+            disabled={loadingMore}
+            onClick={() => void loadNextPage()}
+            type="button"
+          >
+            {loadingMore ? t("Loading next page...") : t("Load 500 more records")}
+          </button>
+        </div>
+      )}
       <div className="history-layout">
         <div className="history-sessions">
           <h2>{t("Sessions")}</h2>

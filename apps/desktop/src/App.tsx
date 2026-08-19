@@ -7,29 +7,63 @@ import {
   useRef,
   useState,
 } from "react";
-import { desktopApi } from "./lib/backend";
+import { desktopApi } from "#backend";
 import { useSabicheiro } from "./hooks/useSabicheiro";
 import { I18nProvider, translate, type Language } from "./i18n";
 import { TopBar } from "./components/TopBar";
 import { MetricStrip } from "./components/MetricStrip";
 import { LiveFeed } from "./components/LiveFeed";
-import { ConnectionInspector } from "./components/ConnectionInspector";
-import { FirstRun } from "./components/FirstRun";
-import { CommandPalette } from "./components/CommandPalette";
-import {
-  ErrorBanner,
-  ExportDialog,
-  RecordingDialog,
-} from "./components/Dialogs";
 import { Icon } from "./components/Icon";
 import { FocusBar } from "./components/FocusBar";
 import { TopContext } from "./components/TopContext";
-import { HistoryView } from "./views/HistoryView";
-import { SettingsView } from "./views/SettingsView";
 import { TodayView } from "./views/TodayView";
-import { ExposureView, ExposureViewBoundary } from "./views/ExposureView";
 import { WorkspaceTabs } from "./components/WorkspaceTabs";
 import { NotificationCenter } from "./components/NotificationCenter";
+
+const ConnectionInspector = lazy(async () => {
+  const module = await import("./components/ConnectionInspector");
+  return { default: module.ConnectionInspector };
+});
+
+const CommandPalette = lazy(async () => {
+  const module = await import("./components/CommandPalette");
+  return { default: module.CommandPalette };
+});
+
+const ErrorBanner = lazy(async () => {
+  const module = await import("./components/Dialogs");
+  return { default: module.ErrorBanner };
+});
+
+const ExportDialog = lazy(async () => {
+  const module = await import("./components/Dialogs");
+  return { default: module.ExportDialog };
+});
+
+const RecordingDialog = lazy(async () => {
+  const module = await import("./components/Dialogs");
+  return { default: module.RecordingDialog };
+});
+
+const HistoryView = lazy(async () => {
+  const module = await import("./views/HistoryView");
+  return { default: module.HistoryView };
+});
+
+const SettingsView = lazy(async () => {
+  const module = await import("./views/SettingsView");
+  return { default: module.SettingsView };
+});
+
+const ExposureView = lazy(async () => {
+  const module = await import("./views/ExposureView");
+  return { default: module.ExposureView };
+});
+
+const ExposureViewBoundary = lazy(async () => {
+  const module = await import("./views/ExposureView");
+  return { default: module.ExposureViewBoundary };
+});
 
 const GlobeScene = lazy(async () => {
   const module = await import("./components/visualization/GlobeScene");
@@ -252,6 +286,19 @@ export default function App() {
   const reportFps = useCallback((fps: number) => {
     void desktopApi.reportUiDiagnostics(fps, 0);
   }, []);
+
+  useEffect(() => {
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        void desktopApi.reportUiDiagnostics(0, 0);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, []);
   const captureError =
     app.snapshot.capture.status.state === "error"
       ? app.snapshot.capture.status.message
@@ -286,30 +333,10 @@ export default function App() {
           ref={mainStageRef}
         >
           {app.primaryView === "today" && (
-            <>
-              <TodayView
-                onOpenEvidence={openEvidence}
-                snapshot={app.snapshot}
-              />
-              {app.snapshot.capture.mode === "off" && (
-                <div className="today-onboarding">
-                  <FirstRun
-                    interfaces={app.interfaces}
-                    language={app.settings.ui_language}
-                    onDemo={() => void app.startCapture("demo", null)}
-                    onLanguage={(ui_language) =>
-                      void app.updateSettings({
-                        ...app.settings,
-                        ui_language,
-                      })
-                    }
-                    onLive={(networkInterface) =>
-                      void app.startCapture("live", networkInterface)
-                    }
-                  />
-                </div>
-              )}
-            </>
+            <TodayView
+              onOpenEvidence={openEvidence}
+              snapshot={app.snapshot}
+            />
           )}
           {app.primaryView === "live" && (
             <div
@@ -408,22 +435,6 @@ export default function App() {
                         selectedId={app.selectedId}
                       />
                     </Suspense>
-                  )}
-                  {app.snapshot.capture.mode === "off" && (
-                    <FirstRun
-                      interfaces={app.interfaces}
-                      language={app.settings.ui_language}
-                      onDemo={() => void app.startCapture("demo", null)}
-                      onLanguage={(ui_language) =>
-                        void app.updateSettings({
-                          ...app.settings,
-                          ui_language,
-                        })
-                      }
-                      onLive={(networkInterface) =>
-                        void app.startCapture("live", networkInterface)
-                      }
-                    />
                   )}
                   {app.snapshot.capture.mode !== "off" &&
                     app.settings.active_workspace === "remote" &&
@@ -524,76 +535,84 @@ export default function App() {
                 selectedId={app.selectedId}
               />
               {app.selected && (
-                <ConnectionInspector
-                  connection={app.selected}
-                  flowTrafficAvailable={
-                    app.snapshot.diagnostics.flow_counters_available
-                  }
-                  onBookmark={(kind, value) =>
-                    void app.addBookmark(kind, value)
-                  }
-                  onClose={() => app.setSelectedId(null)}
-                  onFilterCountry={(value) => showFilter(`country:${value}`)}
-                  onFilterDestination={(value) =>
-                    showFilter(JSON.stringify(value))
-                  }
-                  onFilterProcess={(value) =>
-                    showFilter(`process:${JSON.stringify(value)}`)
-                  }
-                  onIgnore={(kind, value) =>
-                    void app.addIgnoreRule(kind, value)
-                  }
-                />
+                <Suspense fallback={null}>
+                  <ConnectionInspector
+                    connection={app.selected}
+                    flowTrafficAvailable={
+                      app.snapshot.diagnostics.flow_counters_available
+                    }
+                    onBookmark={(kind, value) =>
+                      void app.addBookmark(kind, value)
+                    }
+                    onClose={() => app.setSelectedId(null)}
+                    onFilterCountry={(value) => showFilter(`country:${value}`)}
+                    onFilterDestination={(value) =>
+                      showFilter(JSON.stringify(value))
+                    }
+                    onFilterProcess={(value) =>
+                      showFilter(`process:${JSON.stringify(value)}`)
+                    }
+                    onIgnore={(kind, value) =>
+                      void app.addIgnoreRule(kind, value)
+                    }
+                  />
+                </Suspense>
               )}
             </div>
           )}
           {app.primaryView === "investigate" && (
-            <HistoryView
-              currentQuery={app.query}
-              loadHistory={app.loadHistory}
-              onExport={openExport}
-              onQueryChange={app.setQuery}
-              onReconstruct={(atMs, sessionId, preferredId) =>
-                void app.enterTimeMachine(atMs, sessionId, preferredId)
-              }
-            />
+            <Suspense fallback={<div className="scene-loading"><span />{t("Loading local history...")}</div>}>
+              <HistoryView
+                currentQuery={app.query}
+                loadHistory={app.loadHistory}
+                onExport={openExport}
+                onQueryChange={app.setQuery}
+                onReconstruct={(atMs, sessionId, preferredId) =>
+                  void app.enterTimeMachine(atMs, sessionId, preferredId)
+                }
+              />
+            </Suspense>
           )}
           {app.primaryView === "exposure" && (
-            <ExposureViewBoundary>
-              <ExposureView
-                onExport={() => openExport(app.snapshot.session?.id ?? null)}
-                onOpenEvidence={openEvidence}
-                snapshot={app.snapshot}
-              />
-            </ExposureViewBoundary>
+            <Suspense fallback={<div className="scene-loading"><span />{t("Loading exposure data...")}</div>}>
+              <ExposureViewBoundary>
+                <ExposureView
+                  onExport={() => openExport(app.snapshot.session?.id ?? null)}
+                  onOpenEvidence={openEvidence}
+                  snapshot={app.snapshot}
+                />
+              </ExposureViewBoundary>
+            </Suspense>
           )}
           {app.primaryView === "health" && (
-            <SettingsView
-              focusRules={app.focusRules}
-              geoStatus={app.geoStatus}
-              interfaces={app.interfaces}
-              onAddBookmark={(kind, value) => void app.addBookmark(kind, value)}
-              onAddIgnoreRule={(kind, value) =>
-                void app.addIgnoreRule(kind, value)
-              }
-              onClearLocalData={app.clearLocalData}
-              onClearSession={app.clearSession}
-              onCompactStorage={app.compactStorage}
-              onExportSupportBundle={app.exportSupportBundle}
-              onImportGeo={app.importGeo}
-              onRemoveGeo={app.removeGeo}
-              onRemoveBookmark={(id) => void app.removeBookmark(id)}
-              onRemoveIgnoreRule={(id) => void app.removeIgnoreRule(id)}
-              onToggleIgnoreRule={(id, enabled) =>
-                void app.setIgnoreRuleEnabled(id, enabled)
-              }
-              onRollbackGeo={app.rollbackGeo}
-              onRunSelfTest={app.runCaptureSelfTest}
-              onUpdate={app.updateSettings}
-              onUpdateGeo={app.updateGeo}
-              settings={app.settings}
-              snapshot={app.snapshot}
-            />
+            <Suspense fallback={<div className="scene-loading"><span />{t("Loading local settings...")}</div>}>
+              <SettingsView
+                focusRules={app.focusRules}
+                geoStatus={app.geoStatus}
+                interfaces={app.interfaces}
+                onAddBookmark={(kind, value) => void app.addBookmark(kind, value)}
+                onAddIgnoreRule={(kind, value) =>
+                  void app.addIgnoreRule(kind, value)
+                }
+                onClearLocalData={app.clearLocalData}
+                onClearSession={app.clearSession}
+                onCompactStorage={app.compactStorage}
+                onExportSupportBundle={app.exportSupportBundle}
+                onImportGeo={app.importGeo}
+                onRemoveGeo={app.removeGeo}
+                onRemoveBookmark={(id) => void app.removeBookmark(id)}
+                onRemoveIgnoreRule={(id) => void app.removeIgnoreRule(id)}
+                onToggleIgnoreRule={(id, enabled) =>
+                  void app.setIgnoreRuleEnabled(id, enabled)
+                }
+                onRollbackGeo={app.rollbackGeo}
+                onRunSelfTest={app.runCaptureSelfTest}
+                onUpdate={app.updateSettings}
+                onUpdateGeo={app.updateGeo}
+                settings={app.settings}
+                snapshot={app.snapshot}
+              />
+            </Suspense>
           )}
         </main>
         <MetricStrip snapshot={app.snapshot} />
@@ -603,12 +622,14 @@ export default function App() {
           onDismiss={app.dismissNotification}
         />
         {(app.error || captureError) && (
-          <ErrorBanner
-            detail={originalFailureDetail}
-            message={localizedFailureMessage}
-            onClose={app.clearError}
-            title={captureError ? t("Capture stopped") : undefined}
-          />
+          <Suspense fallback={null}>
+            <ErrorBanner
+              detail={originalFailureDetail}
+              message={localizedFailureMessage}
+              onClose={app.clearError}
+              title={captureError ? t("Capture stopped") : undefined}
+            />
+          </Suspense>
         )}
         {app.loading && (
           <div className="boot-state">
@@ -616,7 +637,7 @@ export default function App() {
             <p>{t("Starting local observability engine...")}</p>
           </div>
         )}
-        <CommandPalette
+        {app.commandPaletteOpen && <Suspense fallback={null}><CommandPalette
           localTrafficVisible={app.settings.active_workspace === "local"}
           onClearSession={() => void app.clearSession()}
           onClose={() => app.setCommandPaletteOpen(false)}
@@ -637,18 +658,18 @@ export default function App() {
           }
           onView={app.setPrimaryView}
           onVisualization={app.setViewMode}
-          open={app.commandPaletteOpen}
+          open
           paused={app.paused}
           recording={recordingActive}
-        />
-        <RecordingDialog
+        /></Suspense>}
+        {app.recordDialogOpen && <Suspense fallback={null}><RecordingDialog
           onClose={() => app.setRecordDialogOpen(false)}
           onStart={app.startRecording}
           onStop={() => void app.stopRecording()}
           open={app.recordDialogOpen}
           state={app.recording}
-        />
-        <ExportDialog
+        /></Suspense>}
+        {app.exportDialogOpen && <Suspense fallback={null}><ExportDialog
           fromMs={exportScope.fromMs}
           onClose={() => app.setExportDialogOpen(false)}
           onExport={(request) => void app.exportView(request)}
@@ -656,7 +677,7 @@ export default function App() {
           query={app.query}
           sessionId={exportScope.sessionId}
           toMs={exportScope.toMs}
-        />
+        /></Suspense>}
       </div>
     </I18nProvider>
   );

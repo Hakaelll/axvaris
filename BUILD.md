@@ -35,7 +35,7 @@ node scripts/audit-licenses.mjs
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
-node scripts/generate-sbom.mjs 0.4.1 docs/sbom-0.4.1.spdx.json
+node scripts/generate-sbom.mjs 0.4.2 docs/sbom-0.4.2.spdx.json
 rustup target add x86_64-unknown-linux-gnu
 cargo check -p sabicheiro-capture --all-targets \
   --target x86_64-unknown-linux-gnu --locked
@@ -54,9 +54,9 @@ The output is under `target/release/bundle/nsis/`. Tauri names the setup executa
 from the configured product; the release workflow normalizes it to
 `Sabicheiro-Setup.exe`. MSI is optional and may require the Windows VBSCRIPT feature.
 The NSIS configuration installs per-user and supplies Start-menu/uninstall entries.
-The 0.4.1 validation artifact is `Sabicheiro_0.4.1_x64-setup.exe`. Keep generated
+The 0.4.2 validation artifact is `Sabicheiro_0.4.2_x64-setup.exe`. Keep generated
 bundles under ignored `target/`; publish only after copying the installer, portable
-executable, `docs/SHA256SUMS-0.4.1.txt`, SPDX SBOM and release notes together.
+executable, `docs/SHA256SUMS-0.4.2.txt`, SPDX SBOM and release notes together.
 
 ## Debian/Ubuntu x86_64
 
@@ -76,7 +76,7 @@ Socket observation does not require dumpcap. To enable explicit packet recording
 install the distro Wireshark/dumpcap package and configure its capture group or minimal
 capabilities according to distro policy; do not run the whole UI as root.
 
-`INET_DIAG` is the normal-user baseline. The 0.4.1 candidate does not yet ship a
+`INET_DIAG` is the normal-user baseline. The 0.4.2 candidate does not yet ship a
 validated production eBPF stream; do not advertise event-mode Linux capture until the
 truth fixture passes both with the documented minimal capabilities and with the
 automatic `INET_DIAG` fallback.
@@ -101,7 +101,7 @@ cargo metadata --locked --format-version 1
 pnpm licenses list --prod --long
 pnpm licenses list --dev --long
 node scripts/audit-licenses.mjs
-node scripts/generate-sbom.mjs 0.4.1 docs/sbom-0.4.1.spdx.json
+node scripts/generate-sbom.mjs 0.4.2 docs/sbom-0.4.2.spdx.json
 ```
 
 Reject paid/commercial-only/network-service dependencies, update `DEPENDENCIES.md`, and

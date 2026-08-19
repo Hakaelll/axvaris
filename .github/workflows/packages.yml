@@ -11,6 +11,8 @@ jobs:
   windows:
     name: Windows NSIS
     runs-on: windows-latest
+    env:
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,6 +39,8 @@ jobs:
   linux:
     name: Linux AppImage and deb
     runs-on: ubuntu-24.04
+    env:
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

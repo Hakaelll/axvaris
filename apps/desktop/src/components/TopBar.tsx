@@ -6,6 +6,7 @@ import type {
 } from "../types";
 import { useI18n } from "../i18n";
 import { Icon, type IconName } from "./Icon";
+import logoUrl from "../../src-tauri/icons/32x32.png";
 
 const navigation: { id: PrimaryView; label: string; icon: IconName }[] = [
   { id: "today", label: "Today", icon: "activity" },
@@ -53,7 +54,7 @@ export function TopBar({
           aria-hidden="true"
           className="brand__mark"
           height="32"
-          src="/sabicheiro-logo.png"
+          src={logoUrl}
           width="32"
         />
         <span>SABICHEIRO</span>

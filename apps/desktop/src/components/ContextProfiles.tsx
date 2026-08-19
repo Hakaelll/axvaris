@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import { desktopApi } from "../lib/backend";
+import { desktopApi } from "#backend";
 import type { HistoryEntry, NetworkProfile } from "../types";
 import { formatBytes, formatDateTime } from "../lib/format";
 

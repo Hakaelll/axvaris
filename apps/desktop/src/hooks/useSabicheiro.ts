@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { desktopApi } from "../lib/backend";
+import { desktopApi } from "#backend";
 import {
   isListenerOnly,
   isLocalAddress,
@@ -66,6 +66,10 @@ const emptySnapshot: DashboardSnapshot = {
     capture_generation: 0,
     sequence_gaps: 0,
     snapshot_resyncs: 0,
+    dashboard_requests: 0,
+    dashboard_bytes_serialized: 0,
+    dashboard_empty_deltas: 0,
+    dashboard_overlaps: 0,
     storage_quick_check_ok: true,
     storage_last_check_ms: null,
     storage_wal_pages: 0,
@@ -301,6 +305,20 @@ function mergeDashboardUpdate(
   if (update.snapshot) return update.snapshot;
   if (update.resync_required || update.base_revision !== current.revision)
     return null;
+  const hasConnectionChanges =
+    update.removed_connection_ids.length > 0 ||
+    update.upserted_connections.length > 0;
+  if (
+    !hasConnectionChanges &&
+    update.processes === undefined &&
+    update.destinations === undefined &&
+    update.stats === undefined &&
+    update.diagnostics === undefined &&
+    update.capture === undefined &&
+    update.session === undefined
+  ) {
+    return current;
+  }
   const connections = new Map(
     current.connections.map((connection) => [connection.id, connection]),
   );
@@ -311,12 +329,12 @@ function mergeDashboardUpdate(
     generated_at_ms: update.generated_at_ms,
     revision: update.revision,
     connections: [...connections.values()],
-    processes: update.processes,
-    destinations: update.destinations,
-    stats: update.stats,
-    diagnostics: update.diagnostics,
-    capture: update.capture,
-    session: update.session,
+    processes: update.processes ?? current.processes,
+    destinations: update.destinations ?? current.destinations,
+    stats: update.stats ?? current.stats,
+    diagnostics: update.diagnostics ?? current.diagnostics,
+    capture: update.capture ?? current.capture,
+    session: update.session === undefined ? current.session : update.session,
   };
 }
 
@@ -340,10 +358,9 @@ export function useSabicheiro() {
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [notifications, setNotifications] = useState<LocalNotification[]>([]);
-  const [processRateHistory, setProcessRateHistory] = useState<
-    Record<string, number[]>
-  >({});
   const liveSnapshotRef = useRef<DashboardSnapshot>(emptySnapshot);
+  const pausedRef = useRef(paused);
+  const dashboardWakeRef = useRef<() => void>(() => undefined);
   const ipcSequence = useRef<number | null>(null);
   const pausedRevision = useRef(0);
   const settingsRef = useRef(settings);
@@ -358,45 +375,32 @@ export function useSabicheiro() {
   }, [settings]);
 
   useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      desktopApi.getSettings(),
-      desktopApi.listInterfaces(),
-      desktopApi.getGeoStatus(),
-      desktopApi.getRecordingState(),
-      desktopApi.getFocusRules(),
-    ])
-      .then(
-        ([
-          nextSettings,
-          nextInterfaces,
-          nextGeo,
-          nextRecording,
-          nextFocusRules,
-        ]) => {
-          if (cancelled) return;
-          const hasStaleInterface =
-            nextInterfaces.length > 0 &&
-            nextSettings.selected_interface !== null &&
-            !nextInterfaces.some(
-              (item) => item.id === nextSettings.selected_interface,
-            );
-          const normalizedSettings = hasStaleInterface
-            ? { ...nextSettings, selected_interface: null }
-            : nextSettings;
-          setSettings(normalizedSettings);
-          setInterfaces(nextInterfaces);
-          setGeoStatus(nextGeo);
-          setRecording(nextRecording);
-          setFocusRules(nextFocusRules);
-          if (hasStaleInterface) {
-            void desktopApi.updateSettings(normalizedSettings).catch(() => {
-              // Capture remains safely scoped to all interfaces even if persisting
-              // this one-time migration fails.
-            });
-          }
-        },
-      )
+    Promise.all([desktopApi.getSettings(), desktopApi.listInterfaces()])
+      .then(([nextSettings, nextInterfaces]) => {
+        if (cancelled) return;
+        const hasStaleInterface =
+          nextInterfaces.length > 0 &&
+          nextSettings.selected_interface !== null &&
+          !nextInterfaces.some(
+            (item) => item.id === nextSettings.selected_interface,
+          );
+        const normalizedSettings = hasStaleInterface
+          ? { ...nextSettings, selected_interface: null }
+          : nextSettings;
+        setSettings(normalizedSettings);
+        setInterfaces(nextInterfaces);
+        if (hasStaleInterface) {
+          void desktopApi.updateSettings(normalizedSettings).catch(() => {
+            // Capture remains safely scoped to all interfaces even if persisting
+            // this one-time migration fails.
+          });
+        }
+      })
       .catch((cause: unknown) => setError(normalizeError(cause)));
     return () => {
       cancelled = true;
@@ -405,7 +409,43 @@ export function useSabicheiro() {
 
   useEffect(() => {
     let cancelled = false;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        void Promise.allSettled([
+          desktopApi.getGeoStatus().then((value) => !cancelled && setGeoStatus(value)),
+          desktopApi
+            .getRecordingState()
+            .then((value) => !cancelled && setRecording(value)),
+          desktopApi.getFocusRules().then((value) => !cancelled && setFocusRules(value)),
+        ]).then((results) => {
+          if (cancelled) return;
+          const rejected = results.find(
+            (result): result is PromiseRejectedResult => result.status === "rejected",
+          );
+          if (rejected) setError(normalizeError(rejected.reason));
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    let inFlight = false;
+    let wakeRequested = false;
     const poll = async () => {
+      if (cancelled) return;
+      if (inFlight) {
+        wakeRequested = true;
+        return;
+      }
+      inFlight = true;
       try {
         const update = await desktopApi.getDashboardUpdate(ipcSequence.current);
         if (cancelled) return;
@@ -415,28 +455,11 @@ export function useSabicheiro() {
           return;
         }
         ipcSequence.current = update.sequence;
-        liveSnapshotRef.current = next;
-        setLiveSnapshot(next);
-        if (!paused) setVisualSnapshot(next);
-        const processRates = new Map<string, number>();
-        for (const connection of next.connections) {
-          if (!connection.active) continue;
-          const key = `${connection.process.name}:${connection.process.pid ?? "unknown"}`;
-          processRates.set(
-            key,
-            (processRates.get(key) ?? 0) +
-              connection.rates.down_bytes_per_second +
-              connection.rates.up_bytes_per_second,
-          );
+        if (next !== liveSnapshotRef.current) {
+          liveSnapshotRef.current = next;
+          setLiveSnapshot(next);
+          if (!pausedRef.current) setVisualSnapshot(next);
         }
-        setProcessRateHistory((current) => {
-          const updated = { ...current };
-          for (const [key, rate] of processRates) {
-            updated[key] = [...(updated[key] ?? []), rate].slice(-60);
-          }
-          return updated;
-        });
-
         const active = next.connections.filter(
           (connection) => connection.active,
         );
@@ -523,15 +546,39 @@ export function useSabicheiro() {
           setError(normalizeError(cause));
           setLoading(false);
         }
+      } finally {
+        inFlight = false;
+        if (!cancelled) {
+          const delay = wakeRequested
+            ? 0
+            : document.visibilityState !== "visible"
+              ? 15_000
+              : liveSnapshotRef.current.capture.mode === "off"
+                ? 5_000
+                : 400;
+          wakeRequested = false;
+          timer = window.setTimeout(() => void poll(), delay);
+        }
       }
     };
+    const wake = () => {
+      if (cancelled) return;
+      window.clearTimeout(timer);
+      void poll();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") wake();
+    };
+    dashboardWakeRef.current = wake;
+    document.addEventListener("visibilitychange", handleVisibility);
     void poll();
-    const timer = window.setInterval(() => void poll(), 400);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      dashboardWakeRef.current = () => undefined;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.clearTimeout(timer);
     };
-  }, [paused]);
+  }, []);
 
   useEffect(() => {
     if (recording?.status !== "recording" && recording?.status !== "starting")
@@ -633,6 +680,7 @@ export function useSabicheiro() {
         await desktopApi.setCaptureState(mode, selectedInterface);
         setTimeMachine(null);
         setError(null);
+        dashboardWakeRef.current();
       } catch (cause) {
         setError(normalizeError(cause));
       }
@@ -903,7 +951,8 @@ export function useSabicheiro() {
           to_ms: null,
           session_id: null,
           query: query || null,
-          limit: 2_000,
+          limit: 500,
+          cursor: null,
           ...overrides,
         });
       } catch (cause) {
@@ -1012,7 +1061,6 @@ export function useSabicheiro() {
     dismissNotification: (id: string) =>
       setNotifications((current) => current.filter((item) => item.id !== id)),
     clearNotifications: () => setNotifications([]),
-    processRateHistory,
     workspaceCounts,
   };
 }

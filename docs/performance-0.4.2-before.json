@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "phase": "0.4.1-before",
+  "generatedAt": "2026-08-16T15:49:21.610Z",
+  "source": {
+    "commit": "bfdf4b0fbcfbecd734c53816e4f41e75dfbdda9a",
+    "dirty": true,
+    "fixtureSourceSha256": "38005546298c1f14ab3a51fae43650b391947f603049206d5abeeef7681d39d3"
+  },
+  "environment": {
+    "platform": "win32 10.0.26200 x64",
+    "cpu": "11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz",
+    "logicalCpus": 8,
+    "totalMemoryBytes": 16932671488,
+    "node": "v24.19.0",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)"
+  },
+  "configuration": {
+    "capture": "off for artifact measurement",
+    "permissions": "normal user",
+    "dataset": "deterministic local fixtures",
+    "duration": "artifact snapshot",
+    "webview": "system WebView2; runtime profiling recorded separately"
+  },
+  "frontend": {
+    "bytes": 9612676,
+    "sourceMapBytes": 5228126,
+    "sourceMapCount": 4,
+    "initialBytes": 2939648,
+    "initialAssetPaths": [
+      "index.html",
+      "assets/index-CdwBB6bE.js",
+      "assets/index-D_c-CKBV.css",
+      "sabicheiro-logo.png"
+    ],
+    "assets": [
+      {
+        "path": "assets/GlobeScene-CRw8wrB6.js.map",
+        "bytes": 2940807,
+        "sha256": "84002cb5630590269d7fb75d9e521eeab65939ae72f0a437b89aaa6ae722c81d"
+      },
+      {
+        "path": "sabicheiro-logo.png",
+        "bytes": 2405703,
+        "sha256": "79246b43fe3b594ff37ccb2c54a5b4717971865e7cc5a10df7c864eb2237fe61"
+      },
+      {
+        "path": "assets/index-CdwBB6bE.js.map",
+        "bytes": 1487424,
+        "sha256": "24a0ac0b55f478e011f884fc2b11d786ce3a9e0b66bd3f38142b04e1f2c07104"
+      },
+      {
+        "path": "assets/MapView-B-gJf-aQ.js.map",
+        "bytes": 783242,
+        "sha256": "dc676b1c86cb975e5b677c0a3bfadb3c3d4c4904c5b8859c58a5228d4dac6aab"
+      },
+      {
+        "path": "assets/MapView-B-gJf-aQ.js",
+        "bytes": 762855,
+        "sha256": "4a5238cbc19d8540d85dbbeb93a9ae93990515ee71ed227eaea428905bbe9bd2"
+      },
+      {
+        "path": "assets/GlobeScene-CRw8wrB6.js",
+        "bytes": 678128,
+        "sha256": "c6cf65b262d5596ea1d412bc83d9d72404c49ba2e90edff114849e3e999f172d"
+      },
+      {
+        "path": "assets/index-CdwBB6bE.js",
+        "bytes": 456606,
+        "sha256": "1c7ccf37b5ed0353b547418da52265a4e0108f1d0eec22065bbecf7e24e2b5cc"
+      },
+      {
+        "path": "assets/index-D_c-CKBV.css",
+        "bytes": 76766,
+        "sha256": "459153185521737dd6ebd37fe4740b758143b33f2d5e2d1c10e0820b5b6d02e0"
+      },
+      {
+        "path": "assets/mesh-B8TpE-1N.js.map",
+        "bytes": 16653,
+        "sha256": "6095c5c5e6bdb6faa178bef60b5c98a6b5d43b0505395796d67ea084a76045eb"
+      },
+      {
+        "path": "assets/mesh-B8TpE-1N.js",
+        "bytes": 3919,
+        "sha256": "073c8a53089203142b227630e7e640e1829083daddb9422b85cf2c9e2335ebbe"
+      },
+      {
+        "path": "index.html",
+        "bytes": 573,
+        "sha256": "41882013cf2fc375f37a2840100bc186392ddbfcb3d90391796d7e0955e162c9"
+      }
+    ]
+  },
+  "native": {
+    "executable": {
+      "path": "target/release/Sabicheiro.exe",
+      "bytes": 20589568,
+      "sha256": "1608974b36a40428f471e6aeb1d26c0fb026258870b95f61744840244f6a2812"
+    },
+    "installer": {
+      "path": "target/release/bundle/nsis/Sabicheiro_0.4.1_x64-setup.exe",
+      "bytes": 8689212,
+      "sha256": "ab9b084ad86f14575d192d9733f9bc40936a60c2bc5a722a5e123665b2709a19"
+    }
+  },
+  "parity": [
+    {
+      "flow": "capture-off",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "live",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "demo",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "interface",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "pause-view",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "search",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "map-2d",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "globe-3d",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "today",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "history",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "time-machine",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "sabi",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "exposure",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "rules",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "notifications",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "recording",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "geoip",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "retention",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "export",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "tray",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "autostart",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "language",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "keyboard-accessibility",
+      "state": "covered by automated or manual QA gate"
+    }
+  ]
+}

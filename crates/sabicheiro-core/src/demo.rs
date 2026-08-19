@@ -25,132 +25,68 @@ struct DemoDestination {
 
 const DESTINATIONS: &[DemoDestination] = &[
     DemoDestination {
-        process: "Firefox",
-        executable: "firefox.exe",
+        process: "Demo Browser",
+        executable: "demo-browser.exe",
         pid: 4_812,
-        ip: "142.250.184.206",
-        domain: "google.com",
-        country_code: "US",
-        country_name: "United States",
-        city: "Mountain View",
-        latitude: 37.386,
-        longitude: -122.084,
-        asn: 15_169,
-        organization: "Google LLC",
+        ip: "192.0.2.10",
+        domain: "portal.invalid",
+        country_code: "ES",
+        country_name: "Spain",
+        city: "Madrid",
+        latitude: 40.4168,
+        longitude: -3.7038,
+        asn: 64_496,
+        organization: "Example Network A",
         protocol: NetworkProtocol::Tcp,
         port: 443,
     },
     DemoDestination {
-        process: "Discord",
-        executable: "Discord.exe",
-        pid: 7_204,
-        ip: "162.159.135.234",
-        domain: "gateway.discord.gg",
-        country_code: "NL",
-        country_name: "Netherlands",
-        city: "Amsterdam",
-        latitude: 52.3676,
-        longitude: 4.9041,
-        asn: 13_335,
-        organization: "Cloudflare, Inc.",
+        process: "Demo Browser",
+        executable: "demo-browser.exe",
+        pid: 4_812,
+        ip: "198.51.100.20",
+        domain: "media.invalid",
+        country_code: "US",
+        country_name: "United States",
+        city: "New York",
+        latitude: 40.7128,
+        longitude: -74.006,
+        asn: 64_497,
+        organization: "Example Network B",
         protocol: NetworkProtocol::Udp,
         port: 443,
     },
     DemoDestination {
-        process: "Steam",
-        executable: "steam.exe",
-        pid: 9_140,
-        ip: "23.45.67.89",
-        domain: "cdn.steampowered.com",
+        process: "Demo Updater",
+        executable: "demo-updater.exe",
+        pid: 7_204,
+        ip: "203.0.113.30",
+        domain: "updates.invalid",
+        country_code: "JP",
+        country_name: "Japan",
+        city: "Tokyo",
+        latitude: 35.6762,
+        longitude: 139.6503,
+        asn: 64_498,
+        organization: "Example Network C",
+        protocol: NetworkProtocol::Tcp,
+        port: 443,
+    },
+    DemoDestination {
+        process: "Demo Updater",
+        executable: "demo-updater.exe",
+        pid: 7_204,
+        ip: "192.0.2.40",
+        domain: "status.invalid",
         country_code: "DE",
         country_name: "Germany",
         city: "Frankfurt",
         latitude: 50.1109,
         longitude: 8.6821,
-        asn: 20_001,
-        organization: "Akamai Technologies",
-        protocol: NetworkProtocol::Tcp,
-        port: 443,
-    },
-    DemoDestination {
-        process: "Windows Services",
-        executable: "svchost.exe",
-        pid: 1_268,
-        ip: "13.107.42.12",
-        domain: "settings-win.data.microsoft.com",
-        country_code: "IE",
-        country_name: "Ireland",
-        city: "Dublin",
-        latitude: 53.3498,
-        longitude: -6.2603,
-        asn: 80_75,
-        organization: "Microsoft Corporation",
-        protocol: NetworkProtocol::Tcp,
-        port: 443,
-    },
-    DemoDestination {
-        process: "Dropbox",
-        executable: "Dropbox.exe",
-        pid: 5_622,
-        ip: "162.125.6.6",
-        domain: "client.dropbox.com",
-        country_code: "US",
-        country_name: "United States",
-        city: "San Jose",
-        latitude: 37.3382,
-        longitude: -121.8863,
-        asn: 19_670,
-        organization: "Dropbox, Inc.",
-        protocol: NetworkProtocol::Tcp,
-        port: 443,
-    },
-    DemoDestination {
-        process: "Firefox",
-        executable: "firefox.exe",
-        pid: 4_812,
-        ip: "104.16.123.96",
-        domain: "developer.mozilla.org",
-        country_code: "GB",
-        country_name: "United Kingdom",
-        city: "London",
-        latitude: 51.5072,
-        longitude: -0.1276,
-        asn: 13_335,
-        organization: "Cloudflare, Inc.",
-        protocol: NetworkProtocol::Tcp,
-        port: 443,
-    },
-    DemoDestination {
-        process: "Spotify",
-        executable: "Spotify.exe",
-        pid: 6_410,
-        ip: "35.186.224.25",
-        domain: "audio-fa.scdn.co",
-        country_code: "SE",
-        country_name: "Sweden",
-        city: "Stockholm",
-        latitude: 59.3293,
-        longitude: 18.0686,
-        asn: 15_169,
-        organization: "Google Cloud",
-        protocol: NetworkProtocol::Tcp,
-        port: 443,
-    },
-    DemoDestination {
-        process: "Git",
-        executable: "git.exe",
-        pid: 10_422,
-        ip: "140.82.121.4",
-        domain: "github.com",
-        country_code: "US",
-        country_name: "United States",
-        city: "San Francisco",
-        latitude: 37.7749,
-        longitude: -122.4194,
-        asn: 36_444,
-        organization: "GitHub, Inc.",
-        protocol: NetworkProtocol::Tcp,
-        port: 443,
+        asn: 64_499,
+        organization: "Example Network D",
+        protocol: NetworkProtocol::Udp,
+        port: 53,
     },
 ];
 
@@ -172,45 +108,40 @@ impl DemoGenerator {
 
     pub fn next_batch(&mut self, timestamp_ms: i64) -> Vec<NormalizedNetworkEvent> {
         self.tick = self.tick.saturating_add(1);
-        let count = 1 + self.random.range(3) as usize;
-        let mut events = Vec::with_capacity(count + 1);
-        for _ in 0..count {
-            let index = self.random.range(DESTINATIONS.len() as u64) as usize;
-            let destination = &DESTINATIONS[index];
-            let kind = if self.active.contains_key(&index) {
-                NetworkEventKind::Updated
-            } else {
-                NetworkEventKind::Opened
-            };
-            let key = self
-                .active
-                .entry(index)
-                .or_insert_with(|| demo_key(destination))
-                .clone();
-            events.push(demo_event(
-                destination,
-                key,
-                kind,
-                timestamp_ms,
-                &mut self.random,
-            ));
-        }
-
         if self.tick % 7 == 0 && !self.active.is_empty() {
             let active_index = self.random.range(self.active.len() as u64) as usize;
             if let Some((&destination_index, key)) = self.active.iter().nth(active_index) {
                 let destination = &DESTINATIONS[destination_index];
-                events.push(demo_event(
+                let event = demo_event(
                     destination,
                     key.clone(),
                     NetworkEventKind::Closed,
                     timestamp_ms,
                     &mut self.random,
-                ));
+                );
                 self.active.remove(&destination_index);
+                return vec![event];
             }
         }
-        events
+        let index = self.random.range(DESTINATIONS.len() as u64) as usize;
+        let destination = &DESTINATIONS[index];
+        let kind = if self.active.contains_key(&index) {
+            NetworkEventKind::Updated
+        } else {
+            NetworkEventKind::Opened
+        };
+        let key = self
+            .active
+            .entry(index)
+            .or_insert_with(|| demo_key(destination))
+            .clone();
+        vec![demo_event(
+            destination,
+            key,
+            kind,
+            timestamp_ms,
+            &mut self.random,
+        )]
     }
 }
 
@@ -351,5 +282,26 @@ mod tests {
         assert!(event.geo.is_some());
         assert!(event.key.pid.is_some());
         assert!(event.traffic_delta.bytes_received > 0);
+    }
+
+    #[test]
+    fn demo_is_bounded_to_four_destinations_and_one_event_per_batch() {
+        let mut demo = DemoGenerator::new(9);
+        let mut remote_addresses = std::collections::HashSet::new();
+        for second in 0..600 {
+            let events = demo.next_batch(1_000 + second * 1_000);
+            assert!(events.len() <= 1);
+            for event in events {
+                remote_addresses.insert(event.key.remote.address);
+                assert!(
+                    event
+                        .domain
+                        .as_deref()
+                        .is_some_and(|name| name.ends_with(".invalid"))
+                );
+            }
+            assert!(demo.active.len() <= 4);
+        }
+        assert!(remote_addresses.len() <= 4);
     }
 }

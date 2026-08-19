@@ -1,0 +1,17 @@
+{
+  "rows": 100000,
+  "pageSize": 500,
+  "pages": 201,
+  "insertMs": 12845.5137,
+  "firstPageP50Ms": 4.867,
+  "firstPageP95Ms": 5.768599999999999,
+  "filteredPageP95Ms": 4.2612,
+  "firstPageJsonBytes": 716705,
+  "traversalMs": 800.8435000000001,
+  "uniqueRowsTraversed": 100000,
+  "exportMs": 1365.5176,
+  "exportedRows": 100000,
+  "exportBytes": 26766524,
+  "databaseBytes": 250654720,
+  "limitsPassed": true
+}

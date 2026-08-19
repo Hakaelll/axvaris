@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Icon } from "../components/Icon";
 import { translate, useI18n, useLanguage } from "../i18n";
-import { desktopApi } from "../lib/backend";
+import { desktopApi } from "#backend";
 import {
   compareListenerSnapshots,
   formatListenerEndpoint,

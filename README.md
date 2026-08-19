@@ -5,7 +5,7 @@ application that turns the network activity of one computer into an interactive,
 searchable world view. It connects processes to endpoints, destinations, local
 history and explainable behaviour signals without accounts, telemetry or a paid API.
 
-> Status: `0.4.1` Windows validation candidate (Spain Focus). The strict test
+> Status: `0.4.2` lightweight Windows validation candidate. The strict test
 > suite, production frontend, 100,000-row benchmark, SPDX SBOM, release binary and NSIS
 > install/launch/uninstall cycle are validated locally. Native Linux/eBPF packaging,
 > elevated Windows ETW, the eight-hour soak and OS screen-reader/HiDPI matrix remain
@@ -76,14 +76,14 @@ routes and map use only packaged geometry—there are no remote map tiles.
 
 | Platform | Observation backend | Package/validation state |
 | --- | --- | --- |
-| Windows 10/11 x86_64 | IP Helper owner-PID tables; optional ETW/helper events; Pktmon recording | 0.4.1 application/tests and local NSIS cycle validated; elevated ETW review open |
+| Windows 10/11 x86_64 | IP Helper owner-PID tables; optional ETW/helper events; Pktmon recording | 0.4.2 application/tests and local NSIS package validated; elevated ETW and launch/install cycle review open |
 | Debian/Ubuntu x86_64 | Netlink `INET_DIAG` plus inode→PID; dumpcap recording | capture source cross-checks; eBPF and AppImage/deb native validation require Linux |
 | Fedora/Arch | Same source boundary; distro prerequisites differ | source compatibility only, not a verified v1 artifact |
 | ARM64 | Domain/provider boundaries are architecture-neutral | future target; no v1 artifact |
 
 ## Install
 
-Windows users can run `Sabicheiro_0.4.1_x64-setup.exe`; it installs per-user,
+Windows users can run `Sabicheiro_0.4.2_x64-setup.exe`; it installs per-user,
 adds a Start-menu entry and an uninstaller. Linux packages can be produced natively
 with the commands in [BUILD.md](BUILD.md); when built, mark the AppImage executable or
 install the `.deb` using the normal distro tooling.

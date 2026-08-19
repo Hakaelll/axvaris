@@ -27,4 +27,3 @@ serde_json.workspace = true
 sha2 = "0.10"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 tauri = { version = "2", features = ["tray-icon"] }
-thiserror.workspace = true

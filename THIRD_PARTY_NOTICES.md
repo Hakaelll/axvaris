@@ -39,5 +39,5 @@ distributions retain their complete copyright/license files; distributors should
 the locked license audit in `BUILD.md` and include any additional notice required after
 changing a dependency or dataset snapshot.
 
-The SPDX 2.3 SBOM for 0.4.1 lists Sabicheiro plus 561 locked dependency packages and
-is distributed as `docs/sbom-0.4.1.spdx.json` with its SHA-256 manifest.
+The SPDX 2.3 SBOM for 0.4.2 lists Sabicheiro plus 561 locked dependency packages and
+is distributed as `docs/sbom-0.4.2.spdx.json` with its SHA-256 manifest.

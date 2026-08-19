@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-16T00:00:00.000Z",
+  "baseline": {
+    "targetBytes": 29866606861,
+    "targetDebugBytes": 26851258608,
+    "workspaceWithoutGitApproxBytes": 30172100000
+  },
+  "initialRecovery": {
+    "removedPaths": [
+      "target/debug",
+      "target/flycheck0"
+    ],
+    "removedBytes": 26851715377,
+    "recoverable": true
+  },
+  "completeGateBeforeCleanup": {
+    "targetBytes": 8086743018,
+    "targetGiB": 7.531366327,
+    "limitGiB": 8,
+    "passed": true
+  },
+  "explicitFullCleanup": {
+    "validatedAbsolutePath": "<repo>/target",
+    "removedBytes": 8086743018,
+    "targetBytesAfter": 0,
+    "workspaceWithoutGitBytesAfter": 340524344,
+    "workspaceLimitBytes": 524288000,
+    "passed": true,
+    "recoverability": "Cargo and frontend build outputs only; all removed files are regenerable from sources and lockfiles."
+  }
+}

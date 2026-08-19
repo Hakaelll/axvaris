@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Documentación de Sabicheiro 0.4.1: instalación en Windows y Linux, funcionalidades, privacidad, captura, limitaciones y resolución de problemas."
+      content="Documentación de Sabicheiro 0.4.2: instalación en Windows y Linux, funcionalidades, privacidad, captura, limitaciones y resolución de problemas."
     />
     <meta name="theme-color" content="#08090a" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
-    <title>Sabicheiro — Documentación 0.4.1</title>
+    <title>Sabicheiro — Documentación 0.4.2</title>
     <style>
       :root {
         color-scheme: dark;
@@ -1468,7 +1468,7 @@
         <span class="brand-mark" aria-hidden="true">S·</span>
         <span class="brand-copy">
           <strong>SABICHEIRO</strong>
-          <small>Documentación 0.4.1</small>
+          <small>Documentación 0.4.2</small>
         </span>
       </a>
 
@@ -1487,7 +1487,7 @@
 
       <div class="topbar-status" aria-label="Estado de la versión">
         <span class="status-dot" aria-hidden="true"></span>
-        <span>0.4.1 · candidato de validación</span>
+        <span>0.4.2 · candidato de validación</span>
       </div>
     </header>
 
@@ -1598,7 +1598,7 @@
           </div>
 
           <p class="lead">
-            La versión 0.4.1 es un candidato de validación para Windows. No se
+            La versión 0.4.2 es un candidato de validación para Windows. No se
             presenta como versión estable multiplataforma mientras sigan
             abiertas las pruebas nativas de Linux, ETW elevado, ocho horas de
             funcionamiento continuo y la matriz completa de lectores de pantalla
@@ -1612,7 +1612,7 @@
                   <th>Plataforma</th>
                   <th>Observación normal</th>
                   <th>Grabación</th>
-                  <th>Estado 0.4.1</th>
+                  <th>Estado 0.4.2</th>
                 </tr>
               </thead>
               <tbody>
@@ -1690,7 +1690,7 @@
               </header>
               <div class="platform-body">
                 <p>
-                  Ejecuta <code>Sabicheiro-0.4.1-windows-x64-setup.exe</code>.
+                  Ejecuta <code>Sabicheiro-0.4.2-windows-x64-setup.exe</code>.
                   La instalación no necesita instalar Npcap, crea un acceso en
                   Inicio y registra su propio desinstalador.
                 </p>
@@ -1726,7 +1726,7 @@
                   de instalación. Windows necesita WebView2, presente
                   normalmente en Windows 10/11 actualizado.
                 </p>
-                <pre><code>Get-FileHash -Algorithm SHA256 .\Sabicheiro-0.4.1-windows-x64-portable.exe</code></pre>
+                <pre><code>Get-FileHash -Algorithm SHA256 .\Sabicheiro-0.4.2-windows-x64-portable.exe</code></pre>
                 <p>
                   La aplicación y el observador normal se ejecutan como el
                   usuario actual. ETW y Pktmon pueden requerir una sesión
@@ -1814,7 +1814,7 @@
           <div class="callout callout--warning">
             <span class="callout-mark">!</span>
             <div>
-              <strong>No hay un artefacto Linux 0.4.1 declarado estable</strong>
+              <strong>No hay un artefacto Linux 0.4.2 declarado estable</strong>
               <p>
                 La fuente y el proveedor <code>INET_DIAG</code> pasan
                 comprobaciones de compilación, pero AppImage, <code>.deb</code>,
@@ -2604,7 +2604,7 @@ node scripts/audit-licenses.mjs
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
-node scripts/generate-sbom.mjs 0.4.1 docs/sbom-0.4.1.spdx.json</code></pre>
+node scripts/generate-sbom.mjs 0.4.2 docs/sbom-0.4.2.spdx.json</code></pre>
 
           <h3>Verificación de un release</h3>
           <div class="grid grid--2">
@@ -2640,14 +2640,14 @@ sha256sum ./Sabicheiro*</code></pre>
             <a href="./NETWORK_CAPTURE.md">NETWORK_CAPTURE.md</a>,
             <a href="./PRIVACY.md">PRIVACY.md</a> y
             <a href="./docs/VALIDATION.md">docs/VALIDATION.md</a> para el
-            detalle técnico y la evidencia exacta del candidato 0.4.1.
+            detalle técnico y la evidencia exacta del candidato 0.4.2.
           </p>
         </section>
       </main>
     </div>
 
     <footer>
-      <strong>Sabicheiro 0.4.1</strong> · documentación local · licencia MIT ·
+      <strong>Sabicheiro 0.4.2</strong> · documentación local · licencia MIT ·
       sin recursos remotos
     </footer>
 

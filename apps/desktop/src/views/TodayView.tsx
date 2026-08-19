@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
-import { desktopApi } from "../lib/backend";
+import { desktopApi } from "#backend";
 import type {
   DashboardSnapshot,
   LocalNotificationRecord,
@@ -114,7 +114,7 @@ export function TodayView({ snapshot, onOpenEvidence }: TodayViewProps) {
           to_ms: null,
           session_id: null,
           query: null,
-          limit: 100_000,
+          limit: 500,
         }),
       ]);
     setStates(nextStates);
@@ -129,9 +129,18 @@ export function TodayView({ snapshot, onOpenEvidence }: TodayViewProps) {
   };
 
   useEffect(() => {
-    void refreshLocalState().catch((error: unknown) =>
-      setStatus(error instanceof Error ? error.message : String(error)),
-    );
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        void refreshLocalState().catch((error: unknown) =>
+          setStatus(error instanceof Error ? error.message : String(error)),
+        );
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
   }, [snapshot.session?.id]);
 
   const cards = useMemo(() => {

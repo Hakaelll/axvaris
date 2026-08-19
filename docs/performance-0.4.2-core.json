@@ -1,0 +1,57 @@
+{
+  "generated_at_ms": 1786899276903,
+  "iterations": 9,
+  "limits": {
+    "filter_p95_ms": 100.0,
+    "serialization_p95_ms": 1500.0,
+    "serialized_bytes_per_connection": 2500
+  },
+  "cases": [
+    {
+      "connections": 1000,
+      "generation_ms": 0.7888,
+      "filter_p95_ms": 0.1187,
+      "serialization_p95_ms": 4.2505,
+      "serialized_bytes": 1347501,
+      "estimated_model_bytes": 1080000,
+      "limits_passed": true
+    },
+    {
+      "connections": 10000,
+      "generation_ms": 7.7607,
+      "filter_p95_ms": 1.7168,
+      "serialization_p95_ms": 44.415000000000006,
+      "serialized_bytes": 13577769,
+      "estimated_model_bytes": 10800000,
+      "limits_passed": true
+    },
+    {
+      "connections": 50000,
+      "generation_ms": 45.4595,
+      "filter_p95_ms": 10.4677,
+      "serialization_p95_ms": 268.0628,
+      "serialized_bytes": 68263954,
+      "estimated_model_bytes": 54000000,
+      "limits_passed": true
+    },
+    {
+      "connections": 100000,
+      "generation_ms": 84.0257,
+      "filter_p95_ms": 14.7646,
+      "serialization_p95_ms": 504.9049,
+      "serialized_bytes": 136632519,
+      "estimated_model_bytes": 108000000,
+      "limits_passed": true
+    }
+  ],
+  "soak": {
+    "duration_seconds": 30,
+    "samples": 75,
+    "interval_ms": 400,
+    "latency_p95_ms": 14.669599999999999,
+    "minimum_memory_bytes": 11390976,
+    "maximum_memory_bytes": 12328960,
+    "memory_growth_bytes": 937984,
+    "limits_passed": true
+  }
+}

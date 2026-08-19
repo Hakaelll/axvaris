@@ -5,10 +5,16 @@
   "scripts": {
     "dev": "pnpm --dir apps/desktop dev",
     "build": "pnpm --dir apps/desktop build",
-    "check": "node scripts/check-repository.mjs && node scripts/audit-licenses.mjs && pnpm --dir apps/desktop check && cargo test --workspace --all-targets --locked",
+    "check": "node scripts/check-repository.mjs && node scripts/audit-frontend.mjs && node scripts/audit-rust-dependencies.mjs && node scripts/audit-licenses.mjs && pnpm --dir apps/desktop check && cargo test --workspace --all-targets --locked",
+    "check:fast": "node scripts/check-repository.mjs && node scripts/audit-frontend.mjs && node scripts/audit-rust-dependencies.mjs && pnpm --dir apps/desktop check && cargo test --workspace --lib --locked",
+    "measure": "node scripts/measure-performance.mjs",
+    "space": "node scripts/workspace-space.mjs report",
+    "space:clean": "node scripts/workspace-space.mjs clean",
     "audit:repository": "node scripts/check-repository.mjs",
     "audit:licenses": "node scripts/audit-licenses.mjs",
-    "sbom": "node scripts/generate-sbom.mjs 0.4.1 docs/sbom-0.4.1.spdx.json",
+    "audit:frontend": "node scripts/audit-frontend.mjs",
+    "audit:dependencies": "node scripts/audit-rust-dependencies.mjs",
+    "sbom": "node scripts/generate-sbom.mjs 0.4.2 docs/sbom-0.4.2.spdx.json",
     "lint": "pnpm --dir apps/desktop lint && cargo clippy --workspace --all-targets --locked -- -D warnings",
     "format": "pnpm --dir apps/desktop format && cargo fmt --all",
     "tauri": "pnpm --dir apps/desktop tauri"

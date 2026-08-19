@@ -1,11 +1,77 @@
-# Sabicheiro 0.4.1 validation record
+# Sabicheiro validation record
 
-Validation date: 2026-08-14. This record describes the **Spain Focus** maintenance
-candidate. `PASS` means the command or bounded native check completed on the stated
-host. `REVIEW` means implementation or partial evidence exists but the full acceptance
-environment was unavailable. `BLOCKED` identifies an external host/tool prerequisite.
-No `REVIEW` or `BLOCKED` row is presented as a pass, and the candidate is not a stable
-cross-platform release while any P0 row remains open.
+`PASS` means the command or bounded native check completed on the stated host. `REVIEW`
+means implementation or partial evidence exists but the full acceptance environment
+was unavailable. `BLOCKED` identifies an external host/tool prerequisite. No `REVIEW`
+or `BLOCKED` row is presented as a pass.
+
+## 0.4.2 lightweight-runtime validation — 2026-08-16
+
+| Item | Value |
+| --- | --- |
+| Host | Windows NT `10.0.26200`, x86_64, normal-user desktop session |
+| CPU / RAM | Intel Core i7-1165G7, 8 logical CPUs / 16.932.671.488 B |
+| Rust / Cargo / Node | `1.97.1` / `1.97.1` / `v24.19.0` |
+| Product version | `0.4.2` in Cargo workspace, lockfile, desktop package and Tauri config |
+| Native target | `x86_64-pc-windows-msvc` |
+| Source-check target | `x86_64-unknown-linux-gnu` capture paths |
+| Dataset | deterministic capture fixtures, 100.000-row SQLite history, simulated eight-hour samples |
+
+### 0.4.2 automated gates
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Rust format and lints | PASS | `cargo fmt --all -- --check`; strict workspace/all-target Clippy with `-D warnings` |
+| Rust tests | PASS | 133 passed, 0 failed, 1 explicit elevated live-ETW test ignored |
+| Frontend | PASS | strict TypeScript, 926 used Spanish keys/no orphans, 65 production modules transformed |
+| Product reachability | PASS | 34 reachable modules, 60 registered/documented/consumed IPC commands, no preview/local paths/maps in `dist` |
+| Direct dependencies | PASS | 46 Cargo declarations across five workspace packages have cfg/dev/source consumers; unused desktop `thiserror` removed |
+| Licenses / policy | PASS | 519 locked Cargo + 42 pnpm packages; 137 repository files; no prohibited service dependency |
+| Linux capture source | PASS | locked all-target `x86_64-unknown-linux-gnu` source-check |
+| History 100k | PASS | 500-row response 716.705 B; 5,77 ms first-page p95; 4,26 ms filtered p95; 100.000 unique/exported |
+| Demo isolation | PASS | simulated 600 seconds, ≤4 active destinations, ≤1 event/s and zero persisted product/history rows |
+| Traffic compaction | PASS | normal eight-hour fixture 2.880 raw rows to ≤24 rows; totals/rates exact; one-second rows retained |
+| Engine / IPC | PASS | idle deadline ≥10 s, demo deadline ≤1 s, sequential UI poll, empty delta <512 B, zero overlaps |
+| Windows release package | PASS | release executable and unsigned local NSIS bundle generated from production frontend |
+| Native GUI launch/profile | BLOCKED | execution approval was rejected after the host allowance was exhausted; no result claimed |
+| Linux packages / approved ETW / 8 h desktop soak | BLOCKED | require their native/elevated/long-running environments |
+
+### 0.4.2 artifact and bundle comparison
+
+| Metric | 0.4.1 | 0.4.2 | Result |
+| --- | ---: | ---: | --- |
+| Frontend | 9.612.676 B | 1.163.691 B | PASS, −87,89 % |
+| Public source maps | 5.228.126 B | 0 B | PASS |
+| Initial resources | 2.939.648 B | 398.749 B | PASS, −86,44 % |
+| Visible logo | 2.405.703 B | 2.503 B | PASS |
+| Entry JS | 456.606 B | 328.138 B | PASS, −28,14 % |
+| Map + shared world | 766.774 B | 118.215 B | PASS, −84,58 % |
+| Globe code chunk | 678.128 B | 539.310 B | PASS, −20,47 % |
+| Portable executable | 20.589.568 B | 6.528.512 B | PASS, −68,29 % |
+| NSIS installer | 8.689.212 B | 2.851.022 B | PASS, −67,19 % |
+| Build/test/bundle `target` | 29.866.606.861 B baseline | 8.086.743.018 B (7,53 GiB) | PASS, below 8 GiB |
+
+`opt-level=z` produced 6.528.000 B before the final QA marker versus 7.347.200 B
+for `s`, 819.200 B smaller. Both used fat LTO, one codegen unit, aborting panics and
+stripped symbols; `z` was retained. `docs/performance-0.4.2-before.json`,
+`docs/performance-0.4.2-after.json`, `docs/performance-0.4.2-core.json`,
+`docs/performance-0.4.2-history.json` and `docs/performance-0.4.2-runtime.json` contain
+the machine-readable evidence and its exact boundary. The final 0 B target and
+340.524.344 B workspace result is recorded in `docs/performance-0.4.2-space.json`.
+
+The visual development preview was exercised in a browser: direct Today start,
+capture-off state, bounded Demo, table, Map, Globe, History, Exposure, Data & Health,
+controls and English/Spanish all rendered without console errors. This supports the UI
+matrix but is not substituted for native capture, tray, WebView resource, egress or
+installer-lifecycle evidence.
+
+The versioned Windows launch probe uses an absolute isolated QA data directory and
+waits for the production WebView's second `requestAnimationFrame`. It was not executed
+after the GUI permission rejection. The absence of launch, five-minute scenario and
+eight-hour numbers is explicit; no value was inferred from the browser preview or the
+30-second model soak.
+
+## Historical 0.4.1 validation — 2026-08-14
 
 ## 0.4.1 environment and release boundary
 

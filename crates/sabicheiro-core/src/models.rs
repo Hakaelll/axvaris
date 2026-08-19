@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::BTreeMap,
     net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr},
+    time::Duration,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -917,6 +918,10 @@ pub struct Diagnostics {
     pub capture_generation: u64,
     pub sequence_gaps: u64,
     pub snapshot_resyncs: u64,
+    pub dashboard_requests: u64,
+    pub dashboard_bytes_serialized: u64,
+    pub dashboard_empty_deltas: u64,
+    pub dashboard_overlaps: u64,
     pub storage_quick_check_ok: bool,
     pub storage_last_check_ms: Option<i64>,
     pub storage_wal_pages: i64,
@@ -1029,12 +1034,18 @@ pub struct DashboardUpdate {
     pub snapshot: Option<DashboardSnapshot>,
     pub upserted_connections: Vec<Connection>,
     pub removed_connection_ids: Vec<String>,
-    pub processes: Vec<ProcessSummary>,
-    pub destinations: Vec<DestinationSummary>,
-    pub stats: DashboardStats,
-    pub diagnostics: Diagnostics,
-    pub capture: CaptureSummary,
-    pub session: Option<SessionSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub processes: Option<Vec<ProcessSummary>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destinations: Option<Vec<DestinationSummary>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<DashboardStats>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Diagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture: Option<CaptureSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<Option<SessionSummary>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1058,12 +1069,20 @@ pub struct NetworkInterface {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryCursor {
+    pub last_seen_ms: i64,
+    pub connection_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryQuery {
     pub from_ms: Option<i64>,
     pub to_ms: Option<i64>,
     pub session_id: Option<String>,
     pub query: Option<String>,
     pub limit: usize,
+    #[serde(default)]
+    pub cursor: Option<HistoryCursor>,
 }
 
 impl Default for HistoryQuery {
@@ -1074,6 +1093,7 @@ impl Default for HistoryQuery {
             session_id: None,
             query: None,
             limit: 1_000,
+            cursor: None,
         }
     }
 }
@@ -1196,6 +1216,14 @@ impl OperationProfile {
             Self::BackgroundLowResource => 16_384,
             Self::InvestigationHighFidelity => 131_072,
             Self::Ephemeral => 16_384,
+        }
+    }
+
+    pub const fn traffic_sample_interval(self) -> Duration {
+        match self {
+            Self::Visible | Self::Ephemeral => Duration::from_secs(10),
+            Self::BackgroundLowResource => Duration::from_secs(30),
+            Self::InvestigationHighFidelity => Duration::from_secs(1),
         }
     }
 }
@@ -1403,9 +1431,15 @@ pub struct TrafficSample {
     pub timestamp_ms: i64,
     pub session_id: Option<String>,
     pub process_key: Option<String>,
+    #[serde(default = "default_traffic_sample_interval_ms")]
+    pub sample_interval_ms: u64,
     pub counters: TrafficCounters,
     pub rates: TransferRates,
     pub source: CounterSource,
+}
+
+const fn default_traffic_sample_interval_ms() -> u64 {
+    1_000
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

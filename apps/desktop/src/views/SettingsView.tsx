@@ -200,6 +200,16 @@ export function SettingsView({
               <span>
                 <strong>{t("Operation profile")}</strong>
                 <small>{t("Profiles change capture cadence and resource budgets; the active behavior remains visible.")}</small>
+                <small>
+                  {t("Traffic samples: every {seconds} seconds; high fidelity preserves one-second detail.", {
+                    seconds:
+                      settings.operation_profile === "investigation_high_fidelity"
+                        ? 1
+                        : settings.operation_profile === "background_low_resource"
+                          ? 30
+                          : 10,
+                  })}
+                </small>
               </span>
               <select
                 onChange={(event) =>
@@ -1142,6 +1152,18 @@ export function SettingsView({
                 <small>{t("IPC GAPS / RESYNCS")}</small>
                 <strong>
                   {diagnostics.sequence_gaps} / {diagnostics.snapshot_resyncs}
+                </strong>
+              </div>
+              <div>
+                <small>{t("IPC REQUESTS / EMPTY")}</small>
+                <strong>
+                  {diagnostics.dashboard_requests} / {diagnostics.dashboard_empty_deltas}
+                </strong>
+              </div>
+              <div>
+                <small>{t("IPC BYTES / OVERLAPS")}</small>
+                <strong>
+                  {formatBytes(diagnostics.dashboard_bytes_serialized)} / {diagnostics.dashboard_overlaps}
                 </strong>
               </div>
             </div>

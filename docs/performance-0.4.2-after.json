@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 2,
+  "phase": "0.4.2-after",
+  "generatedAt": "2026-08-16T17:34:52.550Z",
+  "source": {
+    "commit": "bfdf4b0fbcfbecd734c53816e4f41e75dfbdda9a",
+    "dirty": true,
+    "fixtureSourceSha256": "a0f29703f3da6501591e00ba31bb1cc47db6a024dea29a33a56d4a42c291ed6a"
+  },
+  "environment": {
+    "platform": "win32 10.0.26200 x64",
+    "cpu": "11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz",
+    "logicalCpus": 8,
+    "totalMemoryBytes": 16932671488,
+    "node": "v24.19.0",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)"
+  },
+  "configuration": {
+    "capture": "off for artifact measurement",
+    "permissions": "normal user",
+    "dataset": "deterministic local fixtures",
+    "duration": "artifact snapshot",
+    "webview": "system WebView2; runtime profiling recorded separately"
+  },
+  "frontend": {
+    "bytes": 1163691,
+    "sourceMapBytes": 0,
+    "sourceMapCount": 0,
+    "initialBytes": 398749,
+    "initialAssetPaths": [
+      "assets/index-RF4rEFqR.js",
+      "assets/index-BY4fDuUG.css",
+      "index.html"
+    ],
+    "assets": [
+      {
+        "path": "assets/GlobeScene-DGA-6qhW.js",
+        "bytes": 539310,
+        "sha256": "7192a7d133b75978375b889bb2e73afe079ecdba3c8482ed2c12084fe5abf2c2"
+      },
+      {
+        "path": "assets/index-RF4rEFqR.js",
+        "bytes": 328138,
+        "sha256": "76ae500ce742e85f837c701fadd4bbe12d352b161fd39f20013afe6270fad05b"
+      },
+      {
+        "path": "assets/world-Dc_K3iBS.js",
+        "bytes": 111936,
+        "sha256": "94b8d2697a2fd0cec97e6700f5f6cfc8e21420bb64173d574a0212509228da06"
+      },
+      {
+        "path": "assets/index-BY4fDuUG.css",
+        "bytes": 70038,
+        "sha256": "4d665bb5a2860be0f2ac8c405ba8dd32196640194a7df3141928b43d1c0db827"
+      },
+      {
+        "path": "assets/HistoryView-Ca4gaCY7.js",
+        "bytes": 43419,
+        "sha256": "ad4c837ee358fb4e1aa0a79bf64911c9848bea2228908e7422c2de62e6864872"
+      },
+      {
+        "path": "assets/SettingsView-BSzm7D_U.js",
+        "bytes": 28565,
+        "sha256": "2d809b7572cdfa009d8d9f502f281399215e9a46624df688a27bd45de01a27d4"
+      },
+      {
+        "path": "assets/ConnectionInspector-Df2CCHpQ.js",
+        "bytes": 13661,
+        "sha256": "7f522b15168ba9e513d272705f0415393d6817594a280b2f2340fbf43a45f152"
+      },
+      {
+        "path": "assets/ExposureView-DUlpk3BX.js",
+        "bytes": 10662,
+        "sha256": "844f79b6e383cb343b98bcc28479d5b4208fc3b8d35ad5abbb918e4de90ddd4f"
+      },
+      {
+        "path": "assets/Dialogs-Fr5DkgJY.js",
+        "bytes": 7607,
+        "sha256": "f97bd4f04833322457fec912047041dbb08d82bad0d13b2e2f550b01a4cb5d2d"
+      },
+      {
+        "path": "assets/MapView-zEsLmoQP.js",
+        "bytes": 6279,
+        "sha256": "8002e0ee1bd439d164efe16b9c38feeae7f8f982f5afd8dd547b21b694d2ff8a"
+      },
+      {
+        "path": "assets/CommandPalette-ChUQOjva.js",
+        "bytes": 3503,
+        "sha256": "0f5f036c4cc3f8d0e277863ebd5314e837fa5fb4f6856966dc72ef3e20f4769f"
+      },
+      {
+        "path": "index.html",
+        "bytes": 573,
+        "sha256": "9ec7ff33a2480b4b8cbb2dbde7177a6e4a3ee9fb43f5be2399bb753388b41ce3"
+      }
+    ]
+  },
+  "native": {
+    "executable": {
+      "path": "target/release/Sabicheiro.exe",
+      "bytes": 6528512,
+      "sha256": "3c4d87efdbb7791cf59b302351a0749b9562b87bc4c2bf5ddf2f2f2cdfe8d3c8"
+    },
+    "installer": {
+      "path": "target/release/bundle/nsis/Sabicheiro_0.4.2_x64-setup.exe",
+      "bytes": 2851022,
+      "sha256": "e8b5554fc6df039558e2e2e8b3b77e5de52008b53c9027c3d85d4f971cce26a8"
+    }
+  },
+  "workspace": {
+    "bytesWithoutGit": 8073123140,
+    "targetBytes": 7748877098,
+    "categories": [
+      {
+        "label": "target/debug",
+        "bytes": 5421671661
+      },
+      {
+        "label": "target/release",
+        "bytes": 1921606468
+      },
+      {
+        "label": "target/linux-cross",
+        "bytes": 389667004
+      },
+      {
+        "label": "target/flycheck",
+        "bytes": 455289
+      },
+      {
+        "label": "node_modules",
+        "bytes": 141460325
+      },
+      {
+        "label": "pnpm store",
+        "bytes": 8192
+      },
+      {
+        "label": "desktop dist",
+        "bytes": 1163691
+      },
+      {
+        "label": "local releases",
+        "bytes": 167931704
+      }
+    ]
+  },
+  "dependencies": {
+    "cargoTreeSha256": "b8712b8a6ba10b35f47c323e4b96f054a6ed051d9c6a4e46d42e2cfa8cbe31e0",
+    "directTreeLines": [
+      "sabicheiro-capture v0.4.2 (<repo>\\crates\\sabicheiro-capture)",
+      "├── ferrisetw v1.2.0",
+      "├── sabicheiro-core v0.4.2 (<repo>\\crates\\sabicheiro-core)",
+      "│   [dev-dependencies]",
+      "├── serde v1.0.229",
+      "├── serde_json v1.0.151",
+      "├── sha2 v0.10.9",
+      "├── sysinfo v0.39.6",
+      "├── thiserror v2.0.20",
+      "├── tracing v0.1.44",
+      "└── windows-sys v0.61.2",
+      "sabicheiro-core v0.4.2 (<repo>\\crates\\sabicheiro-core) (*)",
+      "sabicheiro-desktop v0.4.2 (<repo>\\apps\\desktop\\src-tauri)",
+      "├── chrono v0.4.45",
+      "├── sabicheiro-capture v0.4.2 (<repo>\\crates\\sabicheiro-capture) (*)",
+      "├── sabicheiro-core v0.4.2 (<repo>\\crates\\sabicheiro-core) (*)",
+      "├── sabicheiro-geo v0.4.2 (<repo>\\crates\\sabicheiro-geo)",
+      "│   [dev-dependencies]",
+      "├── sabicheiro-storage v0.4.2 (<repo>\\crates\\sabicheiro-storage)",
+      "│   [dev-dependencies]",
+      "├── serde v1.0.229 (*)",
+      "├── serde_json v1.0.151 (*)",
+      "├── sha2 v0.10.9 (*)",
+      "├── sysinfo v0.39.6 (*)",
+      "└── tauri v2.11.5",
+      "    [build-dependencies]",
+      "[build-dependencies]",
+      "└── tauri-build v2.6.3",
+      "sabicheiro-geo v0.4.2 (<repo>\\crates\\sabicheiro-geo) (*)",
+      "sabicheiro-storage v0.4.2 (<repo>\\crates\\sabicheiro-storage) (*)"
+    ]
+  },
+  "benchmarks": {
+    "historyPagination": {
+      "rows": 100000,
+      "pageSize": 500,
+      "pages": 201,
+      "insertMs": 12845.5137,
+      "firstPageP50Ms": 4.867,
+      "firstPageP95Ms": 5.768599999999999,
+      "filteredPageP95Ms": 4.2612,
+      "firstPageJsonBytes": 716705,
+      "traversalMs": 800.8435000000001,
+      "uniqueRowsTraversed": 100000,
+      "exportMs": 1365.5176,
+      "exportedRows": 100000,
+      "exportBytes": 26766524,
+      "databaseBytes": 250654720,
+      "limitsPassed": true
+    },
+    "core": {
+      "generated_at_ms": 1786899276903,
+      "iterations": 9,
+      "limits": {
+        "filter_p95_ms": 100,
+        "serialization_p95_ms": 1500,
+        "serialized_bytes_per_connection": 2500
+      },
+      "cases": [
+        {
+          "connections": 1000,
+          "generation_ms": 0.7888,
+          "filter_p95_ms": 0.1187,
+          "serialization_p95_ms": 4.2505,
+          "serialized_bytes": 1347501,
+          "estimated_model_bytes": 1080000,
+          "limits_passed": true
+        },
+        {
+          "connections": 10000,
+          "generation_ms": 7.7607,
+          "filter_p95_ms": 1.7168,
+          "serialization_p95_ms": 44.415000000000006,
+          "serialized_bytes": 13577769,
+          "estimated_model_bytes": 10800000,
+          "limits_passed": true
+        },
+        {
+          "connections": 50000,
+          "generation_ms": 45.4595,
+          "filter_p95_ms": 10.4677,
+          "serialization_p95_ms": 268.0628,
+          "serialized_bytes": 68263954,
+          "estimated_model_bytes": 54000000,
+          "limits_passed": true
+        },
+        {
+          "connections": 100000,
+          "generation_ms": 84.0257,
+          "filter_p95_ms": 14.7646,
+          "serialization_p95_ms": 504.9049,
+          "serialized_bytes": 136632519,
+          "estimated_model_bytes": 108000000,
+          "limits_passed": true
+        }
+      ],
+      "soak": {
+        "duration_seconds": 30,
+        "samples": 75,
+        "interval_ms": 400,
+        "latency_p95_ms": 14.669599999999999,
+        "minimum_memory_bytes": 11390976,
+        "maximum_memory_bytes": 12328960,
+        "memory_growth_bytes": 937984,
+        "limits_passed": true
+      }
+    },
+    "runtime": {
+      "schemaVersion": 1,
+      "generatedAt": "2026-08-16T00:00:00.000Z",
+      "host": "Windows 10.0.26200 x86_64, normal-user session",
+      "nativeGuiLaunch": {
+        "state": "not_run",
+        "reason": "The execution approval service rejected the local GUI launch because its usage allowance was exhausted. The versioned scripts/measure-windows-launch.mjs probe remains ready for ten isolated cold-proxy and ten warm launches; no timing was inferred or fabricated."
+      },
+      "boundedRuntimeEvidence": {
+        "engineOffMinimumWakeupMs": 10000,
+        "demoMaximumWakeupMs": 1000,
+        "dashboardOverlaps": 0,
+        "stableEmptyDeltaMaximumBytes": 511,
+        "demoSimulatedSeconds": 600,
+        "demoPersistentRows": 0,
+        "modelSoakSeconds": 30,
+        "modelSoakMemoryGrowthBytes": 937984,
+        "modelSoakLatencyP95Ms": 14.6696
+      },
+      "manualPreviewEvidence": {
+        "state": "pass",
+        "flows": [
+          "Today opens directly without FirstRun",
+          "capture remains off until selected",
+          "Demo exposes two processes, TCP and UDP across four documentation destinations",
+          "Map 2D and Globe 3D render and respond to controls",
+          "History, Exposure and Data & Health lazy views open",
+          "English and Spanish UI render without console errors"
+        ],
+        "boundary": "Browser preview evidence validates UI behavior, not native capture, tray, installer lifecycle or egress."
+      }
+    }
+  },
+  "parity": [
+    {
+      "flow": "capture-off",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "live",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "demo",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "interface",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "pause-view",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "search",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "map-2d",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "globe-3d",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "today",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "history",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "time-machine",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "sabi",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "exposure",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "rules",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "notifications",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "recording",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "geoip",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "retention",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "export",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "tray",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "autostart",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "language",
+      "state": "covered by automated or manual QA gate"
+    },
+    {
+      "flow": "keyboard-accessibility",
+      "state": "covered by automated or manual QA gate"
+    }
+  ]
+}

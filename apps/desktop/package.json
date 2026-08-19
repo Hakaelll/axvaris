@@ -1,10 +1,11 @@
 {
   "name": "sabicheiro-desktop",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 1420",
+    "dev": "vite --host 127.0.0.1 --port 1420 --mode preview",
+    "dev:tauri": "vite --host 127.0.0.1 --port 1420 --mode tauri",
     "build": "tsc -b && vite build",
     "check": "node scripts/audit-i18n.mjs && tsc -b --pretty false && vite build",
     "audit:i18n": "node scripts/audit-i18n.mjs",

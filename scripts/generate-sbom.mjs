@@ -127,7 +127,7 @@ const packages = [
 ];
 const created = process.env.SOURCE_DATE_EPOCH
   ? new Date(Number(process.env.SOURCE_DATE_EPOCH) * 1_000).toISOString()
-  : "2026-08-14T00:00:00.000Z";
+  : "2026-08-16T00:00:00.000Z";
 const document = {
   spdxVersion: "SPDX-2.3",
   dataLicense: "CC0-1.0",

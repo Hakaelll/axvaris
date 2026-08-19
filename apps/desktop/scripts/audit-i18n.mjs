@@ -124,14 +124,54 @@ for (const match of objectBody.matchAll(property)) {
   translated.add(match[1].startsWith('"') ? JSON.parse(match[1]) : match[1]);
 }
 
+function collect(directory, pattern) {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolute = path.join(directory, entry.name);
+    return entry.isDirectory()
+      ? collect(absolute, pattern)
+      : pattern.test(entry.name)
+        ? [absolute]
+        : [];
+  });
+}
+
+// Messages returned by Rust and labels selected from typed arrays reach `t(value)`
+// dynamically. Count an exact source occurrence, while deliberately excluding the
+// dictionary itself and the preview-only adapter from the production audit.
+const repositoryRoot = path.resolve("..", "..");
+const dynamicSource = [
+  ...sourceFiles.filter(
+    (filename) =>
+      path.basename(filename) !== "i18n.ts" &&
+      path.normalize(filename) !== path.join(sourceRoot, "lib", "backend.ts"),
+  ),
+  ...collect(path.join(repositoryRoot, "crates"), /\.rs$/),
+  ...collect(path.join(sourceRoot, "..", "src-tauri", "src"), /\.rs$/),
+]
+  .map((filename) => fs.readFileSync(filename, "utf8"))
+  .join("\n");
+for (const key of translated) {
+  if (dynamicSource.includes(key)) used.add(key);
+}
+
 const missing = [...used]
   .filter((key) => !translated.has(key))
   .sort((left, right) => left.localeCompare(right));
+const unused = [...translated]
+  .filter((key) => !used.has(key))
+  .sort((left, right) => left.localeCompare(right));
 
-if (missing.length > 0) {
+if (missing.length > 0 || unused.length > 0) {
+  if (missing.length > 0) {
   console.error(`Missing ${missing.length} Spanish UI translations:`);
   for (const key of missing) console.error(`- ${JSON.stringify(key)}`);
+  }
+  if (unused.length > 0) {
+    console.error(`Unused ${unused.length} Spanish UI translations:`);
+    for (const key of unused) console.error(`- ${JSON.stringify(key)}`);
+  }
   process.exitCode = 1;
 } else {
-  console.log(`Spanish UI translation audit passed (${used.size} literal keys).`);
+  console.log(`Spanish UI translation audit passed (${used.size} used keys; no orphans).`);
 }

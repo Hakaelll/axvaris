@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type {
   HistoryQuery,
@@ -16,6 +16,8 @@ import { desktopApi } from "#backend";
 import { EvidenceTable } from "../components/EvidenceTable";
 import { QueryBuilder } from "../components/QueryBuilder";
 import { ContextProfiles } from "../components/ContextProfiles";
+import { usePresentation } from "../privacy/PresentationMode";
+import { LatestRequest } from "../lib/latestRequest";
 
 interface HistoryViewProps {
   currentQuery: string;
@@ -50,6 +52,7 @@ export function HistoryView({
   onQueryChange,
 }: HistoryViewProps) {
   const t = useI18n();
+  const { display, displayText } = usePresentation();
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [range, setRange] = useState<(typeof ranges)[number]>(ranges[1]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
@@ -73,7 +76,9 @@ export function HistoryView({
   const [comparisonExported, setComparisonExported] = useState<string | null>(
     null,
   );
-  const [investigations, setInvestigations] = useState<SavedInvestigation[]>([]);
+  const [investigations, setInvestigations] = useState<SavedInvestigation[]>(
+    [],
+  );
   const [investigationName, setInvestigationName] = useState("");
   const [investigationNotes, setInvestigationNotes] = useState("");
   const [investigationTags, setInvestigationTags] = useState("");
@@ -91,40 +96,59 @@ export function HistoryView({
   const [reenrichmentJob, setReenrichmentJob] =
     useState<ReenrichmentJobStatus | null>(null);
   const [geoView, setGeoView] = useState<DerivedGeoEnrichment[]>([]);
+  const pageRequest = useRef(new LatestRequest());
+  const comparisonRequest = useRef(new LatestRequest());
+
+  useEffect(
+    () => () => {
+      pageRequest.current.invalidate();
+      comparisonRequest.current.invalidate();
+    },
+    [],
+  );
 
   useEffect(() => {
-    void desktopApi.listInvestigations().then(setInvestigations);
+    let cancelled = false;
+    void desktopApi.listInvestigations().then((items) => {
+      if (!cancelled) setInvestigations(items);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const historyQuery = useMemo<HistoryQuery>(() => ({
-    from_ms: investigationWindow
-      ? investigationWindow.from_ms
-      : selectedSession || range.milliseconds === null
-        ? null
-        : Date.now() - range.milliseconds,
-    to_ms: investigationWindow?.to_ms ?? null,
-    session_id: selectedSession,
-    query: currentQuery || null,
-    limit: 500,
-    cursor: null,
-  }), [currentQuery, investigationWindow, range, selectedSession]);
+  const historyQuery = useMemo<HistoryQuery>(
+    () => ({
+      from_ms: investigationWindow
+        ? investigationWindow.from_ms
+        : selectedSession || range.milliseconds === null
+          ? null
+          : Date.now() - range.milliseconds,
+      to_ms: investigationWindow?.to_ms ?? null,
+      session_id: selectedSession,
+      query: currentQuery || null,
+      limit: 500,
+      cursor: null,
+    }),
+    [currentQuery, investigationWindow, range, selectedSession],
+  );
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadingMore(false);
+    pageRequest.current.invalidate();
     setHistory(null);
     setPrefetchedPage(null);
     void loadHistory({
       ...historyQuery,
       cursor: null,
-    }).then(
-      (result) => {
-        if (!cancelled) {
-          setHistory(result);
-          setLoading(false);
-        }
-      },
-    );
+    }).then((result) => {
+      if (!cancelled) {
+        setHistory(result);
+        setLoading(false);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -142,11 +166,19 @@ export function HistoryView({
     return () => {
       cancelled = true;
     };
-  }, [history?.has_more, history?.next_cursor, historyQuery, loadHistory, loadingMore, prefetchedPage?.cursorKey]);
+  }, [
+    history?.has_more,
+    history?.next_cursor,
+    historyQuery,
+    loadHistory,
+    loadingMore,
+    prefetchedPage?.cursorKey,
+  ]);
 
   const loadNextPage = async () => {
     if (!history?.has_more || !history.next_cursor || loadingMore) return;
     setLoadingMore(true);
+    const requestToken = pageRequest.current.begin();
     const cursorKey = `${history.next_cursor.last_seen_ms}:${history.next_cursor.connection_id}`;
     const next =
       prefetchedPage?.cursorKey === cursorKey
@@ -155,6 +187,7 @@ export function HistoryView({
             ...historyQuery,
             cursor: history.next_cursor,
           });
+    if (!pageRequest.current.isCurrent(requestToken)) return;
     if (next) {
       setHistory((current) =>
         current
@@ -169,6 +202,13 @@ export function HistoryView({
     }
     setPrefetchedPage(null);
     setLoadingMore(false);
+  };
+
+  const compareSelectedSessions = async () => {
+    const requestToken = comparisonRequest.current.begin();
+    const result = await desktopApi.compareSessions(leftSession, rightSession);
+    if (comparisonRequest.current.isCurrent(requestToken))
+      setComparison(result);
   };
 
   useEffect(() => {
@@ -429,10 +469,11 @@ export function HistoryView({
   ]);
 
   const exportSabi = async (investigation: SavedInvestigation) => {
-    const safeName = investigation.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "") || "investigation";
+    const safeName =
+      investigation.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "investigation";
     const result = await desktopApi.exportSabi({
       path: `${safeName}-${Date.now()}.sabi`,
       investigation_id: investigation.id,
@@ -442,10 +483,12 @@ export function HistoryView({
         user_names: true,
       },
     });
-    setSabiStatus(t("Exported {count} records to {path}", {
-      count: result.records,
-      path: result.path,
-    }));
+    setSabiStatus(
+      t("Exported {count} records to {path}", {
+        count: result.records,
+        path: result.path,
+      }),
+    );
   };
 
   const importSabi = async () => {
@@ -453,9 +496,11 @@ export function HistoryView({
     if (!path) return;
     const imported = await desktopApi.importSabi(path);
     setImportedBundle(imported);
-    setSabiStatus(t("Verified read-only bundle with {count} connections.", {
-      count: imported.connections.length,
-    }));
+    setSabiStatus(
+      t("Verified read-only bundle with {count} connections.", {
+        count: imported.connections.length,
+      }),
+    );
   };
 
   return (
@@ -565,9 +610,7 @@ export function HistoryView({
               onClick={() => void saveInvestigation()}
               type="button"
             >
-              {activeInvestigation
-                ? t("Save now")
-                : t("Save investigation")}
+              {activeInvestigation ? t("Save now") : t("Save investigation")}
             </button>
             <button
               className="button button--secondary"
@@ -595,7 +638,8 @@ export function HistoryView({
               <div>
                 <strong>{investigation.name}</strong>
                 <small>
-                  {formatDateTime(investigation.updated_at_ms)} · {investigation.query.pinned_connection_ids.length} {t("pins")}
+                  {formatDateTime(investigation.updated_at_ms)} ·{" "}
+                  {investigation.query.pinned_connection_ids.length} {t("pins")}
                 </small>
                 <code>
                   {investigation.query.filter ?? t("No active filter")}
@@ -644,7 +688,11 @@ export function HistoryView({
         <div className="sabi-import-panel">
           <div>
             <strong>{t("Open portable investigation")}</strong>
-            <p>{t("The ZIP manifest, exact entry set, CRC and SHA-256 hashes are verified before opening. Imported evidence stays read-only and is never merged or uploaded.")}</p>
+            <p>
+              {t(
+                "The ZIP manifest, exact entry set, CRC and SHA-256 hashes are verified before opening. Imported evidence stays read-only and is never merged or uploaded.",
+              )}
+            </p>
           </div>
           <input
             aria-label={t(".sabi file path")}
@@ -652,23 +700,63 @@ export function HistoryView({
             placeholder="C:\\Evidence\\investigation.sabi"
             value={sabiImportPath}
           />
-          <button className="button button--secondary" disabled={!sabiImportPath.trim()} onClick={() => void importSabi()} type="button">
+          <button
+            className="button button--secondary"
+            disabled={!sabiImportPath.trim()}
+            onClick={() => void importSabi()}
+            type="button"
+          >
             {t("Verify and open read-only")}
           </button>
           {sabiStatus && <small role="status">{sabiStatus}</small>}
         </div>
         {importedBundle && (
-          <section className="sabi-readonly" aria-label={t("Imported read-only investigation")}>
+          <section
+            className="sabi-readonly"
+            aria-label={t("Imported read-only investigation")}
+          >
             <header>
-              <div><strong>{importedBundle.investigation.name}</strong><small>{t("READ-ONLY .SABI / schema {version}", { version: importedBundle.manifest.schema_version })}</small></div>
-              <button className="button button--secondary" onClick={() => setImportedBundle(null)} type="button">{t("Close bundle")}</button>
+              <div>
+                <strong>{importedBundle.investigation.name}</strong>
+                <small>
+                  {t("READ-ONLY .SABI / schema {version}", {
+                    version: importedBundle.manifest.schema_version,
+                  })}
+                </small>
+              </div>
+              <button
+                className="button button--secondary"
+                onClick={() => setImportedBundle(null)}
+                type="button"
+              >
+                {t("Close bundle")}
+              </button>
             </header>
-            <p>{importedBundle.investigation.notes || t("No local notes in this bundle.")}</p>
+            <p>
+              {importedBundle.investigation.notes ||
+                t("No local notes in this bundle.")}
+            </p>
             <dl>
-              <div><dt>{t("Source path")}</dt><dd><code>{importedBundle.source_path}</code></dd></div>
-              <div><dt>{t("Connections")}</dt><dd>{importedBundle.connections.length}</dd></div>
-              <div><dt>{t("Timeline samples")}</dt><dd>{importedBundle.timeline.length}</dd></div>
-              <div><dt>{t("Verified entries")}</dt><dd>{Object.keys(importedBundle.manifest.entry_sha256).length}</dd></div>
+              <div>
+                <dt>{t("Source path")}</dt>
+                <dd>
+                  <code>{importedBundle.source_path}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Connections")}</dt>
+                <dd>{importedBundle.connections.length}</dd>
+              </div>
+              <div>
+                <dt>{t("Timeline samples")}</dt>
+                <dd>{importedBundle.timeline.length}</dd>
+              </div>
+              <div>
+                <dt>{t("Verified entries")}</dt>
+                <dd>
+                  {Object.keys(importedBundle.manifest.entry_sha256).length}
+                </dd>
+              </div>
             </dl>
           </section>
         )}
@@ -862,7 +950,9 @@ export function HistoryView({
             onClick={() => void loadNextPage()}
             type="button"
           >
-            {loadingMore ? t("Loading next page...") : t("Load 500 more records")}
+            {loadingMore
+              ? t("Loading next page...")
+              : t("Load 500 more records")}
           </button>
         </div>
       )}
@@ -960,12 +1050,21 @@ export function HistoryView({
                 >
                   <time>{formatDateTime(connection.first_seen_ms)}</time>
                   <span>
-                    <strong>{connection.process.name}</strong>
+                    <strong>
+                      {display("process", connection.process.name)}
+                    </strong>
                     <small>PID {connection.process.pid ?? "?"}</small>
                   </span>
                   <span>
                     <strong>
-                      {connection.domain ?? connection.key.remote.address}
+                      {connection.domain
+                        ? display("domain", connection.domain)
+                        : display(
+                            connection.key.remote.scope === "global"
+                              ? "public_ip"
+                              : "local_ip",
+                            connection.key.remote.address,
+                          )}
                     </strong>
                     <small>
                       {connection.geo?.country_name ?? t("Unknown location")}
@@ -1147,11 +1246,7 @@ export function HistoryView({
               disabled={
                 !leftSession || !rightSession || leftSession === rightSession
               }
-              onClick={() =>
-                void desktopApi
-                  .compareSessions(leftSession, rightSession)
-                  .then(setComparison)
-              }
+              onClick={() => void compareSelectedSessions()}
               type="button"
             >
               {t("Compare sessions")}
@@ -1214,7 +1309,13 @@ export function HistoryView({
               </div>
               {comparison[comparisonCategory].slice(0, 100).map((row) => (
                 <div key={row.key} role="row">
-                  <span role="cell">{row.key}</span>
+                  <span role="cell">
+                    {comparisonCategory === "processes"
+                      ? display("process", row.key)
+                      : comparisonCategory === "destinations"
+                        ? displayText(row.key)
+                        : row.key}
+                  </span>
                   <span role="cell">{row.left_count}</span>
                   <span role="cell">{row.right_count}</span>
                   <span

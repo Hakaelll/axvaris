@@ -12,7 +12,6 @@ import { translate, useI18n, useLanguage } from "../i18n";
 import { desktopApi } from "#backend";
 import {
   compareListenerSnapshots,
-  formatListenerEndpoint,
   listenerKey,
   normalizeListenerSnapshots,
 } from "../lib/exposure";
@@ -21,6 +20,7 @@ import type {
   ListenerExposure,
   ListenerSnapshot,
 } from "../types";
+import { usePresentation } from "../privacy/PresentationMode";
 
 interface ExposureViewProps {
   snapshot: DashboardSnapshot;
@@ -99,6 +99,7 @@ export function ExposureView({
 }: ExposureViewProps) {
   const t = useI18n();
   const language = useLanguage();
+  const { display, displayText } = usePresentation();
   const [snapshots, setSnapshots] = useState<ListenerSnapshot[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -201,13 +202,20 @@ export function ExposureView({
           </span>
         </td>
         <td>
-          <strong>{connection?.process.name ?? t("Unknown process")}</strong>
+          <strong>
+            {connection
+              ? display("process", connection.process.name)
+              : t("Unknown process")}
+          </strong>
           <small>
             {listener.process_instance ?? t("No process instance evidence")}
           </small>
         </td>
         <td>
-          <code>{formatListenerEndpoint(listener)}</code>
+          <code>
+            {display("local_ip", listener.endpoint.address)}:
+            {listener.endpoint.port}
+          </code>
         </td>
         <td>{listener.protocol.toUpperCase()}</td>
         <td>
@@ -219,11 +227,19 @@ export function ExposureView({
           {connection?.process.executable_revision_id ??
             t("Revision unavailable")}
         </td>
-        <td>{connection?.process.user_id ?? t("User unavailable")}</td>
-        <td>{connection?.interface ?? t("Interface unavailable")}</td>
+        <td>
+          {connection?.process.user_id
+            ? display("user", connection.process.user_id)
+            : t("User unavailable")}
+        </td>
+        <td>
+          {connection?.interface
+            ? display("interface", connection.interface)
+            : t("Interface unavailable")}
+        </td>
         <td>
           <strong>{t(listener.firewall)}</strong>
-          <small>{listener.limitation}</small>
+          <small>{displayText(listener.limitation)}</small>
         </td>
         <td>
           <button

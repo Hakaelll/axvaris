@@ -59,7 +59,7 @@ NetworkCaptureProvider ──► NormalizedNetworkEvent
   bounded queues, supervision, process/executable/route context, optional helper and
   recording boundaries.
 - `crates/sabicheiro-geo`: bounded local MMDB/DNS caches and private/LAN handling.
-- `crates/sabicheiro-storage`: SQLite v5 journal/projections, replay hashes, product
+- `crates/sabicheiro-storage`: SQLite v7 journal/projections, replay hashes, product
   state, tiered retention/FTS, recovery, `.sabi` data and CSV/JSON export.
 - `apps/desktop/src-tauri`: narrow Tauri commands and runtime orchestration.
 - `apps/desktop/src`: React presentation, Three.js scene and local UI state.
@@ -102,6 +102,12 @@ general filesystem capability exposed to the webview. Product APIs cover rule
 versions/dry-runs, Today state, notification state, network profiles, annotations,
 listener snapshots, connection context, executable inspection jobs, handshake audit
 and verified `.sabi` import/export.
+
+Today starts through one bounded `get_today_bootstrap` command. Rust aggregates the
+active session, previous-session comparison, listener differences and novelty groups
+before serialization. Novelty uses indexed SQLite anti-joins across all retained
+history rather than a client-side latest-page sample. Every group and example list has
+an explicit payload cap and carries a typed evidence target for drill-down navigation.
 
 The Tauri capability file grants only core window/event functionality required by
 the webview. Privileged capture/recording remains behind the Rust boundary.
@@ -160,6 +166,11 @@ investigation workspace state. Read-only `.sabi` imports are isolated from this
 database. Retention estimates and deletes in bounded tiers; salvage always writes a
 new destination and never overwrites the original.
 
+Schema v6 adds compact traffic rollups and their source interval. Schema v7 preserves
+the executable revision on connection rows and adds the indexes used by bounded Today
+novelty queries. Every on-disk migration from v1 through v6 creates a readable backup
+before v7 and is covered by migration tests.
+
 ## Frontend and visualization
 
 React owns selection, navigation, filters and accessibility. Primary navigation is
@@ -176,6 +187,17 @@ workspaces filter the same evidence
 array. Core navigation, failures, self-tests and dynamic baseline explanations route
 through the English/Spanish catalog; original low-level diagnostics remain available
 in an expandable detail.
+
+Secondary views and live-only panels are lazy-loaded; Today, History and Settings use
+monotonic request gates so stale IPC results cannot replace newer state. The wide
+layout docks the inspector in the main grid, while narrow windows use a focusable
+overlay closed by Escape. Capture state and actions remain in the compact navigation
+instead of disappearing below the breakpoint.
+
+Presentation mode is a React rendering boundary, not a data transformation. One
+in-memory redactor assigns stable pseudonyms for the lifetime of the app and sanitizes
+visible text plus `title`/accessible-label attributes. Backend values, query filters,
+SQLite rows and export payloads remain unchanged.
 
 ## Security boundaries
 

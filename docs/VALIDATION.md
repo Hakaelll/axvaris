@@ -5,6 +5,92 @@ means implementation or partial evidence exists but the full acceptance environm
 was unavailable. `BLOCKED` identifies an external host/tool prerequisite. No `REVIEW`
 or `BLOCKED` row is presented as a pass.
 
+## 0.4.2 Today/presentation follow-up — 2026-08-22
+
+| Item | Value |
+| --- | --- |
+| Host | Windows NT `10.0.26200.0`, x86_64, normal-user desktop session |
+| Rust / Cargo / Node / pnpm | `1.97.1` / `1.97.1` / `v24.19.0` / `11.19.0` |
+| Product version | `0.4.2`; no release/version bump in this follow-up |
+| Native target | `x86_64-pc-windows-msvc` |
+| Browser QA viewport | 720×600 narrow, 1440×900 wide, and app text scale 200% |
+| Dataset | deterministic preview plus retained-history/session/listener fixtures |
+
+### Implemented boundary
+
+- `get_today_bootstrap` replaces five Today/history round trips with one bounded
+  payload. SQLite novelty uses all retained history and emits capped examples for new
+  processes, app destinations, domains, ASNs, countries and executable revisions.
+  The desktop layer adds network-profile/provider and listener
+  added/removed/widened changes.
+- The active-session strip exposes duration, active connections/processes, sent and
+  received totals, unlocated count, profile, counter quality and a 60-point SVG trend.
+  Unavailable counters remain unavailable rather than being rendered as zero.
+- Previous-session comparison reuses aggregate session/listener data for process,
+  destination, country and port deltas. Counter-source changes produce an explicit
+  comparability warning and every result can drill into Investigate.
+- Presentation mode assigns stable in-memory pseudonyms to public/local IPs, domains,
+  paths/users, gateways and profile labels. The rendering boundary covers visible text,
+  `title` and accessible-label attributes; backend models, SQLite, filters and exports
+  are unchanged.
+- Compact navigation keeps capture status and actions available. The inspector is a
+  third grid column on wide windows and an Escape-dismissible overlay on narrow ones.
+  Today, History and Settings reject stale async results; secondary/live-only panels
+  are lazy-loaded.
+- Unlocated destinations retain one of five reasons: missing GeoIP, local/reserved,
+  low precision, missing coordinates or enrichment pending. `geo:unlocated` and
+  `geo:plotted` are local filters; no fallback coordinate is generated.
+- Settings has an offline English/Castellano search that opens the matching section and
+  focuses its control. Presentation and palette controls are available there and in
+  the compact UI.
+
+### Automated and bounded visual gates
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Frontend check | PASS | i18n audit, UI DOM tests, strict TypeScript and production Vite build through `pnpm --dir apps/desktop check` |
+| UI contract tests | PASS | presentation idempotency/DOM attributes/filter integrity, compact controls, unlocated classification, stale-request gate, bilingual settings search and quick comparison |
+| i18n | PASS | 996 used English/Castellano keys, no missing or orphaned keys |
+| Rust format / lints | PASS | `cargo fmt --all -- --check`; strict workspace/all-target Clippy with `-D warnings` |
+| Rust tests | PASS | 138 passed, 0 failed, 1 explicitly elevated live-ETW test ignored |
+| Today history boundary | PASS | novelty is detected beyond the latest 500 rows; group/example limits and desktop listener comparison tested |
+| Migration boundary | PASS | v1–v6 upgrade to v7, readable pre-v7 backups, executable revision and Today indexes |
+| Product reachability | PASS | 41 reachable production modules and 58 registered/documented/consumed IPC commands; no preview/local path or map data in the entry chunk |
+| Dependency/license policy | PASS | 46 direct Cargo declarations; 519 locked Cargo and 42 pnpm packages; no new runtime dependency |
+| Narrow/wide browser QA | PASS | zero shell horizontal overflow at 720×600 and 200%; capture status/menu visible; overlay/docked inspector and Escape/focus behavior verified |
+| Presentation browser QA | PASS | permanent indicator; no fixture process/domain/IP/user value in text, `title` or accessible labels before or after a live update |
+| Map/Globe stress | PASS | 50 complete 2D↔3D swaps; one canvas after the run, no accumulated inactive scene and no browser errors |
+| Native WebView/HiDPI/screen reader | REVIEW | not run; browser evidence is not substituted for native evidence |
+| Native Linux / elevated ETW / long soak | BLOCKED | require their native/elevated/long-running environments; no pass claimed |
+
+### Artifact budgets
+
+| Metric | Published record | Corrected production baseline | Follow-up | Result |
+| --- | ---: | ---: | ---: | --- |
+| Frontend | 1.163.691 B | 1.163.691 B | 1.201.180 B | PASS, +3,22%; below 1,25 MiB |
+| Public source maps | 0 B | 0 B | 0 B | PASS |
+| Initial resources | 398.749 B | 398.749 B | 401.145 B | PASS, +0,60%; below 400 KiB; 360 KiB preference not reached |
+| Entry JS | 328.138 B | 328.138 B | 320.581 B | PASS, −2,30% |
+| Portable executable | 6.528.512 B | 6.857.216 B | 6.922.240 B | PASS, +0,95%; below 7 MiB |
+| NSIS installer | 2.851.022 B | 3.172.137 B | 3.201.195 B | PASS, +0,92%; below 3,1 MiB |
+
+Final SHA-256: portable
+`bdb864364a55386736e948ffa293c40f9bd9f1e2209367a4c61974b6e3f28612`; NSIS
+`c1978b9d047edb1861704c07854a97a7b64beb65b25f05b5e8f0456c084017ed`.
+
+The published 6.528.512 B executable is not a valid production-size baseline. It is
+reproduced by plain `cargo build --release`, whose build output contains
+`cargo:rustc-cfg=dev`; binary inspection finds none of the documented Vite chunk keys.
+Rebuilding the unchanged `HEAD` in an isolated source tree with
+`pnpm --dir apps/desktop tauri build --bundles nsis` embeds all 12 files and yields the
+corrected 6.857.216 B / 3.172.137 B pair. The follow-up therefore compares package
+growth against that reproducible production boundary. The published numbers remain in
+the historical section below rather than being silently rewritten.
+
+The follow-up release build completed locally and produced an unsigned NSIS package.
+This proves compilation and packaging only. Native launch, tray/capture operation,
+installer lifecycle, OS HiDPI and screen-reader behavior are still not claimed here.
+
 ## 0.4.2 lightweight-runtime validation — 2026-08-16
 
 | Item | Value |

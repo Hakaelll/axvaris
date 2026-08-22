@@ -44,6 +44,20 @@ Structured application logs are written below the same app-data directory, rotat
 daily and are pruned after seven days. The implemented log events contain lifecycle
 and error metadata, never packet payloads or credentials.
 
+## Presentation mode
+
+Presentation mode is intended for screen sharing and screenshots. While it is on, the
+React presentation boundary replaces public and local IPs, domains, executable paths,
+user names, gateways and network-profile labels with stable pseudonyms. The mapping is
+created in memory, remains stable for the current app run and is discarded when the
+process exits.
+
+The mode changes rendered text only, including sensitive `title` and accessible-label
+attributes. It does not rewrite SQLite, mutate captured models, change a query/filter,
+alter an investigation or silently redact a CSV/JSON/PCAPNG export. A permanent visible
+indicator remains on while the boundary is enabled so a screenshot cannot imply that
+the underlying evidence was anonymized at rest.
+
 ## Payloads and recordings
 
 Normal monitoring stores metadata, not packet payload. Full packet content is written

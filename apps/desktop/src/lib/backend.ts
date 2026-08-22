@@ -46,6 +46,7 @@ import type {
   TrafficSample,
   TrafficCounters,
   TodayCardState,
+  TodayBootstrap,
 } from "../types";
 
 declare global {
@@ -445,9 +446,15 @@ function makePreviewSnapshot(): DashboardSnapshot {
       capture_generation: previewMode === "off" ? 0 : 1,
       sequence_gaps: 0,
       snapshot_resyncs: 0,
-      dashboard_requests: Math.max(1, Math.floor((now - previewStarted) / 5_000)),
+      dashboard_requests: Math.max(
+        1,
+        Math.floor((now - previewStarted) / 5_000),
+      ),
       dashboard_bytes_serialized: 48_000,
-      dashboard_empty_deltas: Math.max(0, Math.floor((now - previewStarted) / 7_500)),
+      dashboard_empty_deltas: Math.max(
+        0,
+        Math.floor((now - previewStarted) / 7_500),
+      ),
       dashboard_overlaps: 0,
       storage_quick_check_ok: true,
       storage_last_check_ms: now,
@@ -739,9 +746,6 @@ export const desktopApi = {
     ];
     return structuredClone(rule);
   },
-  async listLocalRules(): Promise<LocalRule[]> {
-    return isDesktop ? call("list_local_rules") : structuredClone(previewLocalRules);
-  },
   async deleteLocalRule(id: string): Promise<boolean> {
     if (isDesktop) return call("delete_local_rule", { id });
     const previous = previewLocalRules.length;
@@ -753,13 +757,14 @@ export const desktopApi = {
     query: HistoryQuery,
   ): Promise<RuleMatch[]> {
     if (isDesktop) return call("preview_local_rule", { rule, query });
-    return makePreviewSnapshot().connections
-      .filter((connection) =>
+    return makePreviewSnapshot()
+      .connections.filter((connection) =>
         rule.conditions.every((condition) =>
           condition.field === "port"
             ? connection.key.remote.port === condition.value
             : condition.field === "process"
-              ? connection.process.name.toLowerCase() === condition.value.toLowerCase()
+              ? connection.process.name.toLowerCase() ===
+                condition.value.toLowerCase()
               : true,
         ),
       )
@@ -771,11 +776,6 @@ export const desktopApi = {
         reasons: ["Development preview match"],
         actions: rule.actions,
       }));
-  },
-  async listLocalNotifications(limit = 200): Promise<LocalNotificationRecord[]> {
-    return isDesktop
-      ? call("list_notifications", { limit })
-      : structuredClone(previewLocalNotifications.slice(0, limit));
   },
   async updateLocalNotification(
     id: string,
@@ -802,8 +802,7 @@ export const desktopApi = {
     id: string,
     displayName: string | null,
   ): Promise<NetworkProfile> {
-    if (isDesktop)
-      return call("rename_network_profile", { id, displayName });
+    if (isDesktop) return call("rename_network_profile", { id, displayName });
     const profile = (await this.listNetworkProfiles()).find(
       (item) => item.id === id,
     );
@@ -823,10 +822,153 @@ export const desktopApi = {
     ];
     return structuredClone(card);
   },
-  async listTodayCardStates(): Promise<TodayCardState[]> {
-    return isDesktop
-      ? call("list_today_card_states")
-      : structuredClone(previewTodayCards);
+  async getTodayBootstrap(): Promise<TodayBootstrap> {
+    if (isDesktop) return call("get_today_bootstrap");
+    const snapshot = makePreviewSnapshot();
+    const limits = {
+      examples_per_category: 3,
+      comparison_rows_per_category: 8,
+      card_states: 500,
+      profiles: 32,
+      rules: 200,
+      notifications: 50,
+    };
+    const examples = snapshot.connections.slice(
+      0,
+      limits.examples_per_category,
+    );
+    const group = (
+      kind: TodayBootstrap["changes"][number]["kind"],
+      values: typeof examples,
+      primary: (connection: Connection) => string,
+      secondary: (connection: Connection) => string | null,
+      query: (connection: Connection) => string | null,
+    ): TodayBootstrap["changes"][number] => ({
+      kind,
+      count: values.length,
+      examples: values.map((connection) => ({
+        id: `${kind}:${connection.id}`,
+        kind,
+        primary: primary(connection),
+        secondary: secondary(connection),
+        connection_id: connection.id,
+        query: query(connection),
+        target: "investigate",
+        observed_at_ms: connection.last_seen_ms,
+      })),
+    });
+    const comparison = await this.compareSessions(
+      "preview-previous-session",
+      snapshot.session?.id ?? "preview-current-session",
+    );
+    const currentTraffic = snapshot.session?.traffic ?? zeroTraffic();
+    return {
+      generated_at_ms: Date.now(),
+      history_scope: "all_retained",
+      limits,
+      changes: [
+        group(
+          "process",
+          examples.slice(0, 2),
+          (connection) => connection.process.name,
+          () => null,
+          (connection) => `process:${JSON.stringify(connection.process.name)}`,
+        ),
+        group(
+          "application_destination",
+          examples,
+          (connection) => connection.domain ?? connection.key.remote.address,
+          (connection) => connection.process.name,
+          (connection) =>
+            JSON.stringify(connection.domain ?? connection.key.remote.address),
+        ),
+        group(
+          "domain",
+          examples,
+          (connection) => connection.domain ?? connection.key.remote.address,
+          (connection) => connection.process.name,
+          (connection) =>
+            connection.domain
+              ? `domain:${JSON.stringify(connection.domain)}`
+              : null,
+        ),
+        group(
+          "asn",
+          examples,
+          (connection) => `AS${connection.asn?.number ?? 0}`,
+          (connection) => connection.asn?.organization ?? null,
+          (connection) =>
+            connection.asn ? `asn:${connection.asn.number}` : null,
+        ),
+        group(
+          "country",
+          examples,
+          (connection) => connection.geo?.country_name ?? "Unknown geography",
+          (connection) => connection.geo?.country_code ?? null,
+          (connection) =>
+            connection.geo?.country_code
+              ? `country:${connection.geo.country_code}`
+              : null,
+        ),
+        group(
+          "executable_revision",
+          examples,
+          (connection) =>
+            connection.process.executable_revision_id ?? "Unavailable",
+          (connection) => connection.process.name,
+          (connection) => `process:${JSON.stringify(connection.process.name)}`,
+        ),
+        { kind: "network_profile", count: 0, examples: [] },
+        { kind: "listener_added", count: 0, examples: [] },
+        { kind: "listener_removed", count: 0, examples: [] },
+        { kind: "listener_widened", count: 0, examples: [] },
+        { kind: "provider_degradation", count: 0, examples: [] },
+      ],
+      card_states: structuredClone(
+        previewTodayCards.slice(0, limits.card_states),
+      ),
+      profiles: structuredClone(
+        previewNetworkProfiles.slice(0, limits.profiles),
+      ),
+      rules: structuredClone(previewLocalRules.slice(0, limits.rules)),
+      notifications: structuredClone(
+        previewLocalNotifications.slice(0, limits.notifications),
+      ),
+      active_profile_id: previewNetworkProfiles[0]?.id ?? null,
+      previous_session: {
+        previous_session: {
+          id: "preview-previous-session",
+          started_at_ms: previewStarted - 3_600_000,
+          ended_at_ms: previewStarted - 60_000,
+          connection_count: 3,
+          process_count: 2,
+          country_count: 2,
+          destination_count: 3,
+          recording_count: 0,
+          ephemeral: false,
+          traffic: {
+            bytes_sent: Math.round(currentTraffic.bytes_sent * 0.8),
+            bytes_received: Math.round(currentTraffic.bytes_received * 0.7),
+            packets_sent: 0,
+            packets_received: 0,
+          },
+        },
+        current_session_id: snapshot.session?.id ?? "preview-current-session",
+        comparison,
+        previous_traffic: {
+          bytes_sent: Math.round(currentTraffic.bytes_sent * 0.8),
+          bytes_received: Math.round(currentTraffic.bytes_received * 0.7),
+          packets_sent: 0,
+          packets_received: 0,
+        },
+        current_traffic: currentTraffic,
+        traffic_comparable: true,
+        traffic_limitation: null,
+        listener_added: [],
+        listener_removed: [],
+        listener_widened: [],
+      },
+    };
   },
   async captureListenerSnapshot(): Promise<ListenerSnapshot> {
     if (isDesktop) return call("capture_listener_snapshot");
@@ -841,7 +983,9 @@ export const desktopApi = {
   async listListenerSnapshots(limit = 100): Promise<ListenerSnapshot[]> {
     return isDesktop ? call("list_listener_snapshots", { limit }) : [];
   },
-  async getConnectionContext(connectionId: string): Promise<ConnectionContextResponse> {
+  async getConnectionContext(
+    connectionId: string,
+  ): Promise<ConnectionContextResponse> {
     if (isDesktop) return call("get_connection_context", { connectionId });
     const connection = makePreviewSnapshot().connections.find(
       (item) => item.id === connectionId,
@@ -882,7 +1026,8 @@ export const desktopApi = {
         observed_protocol: connection.protocol,
         service_name: connection.key.remote.port === 443 ? "https" : "unknown",
         description: "Common local catalog hint",
-        wording: "Habitual service; observed endpoint remains primary evidence.",
+        wording:
+          "Habitual service; observed endpoint remains primary evidence.",
         catalog: {
           name: "IANA service names (preview)",
           snapshot_date: "2026-08-13",
@@ -976,22 +1121,20 @@ export const desktopApi = {
   ): Promise<SessionComparison> {
     if (isDesktop)
       return call("compare_sessions", { leftSessionId, rightSessionId });
-    const rows = previewDestinations.slice(0, 5).map((item, index) => ({
-      key: item[0],
-      left_count: index + 1,
-      right_count: index + 2,
-      delta: 1,
-    }));
+    const rows = (keys: string[]) =>
+      [...new Set(keys)].slice(0, 8).map((key, index) => ({
+        key,
+        left_count: index + 1,
+        right_count: index + 2,
+        delta: 1,
+      }));
     return {
       left_session_id: leftSessionId,
       right_session_id: rightSessionId,
-      processes: rows,
-      destinations: rows.map((row, index) => ({
-        ...row,
-        key: previewDestinations[index]?.[4] ?? row.key,
-      })),
-      countries: rows.slice(0, 3),
-      ports: [{ key: "443", left_count: 8, right_count: 11, delta: 3 }],
+      processes: rows(previewDestinations.map((item) => String(item[0]))),
+      destinations: rows(previewDestinations.map((item) => String(item[4]))),
+      countries: rows(previewDestinations.map((item) => String(item[5]))),
+      ports: rows(previewDestinations.map((item) => String(item[13]))),
     };
   },
   async exportSessionComparison(
@@ -1171,8 +1314,12 @@ export const desktopApi = {
       state: "completed",
       identity: {
         process_instance: processInstance,
-        path: connection?.process.executable_path ?? "preview executable path unavailable",
-        revision_id: connection?.process.executable_revision_id ?? `preview-revision-${now}`,
+        path:
+          connection?.process.executable_path ??
+          "preview executable path unavailable",
+        revision_id:
+          connection?.process.executable_revision_id ??
+          `preview-revision-${now}`,
         size_bytes: 0,
         modified_at_ms: null,
         sha256: null,
@@ -1180,23 +1327,25 @@ export const desktopApi = {
         package: null,
         format: "preview",
         computed_at_ms: now,
-        limitation: "Development preview does not read or hash a local executable.",
+        limitation:
+          "Development preview does not read or hash a local executable.",
       },
       started_at_ms: now,
       finished_at_ms: now,
-      message: "Development preview identity completed without filesystem access.",
+      message:
+        "Development preview identity completed without filesystem access.",
     };
   },
-  async getExecutableInspection(id: string): Promise<ExecutableInspectionStatus> {
+  async getExecutableInspection(
+    id: string,
+  ): Promise<ExecutableInspectionStatus> {
     if (isDesktop) return call("get_executable_inspection", { id });
     throw new Error("Preview executable inspection already completed");
   },
   async cancelExecutableInspection(id: string): Promise<boolean> {
     return isDesktop ? call("cancel_executable_inspection", { id }) : true;
   },
-  async getSessionGeoView(
-    sessionId: string,
-  ): Promise<DerivedGeoEnrichment[]> {
+  async getSessionGeoView(sessionId: string): Promise<DerivedGeoEnrichment[]> {
     if (isDesktop) return call("get_session_geo_view", { sessionId });
     return makePreviewSnapshot().connections.map((connection) => ({
       connection_id: connection.id,
@@ -1222,7 +1371,8 @@ export const desktopApi = {
     category: LocalDataCategory,
   ): Promise<LocalDataRemovalResult> {
     if (isDesktop) return call("clear_local_data", { category });
-    if (category === "sessions" || category === "all") previewStarted = Date.now();
+    if (category === "sessions" || category === "all")
+      previewStarted = Date.now();
     if (category === "all") {
       previewInvestigations = [];
       previewFocusRules = { bookmarks: [], ignore_rules: [] };
@@ -1342,13 +1492,15 @@ export const desktopApi = {
         entry_sha256: {},
       },
       investigation: structuredClone(investigation),
-      connections: (await this.queryHistory({
-        from_ms: investigation.query.from_ms,
-        to_ms: investigation.query.to_ms,
-        session_id: investigation.query.session_id,
-        query: investigation.query.filter,
-        limit: 100_000,
-      })).entries,
+      connections: (
+        await this.queryHistory({
+          from_ms: investigation.query.from_ms,
+          to_ms: investigation.query.to_ms,
+          session_id: investigation.query.session_id,
+          query: investigation.query.filter,
+          limit: 100_000,
+        })
+      ).entries,
       timeline: [],
     };
   },

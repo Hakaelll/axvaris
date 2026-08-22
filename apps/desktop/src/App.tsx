@@ -12,17 +12,37 @@ import { useSabicheiro } from "./hooks/useSabicheiro";
 import { I18nProvider, translate, type Language } from "./i18n";
 import { TopBar } from "./components/TopBar";
 import { MetricStrip } from "./components/MetricStrip";
-import { LiveFeed } from "./components/LiveFeed";
 import { Icon } from "./components/Icon";
-import { FocusBar } from "./components/FocusBar";
-import { TopContext } from "./components/TopContext";
-import { TodayView } from "./views/TodayView";
-import { WorkspaceTabs } from "./components/WorkspaceTabs";
 import { NotificationCenter } from "./components/NotificationCenter";
+import type { TodayEvidenceTarget } from "./types";
+import {
+  PresentationBoundary,
+  PresentationProvider,
+} from "./privacy/PresentationMode";
 
 const ConnectionInspector = lazy(async () => {
   const module = await import("./components/ConnectionInspector");
   return { default: module.ConnectionInspector };
+});
+
+const FocusBar = lazy(async () => {
+  const module = await import("./components/FocusBar");
+  return { default: module.FocusBar };
+});
+
+const LiveFeed = lazy(async () => {
+  const module = await import("./components/LiveFeed");
+  return { default: module.LiveFeed };
+});
+
+const TopContext = lazy(async () => {
+  const module = await import("./components/TopContext");
+  return { default: module.TopContext };
+});
+
+const WorkspaceTabs = lazy(async () => {
+  const module = await import("./components/WorkspaceTabs");
+  return { default: module.WorkspaceTabs };
 });
 
 const CommandPalette = lazy(async () => {
@@ -48,6 +68,11 @@ const RecordingDialog = lazy(async () => {
 const HistoryView = lazy(async () => {
   const module = await import("./views/HistoryView");
   return { default: module.HistoryView };
+});
+
+const TodayView = lazy(async () => {
+  const module = await import("./views/TodayView");
+  return { default: module.TodayView };
 });
 
 const SettingsView = lazy(async () => {
@@ -164,6 +189,7 @@ export default function App() {
     toMs: number | null;
   }>({ sessionId: null, fromMs: null, toMs: null });
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
   const mainStageRef = useRef<HTMLElement>(null);
   const home = useMemo<[number, number]>(
     () => [app.settings.home_latitude, app.settings.home_longitude],
@@ -228,13 +254,41 @@ export default function App() {
     [app.setPrimaryView, app.setQuery],
   );
 
-  const openEvidence = useCallback(
-    (connectionId: string | null, query: string) => {
-      app.setQuery(query);
-      app.setSelectedId(connectionId);
-      app.setPrimaryView("live");
+  const openSettingsSection = useCallback(
+    (section: string) => {
+      app.setPrimaryView("health");
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const target = document.getElementById(section);
+          target?.scrollIntoView({ block: "start" });
+          target
+            ?.querySelector<HTMLElement>(
+              "input:not([disabled]), select:not([disabled]), button:not([disabled]), a[href]",
+            )
+            ?.focus();
+        });
+      });
     },
-    [app.setPrimaryView, app.setQuery, app.setSelectedId],
+    [app.setPrimaryView],
+  );
+
+  const openEvidence = useCallback(
+    (
+      target: TodayEvidenceTarget,
+      connectionId: string | null,
+      query: string,
+    ) => {
+      if (target !== "settings" && target !== "health") app.setQuery(query);
+      app.setSelectedId(connectionId);
+      if (target === "settings" || target === "health") {
+        openSettingsSection(
+          query.toLowerCase().includes("geo") ? "geo" : "display",
+        );
+      } else {
+        app.setPrimaryView(target);
+      }
+    },
+    [app.setPrimaryView, app.setQuery, app.setSelectedId, openSettingsSection],
   );
 
   useEffect(() => {
@@ -250,6 +304,13 @@ export default function App() {
         event.preventDefault();
         document.querySelector<HTMLInputElement>(".query-box input")?.focus();
       } else if (event.key === "Escape") {
+        const compactMenu = document.querySelector<HTMLDetailsElement>(
+          ".topbar-compact-menu[open]",
+        );
+        if (compactMenu) {
+          compactMenu.open = false;
+          compactMenu.querySelector<HTMLElement>("summary")?.focus();
+        }
         setMapExpanded(false);
         app.setSelectedId(null);
         app.setCommandPaletteOpen(false);
@@ -281,7 +342,18 @@ export default function App() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [app]);
+  }, [
+    app.paused,
+    app.setCommandPaletteOpen,
+    app.setExportDialogOpen,
+    app.setPaused,
+    app.setPrimaryView,
+    app.setRecordDialogOpen,
+    app.setSelectedId,
+    app.setViewMode,
+    app.stopRecording,
+    recordingActive,
+  ]);
 
   const reportFps = useCallback((fps: number) => {
     void desktopApi.reportUiDiagnostics(fps, 0);
@@ -311,374 +383,472 @@ export default function App() {
 
   return (
     <I18nProvider value={language}>
-      <div
-        className={`app-shell density--${app.settings.ui_density}${app.settings.reduce_motion ? " reduce-motion" : ""}${app.settings.enhanced_contrast ? " enhanced-contrast" : ""}`}
-        style={{ fontSize: `${app.settings.text_scale_percent}%` }}
+      <PresentationProvider
+        active={presentationMode}
+        interfaces={app.interfaces}
+        settings={app.settings}
+        snapshot={app.snapshot}
       >
-        <TopBar
-          capture={app.snapshot.capture}
-          interfaces={app.interfaces}
-          onCapture={app.startCapture}
-          onPalette={() => app.setCommandPaletteOpen(true)}
-          onQuery={app.setQuery}
-          onRecord={() => app.setRecordDialogOpen(true)}
-          onView={app.setPrimaryView}
-          primaryView={app.primaryView}
-          query={app.query}
-          queryError={app.queryError}
-          recording={recordingActive}
-        />
-        <main
-          className={`main-stage main-stage--${app.primaryView}`}
-          ref={mainStageRef}
+        <PresentationBoundary
+          active={presentationMode}
+          key={presentationMode ? "presentation" : "normal"}
         >
-          {app.primaryView === "today" && (
-            <TodayView
-              onOpenEvidence={openEvidence}
-              snapshot={app.snapshot}
+          <div
+            className={`app-shell density--${app.settings.ui_density}${app.settings.reduce_motion ? " reduce-motion" : ""}${app.settings.enhanced_contrast ? " enhanced-contrast" : ""}`}
+            style={{ fontSize: `${app.settings.text_scale_percent}%` }}
+          >
+            <TopBar
+              capture={app.snapshot.capture}
+              interfaces={app.interfaces}
+              onCapture={app.startCapture}
+              onPalette={() => app.setCommandPaletteOpen(true)}
+              onQuery={app.setQuery}
+              onRecord={() => app.setRecordDialogOpen(true)}
+              onView={app.setPrimaryView}
+              primaryView={app.primaryView}
+              query={app.query}
+              queryError={app.queryError}
+              recording={recordingActive}
+              presentationMode={presentationMode}
             />
-          )}
-          {app.primaryView === "live" && (
-            <div
-              className={`observatory${mapExpanded ? " is-map-expanded" : ""}`}
+            {presentationMode && (
+              <div className="presentation-indicator" role="status">
+                <Icon name="shield" />
+                {t("Presentation mode · visual pseudonyms active")}
+              </div>
+            )}
+            <main
+              className={`main-stage main-stage--${app.primaryView}`}
+              ref={mainStageRef}
             >
-              <section className="visual-canvas">
-                <div className="visual-canvas__heading">
-                  <div>
-                    <span className="eyebrow">{t("GLOBAL ROUTES")}</span>
-                    <strong>
-                      {t("{count} active", {
-                        count: app.snapshot.stats.active_connections,
-                      })}
-                    </strong>
-                    <small>
-                      {" / "}
-                      {t("{count} countries", {
-                        count: app.snapshot.stats.countries,
-                      })}
-                    </small>
-                  </div>
-                  <WorkspaceTabs
-                    active={app.settings.active_workspace}
-                    counts={app.workspaceCounts}
-                    onChange={(active_workspace) =>
-                      void app.updateSettings({
-                        ...app.settings,
-                        active_workspace,
-                      })
-                    }
+              {app.primaryView === "today" && (
+                <Suspense
+                  fallback={
+                    <div className="scene-loading" role="status">
+                      <span />
+                      {t("Loading local summary...")}
+                    </div>
+                  }
+                >
+                  <TodayView
+                    geoStatus={app.geoStatus}
+                    onOpenEvidence={openEvidence}
+                    snapshot={app.snapshot}
+                    trafficTrend={app.trafficTrend}
                   />
+                </Suspense>
+              )}
+              {app.primaryView === "live" && (
+                <Suspense
+                  fallback={
+                    <div className="scene-loading" role="status">
+                      <span />
+                      {t("Loading live workspace...")}
+                    </div>
+                  }
+                >
                   <div
-                    className="view-switcher"
-                    aria-label={t("Visualization mode")}
+                    className={`observatory${mapExpanded ? " is-map-expanded" : ""}`}
                   >
-                    <button
-                      aria-pressed={app.viewMode === "globe"}
-                      disabled={!webglSupported}
-                      onClick={() => app.setViewMode("globe")}
-                      title={
-                        webglSupported
-                          ? t("3D globe (G)")
-                          : t("WebGL unavailable")
-                      }
-                      type="button"
-                    >
-                      <Icon name="globe" />
-                      3D
-                    </button>
-                    <button
-                      aria-pressed={app.viewMode === "map" || !webglSupported}
-                      onClick={() => app.setViewMode("map")}
-                      title={t("2D map (M)")}
-                      type="button"
-                    >
-                      <Icon name="map" />
-                      2D
-                    </button>
-                  </div>
-                </div>
-                <div className="visual-canvas__scene">
-                  {app.viewMode === "globe" && webglSupported ? (
-                    <Suspense
-                      fallback={
-                        <div className="scene-loading">
-                          <span />
-                          {t("Loading local globe...")}
+                    <section className="visual-canvas">
+                      <div className="visual-canvas__heading">
+                        <div>
+                          <span className="eyebrow">{t("GLOBAL ROUTES")}</span>
+                          <strong>
+                            {t("{count} active", {
+                              count: app.snapshot.stats.active_connections,
+                            })}
+                          </strong>
+                          <small>
+                            {" / "}
+                            {t("{count} countries", {
+                              count: app.snapshot.stats.countries,
+                            })}
+                          </small>
                         </div>
-                      }
-                    >
-                      <GlobeScene
-                        connections={app.snapshot.connections}
-                        home={home}
-                        onFps={reportFps}
-                        onSelect={app.setSelectedId}
-                        reduceMotion={app.settings.reduce_motion}
-                        selectedId={app.selectedId}
-                        smartFocus={app.settings.auto_focus}
-                      />
-                    </Suspense>
-                  ) : (
-                    <Suspense
-                      fallback={
-                        <div className="scene-loading">
-                          <span />
-                          {t("Loading detailed local map...")}
-                        </div>
-                      }
-                    >
-                      <MapView
-                        connections={app.snapshot.connections}
-                        expanded={mapExpanded}
-                        home={home}
-                        onExpandedChange={setMapExpanded}
-                        onSelect={app.setSelectedId}
-                        selectedId={app.selectedId}
-                      />
-                    </Suspense>
-                  )}
-                  {app.snapshot.capture.mode !== "off" &&
-                    app.settings.active_workspace === "remote" &&
-                    app.snapshot.connections.length > 0 &&
-                    !app.snapshot.connections.some(
-                      (connection) =>
-                        connection.geo?.placement !== "not_plotted" &&
-                        connection.geo?.latitude !== null &&
-                        connection.geo?.longitude !== null,
-                    ) && (
-                      <div className="geo-empty-guidance">
-                        <strong>{t("Geography is not available yet")}</strong>
-                        <p>
-                          {t(
-                            "Connections are still captured. Install or import a free local City MMDB to place public destinations on the map.",
-                          )}
-                        </p>
-                        <button
-                          className="button button--secondary"
-                          onClick={() => app.setPrimaryView("health")}
-                          type="button"
+                        <WorkspaceTabs
+                          active={app.settings.active_workspace}
+                          counts={app.workspaceCounts}
+                          onChange={(active_workspace) =>
+                            void app.updateSettings({
+                              ...app.settings,
+                              active_workspace,
+                            })
+                          }
+                        />
+                        <div
+                          className="view-switcher"
+                          aria-label={t("Visualization mode")}
                         >
-                          {t("Open GeoIP settings")}
-                        </button>
+                          <button
+                            aria-pressed={app.viewMode === "globe"}
+                            disabled={!webglSupported}
+                            onClick={() => app.setViewMode("globe")}
+                            title={
+                              webglSupported
+                                ? t("3D globe (G)")
+                                : t("WebGL unavailable")
+                            }
+                            type="button"
+                          >
+                            <Icon name="globe" />
+                            3D
+                          </button>
+                          <button
+                            aria-pressed={
+                              app.viewMode === "map" || !webglSupported
+                            }
+                            onClick={() => app.setViewMode("map")}
+                            title={t("2D map (M)")}
+                            type="button"
+                          >
+                            <Icon name="map" />
+                            2D
+                          </button>
+                        </div>
                       </div>
+                      <div className="visual-canvas__scene">
+                        {app.viewMode === "globe" && webglSupported ? (
+                          <Suspense
+                            fallback={
+                              <div className="scene-loading">
+                                <span />
+                                {t("Loading local globe...")}
+                              </div>
+                            }
+                          >
+                            <GlobeScene
+                              connections={app.snapshot.connections}
+                              home={home}
+                              onFps={reportFps}
+                              onSelect={app.setSelectedId}
+                              reduceMotion={app.settings.reduce_motion}
+                              selectedId={app.selectedId}
+                              smartFocus={app.settings.auto_focus}
+                            />
+                          </Suspense>
+                        ) : (
+                          <Suspense
+                            fallback={
+                              <div className="scene-loading">
+                                <span />
+                                {t("Loading detailed local map...")}
+                              </div>
+                            }
+                          >
+                            <MapView
+                              connections={app.snapshot.connections}
+                              expanded={mapExpanded}
+                              home={home}
+                              onExpandedChange={setMapExpanded}
+                              onSelect={app.setSelectedId}
+                              selectedId={app.selectedId}
+                            />
+                          </Suspense>
+                        )}
+                        {app.snapshot.capture.mode !== "off" &&
+                          app.settings.active_workspace === "remote" &&
+                          app.snapshot.connections.length > 0 &&
+                          !app.snapshot.connections.some(
+                            (connection) =>
+                              connection.geo?.placement !== "not_plotted" &&
+                              connection.geo?.latitude !== null &&
+                              connection.geo?.longitude !== null,
+                          ) && (
+                            <div className="geo-empty-guidance">
+                              <strong>
+                                {t("Geography is not available yet")}
+                              </strong>
+                              <p>
+                                {t(
+                                  "Connections are still captured. Install or import a free local City MMDB to place public destinations on the map.",
+                                )}
+                              </p>
+                              <button
+                                className="button button--secondary"
+                                onClick={() => app.setPrimaryView("health")}
+                                type="button"
+                              >
+                                {t("Open GeoIP settings")}
+                              </button>
+                            </div>
+                          )}
+                        <FocusBar
+                          bookmarks={app.focusRules.bookmarks}
+                          onFilter={showFilter}
+                          onRemove={(id) => void app.removeBookmark(id)}
+                        />
+                        <TopContext
+                          connections={app.snapshot.connections}
+                          onFilter={showFilter}
+                        />
+                        {app.timeMachine && (
+                          <div className="time-machine-badge">
+                            <span>{t("TIME MACHINE")}</span>
+                            <strong>
+                              {new Date(app.timeMachine.at_ms).toLocaleString()}
+                            </strong>
+                            <small>
+                              {t("{count} reconstructed routes", {
+                                count: app.snapshot.connections.length,
+                              })}
+                            </small>
+                            <button onClick={app.exitTimeMachine} type="button">
+                              {t("Return to live")}
+                            </button>
+                          </div>
+                        )}
+                        {app.paused && (
+                          <div className="paused-badge">
+                            <Icon name="pause" />
+                            {t("View paused / capture continues")}
+                            {app.snapshot.capture.paused_view_events > 0
+                              ? ` / ${t("{count} updates queued", {
+                                  count:
+                                    app.snapshot.capture.paused_view_events,
+                                })}`
+                              : ""}
+                          </div>
+                        )}
+                        {app.snapshot.capture.vpn_active && (
+                          <div className="vpn-badge">
+                            <Icon name="shield" />
+                            {t(
+                              "VPN interface observed / location reflects visible remote endpoints",
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="canvas-legend">
+                        <span>
+                          <i className="is-home" />
+                          {t("This device")}
+                        </span>
+                        <span>
+                          <i />
+                          {t("Active destination")}
+                        </span>
+                        <span>
+                          <i className="is-selected" />
+                          {t("Selected route")}
+                        </span>
+                        <small>{t("Drag to rotate / scroll to zoom")}</small>
+                      </div>
+                    </section>
+                    <LiveFeed
+                      connections={app.snapshot.connections}
+                      flowTrafficAvailable={
+                        app.snapshot.diagnostics.flow_counters_available
+                      }
+                      groupWindowSeconds={
+                        app.settings.feed_group_window_seconds
+                      }
+                      onPause={app.setPaused}
+                      onSelect={app.setSelectedId}
+                      paused={app.paused}
+                      queued={app.snapshot.capture.paused_view_events}
+                      selectedId={app.selectedId}
+                    />
+                    {app.selected && (
+                      <Suspense fallback={null}>
+                        <ConnectionInspector
+                          connection={app.selected}
+                          flowTrafficAvailable={
+                            app.snapshot.diagnostics.flow_counters_available
+                          }
+                          onBookmark={(kind, value) =>
+                            void app.addBookmark(kind, value)
+                          }
+                          onClose={() => app.setSelectedId(null)}
+                          onFilterCountry={(value) =>
+                            showFilter(`country:${value}`)
+                          }
+                          onFilterDestination={(value) =>
+                            showFilter(JSON.stringify(value))
+                          }
+                          onFilterProcess={(value) =>
+                            showFilter(`process:${JSON.stringify(value)}`)
+                          }
+                          onIgnore={(kind, value) =>
+                            void app.addIgnoreRule(kind, value)
+                          }
+                        />
+                      </Suspense>
                     )}
-                  <FocusBar
-                    bookmarks={app.focusRules.bookmarks}
-                    onFilter={showFilter}
-                    onRemove={(id) => void app.removeBookmark(id)}
-                  />
-                  <TopContext
-                    connections={app.snapshot.connections}
-                    onFilter={showFilter}
-                  />
-                  {app.timeMachine && (
-                    <div className="time-machine-badge">
-                      <span>{t("TIME MACHINE")}</span>
-                      <strong>
-                        {new Date(app.timeMachine.at_ms).toLocaleString()}
-                      </strong>
-                      <small>
-                        {t("{count} reconstructed routes", {
-                          count: app.snapshot.connections.length,
-                        })}
-                      </small>
-                      <button onClick={app.exitTimeMachine} type="button">
-                        {t("Return to live")}
-                      </button>
+                  </div>
+                </Suspense>
+              )}
+              {app.primaryView === "investigate" && (
+                <Suspense
+                  fallback={
+                    <div className="scene-loading">
+                      <span />
+                      {t("Loading local history...")}
                     </div>
-                  )}
-                  {app.paused && (
-                    <div className="paused-badge">
-                      <Icon name="pause" />
-                      {t("View paused / capture continues")}
-                      {app.snapshot.capture.paused_view_events > 0
-                        ? ` / ${t("{count} updates queued", {
-                            count: app.snapshot.capture.paused_view_events,
-                          })}`
-                        : ""}
-                    </div>
-                  )}
-                  {app.snapshot.capture.vpn_active && (
-                    <div className="vpn-badge">
-                      <Icon name="shield" />
-                      {t(
-                        "VPN interface observed / location reflects visible remote endpoints",
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="canvas-legend">
-                  <span>
-                    <i className="is-home" />
-                    {t("This device")}
-                  </span>
-                  <span>
-                    <i />
-                    {t("Active destination")}
-                  </span>
-                  <span>
-                    <i className="is-selected" />
-                    {t("Selected route")}
-                  </span>
-                  <small>{t("Drag to rotate / scroll to zoom")}</small>
-                </div>
-              </section>
-              <LiveFeed
-                connections={app.snapshot.connections}
-                flowTrafficAvailable={
-                  app.snapshot.diagnostics.flow_counters_available
-                }
-                groupWindowSeconds={app.settings.feed_group_window_seconds}
-                onPause={app.setPaused}
-                onSelect={app.setSelectedId}
-                paused={app.paused}
-                queued={app.snapshot.capture.paused_view_events}
-                selectedId={app.selectedId}
-              />
-              {app.selected && (
-                <Suspense fallback={null}>
-                  <ConnectionInspector
-                    connection={app.selected}
-                    flowTrafficAvailable={
-                      app.snapshot.diagnostics.flow_counters_available
-                    }
-                    onBookmark={(kind, value) =>
-                      void app.addBookmark(kind, value)
-                    }
-                    onClose={() => app.setSelectedId(null)}
-                    onFilterCountry={(value) => showFilter(`country:${value}`)}
-                    onFilterDestination={(value) =>
-                      showFilter(JSON.stringify(value))
-                    }
-                    onFilterProcess={(value) =>
-                      showFilter(`process:${JSON.stringify(value)}`)
-                    }
-                    onIgnore={(kind, value) =>
-                      void app.addIgnoreRule(kind, value)
+                  }
+                >
+                  <HistoryView
+                    currentQuery={app.query}
+                    loadHistory={app.loadHistory}
+                    onExport={openExport}
+                    onQueryChange={app.setQuery}
+                    onReconstruct={(atMs, sessionId, preferredId) =>
+                      void app.enterTimeMachine(atMs, sessionId, preferredId)
                     }
                   />
                 </Suspense>
               )}
-            </div>
-          )}
-          {app.primaryView === "investigate" && (
-            <Suspense fallback={<div className="scene-loading"><span />{t("Loading local history...")}</div>}>
-              <HistoryView
-                currentQuery={app.query}
-                loadHistory={app.loadHistory}
-                onExport={openExport}
-                onQueryChange={app.setQuery}
-                onReconstruct={(atMs, sessionId, preferredId) =>
-                  void app.enterTimeMachine(atMs, sessionId, preferredId)
-                }
-              />
-            </Suspense>
-          )}
-          {app.primaryView === "exposure" && (
-            <Suspense fallback={<div className="scene-loading"><span />{t("Loading exposure data...")}</div>}>
-              <ExposureViewBoundary>
-                <ExposureView
-                  onExport={() => openExport(app.snapshot.session?.id ?? null)}
-                  onOpenEvidence={openEvidence}
-                  snapshot={app.snapshot}
-                />
-              </ExposureViewBoundary>
-            </Suspense>
-          )}
-          {app.primaryView === "health" && (
-            <Suspense fallback={<div className="scene-loading"><span />{t("Loading local settings...")}</div>}>
-              <SettingsView
-                focusRules={app.focusRules}
-                geoStatus={app.geoStatus}
-                interfaces={app.interfaces}
-                onAddBookmark={(kind, value) => void app.addBookmark(kind, value)}
-                onAddIgnoreRule={(kind, value) =>
-                  void app.addIgnoreRule(kind, value)
-                }
-                onClearLocalData={app.clearLocalData}
-                onClearSession={app.clearSession}
-                onCompactStorage={app.compactStorage}
-                onExportSupportBundle={app.exportSupportBundle}
-                onImportGeo={app.importGeo}
-                onRemoveGeo={app.removeGeo}
-                onRemoveBookmark={(id) => void app.removeBookmark(id)}
-                onRemoveIgnoreRule={(id) => void app.removeIgnoreRule(id)}
-                onToggleIgnoreRule={(id, enabled) =>
-                  void app.setIgnoreRuleEnabled(id, enabled)
-                }
-                onRollbackGeo={app.rollbackGeo}
-                onRunSelfTest={app.runCaptureSelfTest}
-                onUpdate={app.updateSettings}
-                onUpdateGeo={app.updateGeo}
-                settings={app.settings}
-                snapshot={app.snapshot}
-              />
-            </Suspense>
-          )}
-        </main>
-        <MetricStrip snapshot={app.snapshot} />
-        <NotificationCenter
-          items={app.notifications}
-          onClear={app.clearNotifications}
-          onDismiss={app.dismissNotification}
-        />
-        {(app.error || captureError) && (
-          <Suspense fallback={null}>
-            <ErrorBanner
-              detail={originalFailureDetail}
-              message={localizedFailureMessage}
-              onClose={app.clearError}
-              title={captureError ? t("Capture stopped") : undefined}
+              {app.primaryView === "exposure" && (
+                <Suspense
+                  fallback={
+                    <div className="scene-loading">
+                      <span />
+                      {t("Loading exposure data...")}
+                    </div>
+                  }
+                >
+                  <ExposureViewBoundary>
+                    <ExposureView
+                      onExport={() =>
+                        openExport(app.snapshot.session?.id ?? null)
+                      }
+                      onOpenEvidence={(connectionId, query) =>
+                        openEvidence("live", connectionId, query)
+                      }
+                      snapshot={app.snapshot}
+                    />
+                  </ExposureViewBoundary>
+                </Suspense>
+              )}
+              {app.primaryView === "health" && (
+                <Suspense
+                  fallback={
+                    <div className="scene-loading">
+                      <span />
+                      {t("Loading local settings...")}
+                    </div>
+                  }
+                >
+                  <SettingsView
+                    focusRules={app.focusRules}
+                    geoStatus={app.geoStatus}
+                    interfaces={app.interfaces}
+                    onAddBookmark={(kind, value) =>
+                      void app.addBookmark(kind, value)
+                    }
+                    onAddIgnoreRule={(kind, value) =>
+                      void app.addIgnoreRule(kind, value)
+                    }
+                    onClearLocalData={app.clearLocalData}
+                    onClearSession={app.clearSession}
+                    onCompactStorage={app.compactStorage}
+                    onExportSupportBundle={app.exportSupportBundle}
+                    onImportGeo={app.importGeo}
+                    onRemoveGeo={app.removeGeo}
+                    onRemoveBookmark={(id) => void app.removeBookmark(id)}
+                    onRemoveIgnoreRule={(id) => void app.removeIgnoreRule(id)}
+                    onToggleIgnoreRule={(id, enabled) =>
+                      void app.setIgnoreRuleEnabled(id, enabled)
+                    }
+                    onRollbackGeo={app.rollbackGeo}
+                    onRunSelfTest={app.runCaptureSelfTest}
+                    onUpdate={app.updateSettings}
+                    onUpdateGeo={app.updateGeo}
+                    settings={app.settings}
+                    snapshot={app.snapshot}
+                    presentationMode={presentationMode}
+                    onPresentationModeChange={setPresentationMode}
+                  />
+                </Suspense>
+              )}
+            </main>
+            <MetricStrip snapshot={app.snapshot} />
+            <NotificationCenter
+              items={app.notifications}
+              onClear={app.clearNotifications}
+              onDismiss={app.dismissNotification}
             />
-          </Suspense>
-        )}
-        {app.loading && (
-          <div className="boot-state">
-            <span />
-            <p>{t("Starting local observability engine...")}</p>
+            {(app.error || captureError) && (
+              <Suspense fallback={null}>
+                <ErrorBanner
+                  detail={originalFailureDetail}
+                  message={localizedFailureMessage}
+                  onClose={app.clearError}
+                  title={captureError ? t("Capture stopped") : undefined}
+                />
+              </Suspense>
+            )}
+            {app.loading && (
+              <div className="boot-state">
+                <span />
+                <p>{t("Starting local observability engine...")}</p>
+              </div>
+            )}
+            {app.commandPaletteOpen && (
+              <Suspense fallback={null}>
+                <CommandPalette
+                  localTrafficVisible={
+                    app.settings.active_workspace === "local"
+                  }
+                  onClearSession={() => void app.clearSession()}
+                  onClose={() => app.setCommandPaletteOpen(false)}
+                  onExport={() => openExport(app.snapshot.session?.id ?? null)}
+                  onPause={() => void app.setPaused(!app.paused)}
+                  onOpenSettings={openSettingsSection}
+                  onRecord={() =>
+                    recordingActive
+                      ? void app.stopRecording()
+                      : app.setRecordDialogOpen(true)
+                  }
+                  onSearchPreset={searchPreset}
+                  onToggleLocalTraffic={() =>
+                    void app.updateSettings({
+                      ...app.settings,
+                      active_workspace:
+                        app.settings.active_workspace === "local"
+                          ? "remote"
+                          : "local",
+                    })
+                  }
+                  onView={app.setPrimaryView}
+                  onVisualization={app.setViewMode}
+                  open
+                  paused={app.paused}
+                  presentationMode={presentationMode}
+                  recording={recordingActive}
+                  onTogglePresentationMode={() =>
+                    setPresentationMode((active) => !active)
+                  }
+                />
+              </Suspense>
+            )}
+            {app.recordDialogOpen && (
+              <Suspense fallback={null}>
+                <RecordingDialog
+                  onClose={() => app.setRecordDialogOpen(false)}
+                  onStart={app.startRecording}
+                  onStop={() => void app.stopRecording()}
+                  open={app.recordDialogOpen}
+                  state={app.recording}
+                />
+              </Suspense>
+            )}
+            {app.exportDialogOpen && (
+              <Suspense fallback={null}>
+                <ExportDialog
+                  fromMs={exportScope.fromMs}
+                  onClose={() => app.setExportDialogOpen(false)}
+                  onExport={(request) => void app.exportView(request)}
+                  open={app.exportDialogOpen}
+                  query={app.query}
+                  sessionId={exportScope.sessionId}
+                  toMs={exportScope.toMs}
+                />
+              </Suspense>
+            )}
           </div>
-        )}
-        {app.commandPaletteOpen && <Suspense fallback={null}><CommandPalette
-          localTrafficVisible={app.settings.active_workspace === "local"}
-          onClearSession={() => void app.clearSession()}
-          onClose={() => app.setCommandPaletteOpen(false)}
-          onExport={() => openExport(app.snapshot.session?.id ?? null)}
-          onPause={() => void app.setPaused(!app.paused)}
-          onRecord={() =>
-            recordingActive
-              ? void app.stopRecording()
-              : app.setRecordDialogOpen(true)
-          }
-          onSearchPreset={searchPreset}
-          onToggleLocalTraffic={() =>
-            void app.updateSettings({
-              ...app.settings,
-              active_workspace:
-                app.settings.active_workspace === "local" ? "remote" : "local",
-            })
-          }
-          onView={app.setPrimaryView}
-          onVisualization={app.setViewMode}
-          open
-          paused={app.paused}
-          recording={recordingActive}
-        /></Suspense>}
-        {app.recordDialogOpen && <Suspense fallback={null}><RecordingDialog
-          onClose={() => app.setRecordDialogOpen(false)}
-          onStart={app.startRecording}
-          onStop={() => void app.stopRecording()}
-          open={app.recordDialogOpen}
-          state={app.recording}
-        /></Suspense>}
-        {app.exportDialogOpen && <Suspense fallback={null}><ExportDialog
-          fromMs={exportScope.fromMs}
-          onClose={() => app.setExportDialogOpen(false)}
-          onExport={(request) => void app.exportView(request)}
-          open={app.exportDialogOpen}
-          query={app.query}
-          sessionId={exportScope.sessionId}
-          toMs={exportScope.toMs}
-        /></Suspense>}
-      </div>
+        </PresentationBoundary>
+      </PresentationProvider>
     </I18nProvider>
   );
 }

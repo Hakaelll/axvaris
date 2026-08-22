@@ -7,6 +7,7 @@ import type {
 import { useI18n } from "../i18n";
 import { Icon, type IconName } from "./Icon";
 import logoUrl from "../../src-tauri/icons/32x32.png";
+import { usePresentation } from "../privacy/PresentationMode";
 
 const navigation: { id: PrimaryView; label: string; icon: IconName }[] = [
   { id: "today", label: "Today", icon: "activity" },
@@ -28,6 +29,7 @@ interface TopBarProps {
   onPalette: () => void;
   onRecord: () => void;
   recording: boolean;
+  presentationMode: boolean;
 }
 
 export function TopBar({
@@ -42,10 +44,66 @@ export function TopBar({
   onPalette,
   onRecord,
   recording,
+  presentationMode,
 }: TopBarProps) {
   const t = useI18n();
+  const { active, display, displayText, restoreText } = usePresentation();
   const captureActive =
     capture.mode !== "off" && capture.status.state === "capturing";
+  const captureLabel =
+    capture.mode === "live"
+      ? t("Live capture")
+      : capture.mode === "demo"
+        ? t("Demo data")
+        : t("Capture off");
+  const setCaptureMode = (mode: CaptureMode) => {
+    const selectedIsUsable = interfaces.some(
+      (item) =>
+        item.id === capture.selected_interface &&
+        item.is_up &&
+        item.addresses.length > 0,
+    );
+    void onCapture(
+      mode,
+      mode === "live" && !selectedIsUsable ? null : capture.selected_interface,
+    );
+  };
+  const captureSelect = (compact: boolean) => (
+    <select
+      aria-label={t(compact ? "Capture mode in compact menu" : "Capture mode")}
+      onChange={(event) => setCaptureMode(event.target.value as CaptureMode)}
+      value={capture.mode}
+    >
+      <option value="off">{t("Capture off")}</option>
+      <option value="live">{t("Live capture")}</option>
+      <option value="demo">{t("Demo data")}</option>
+    </select>
+  );
+  const interfaceSelect = (compact: boolean) =>
+    interfaces.length > 0 && capture.mode === "live" ? (
+      <select
+        aria-label={t(
+          compact ? "Network interface in compact menu" : "Network interface",
+        )}
+        className="interface-select"
+        onChange={(event) => void onCapture("live", event.target.value || null)}
+        value={capture.selected_interface ?? ""}
+      >
+        <option value="">{t("All interfaces")}</option>
+        {interfaces
+          .filter((item) => item.id !== "all")
+          .map((item) => (
+            <option
+              disabled={!item.is_up || item.addresses.length === 0}
+              key={item.id}
+              value={item.id}
+            >
+              {active ? display("interface", item.name) : item.name}
+              {item.addresses.length === 0 ? t(" (address unavailable)") : ""}
+            </option>
+          ))}
+      </select>
+    ) : null;
   return (
     <header className="topbar">
       <button className="brand" onClick={() => onView("today")} type="button">
@@ -78,9 +136,9 @@ export function TopBar({
         <input
           aria-label={t("Search connections")}
           aria-invalid={queryError ? "true" : undefined}
-          onChange={(event) => onQuery(event.target.value)}
+          onChange={(event) => onQuery(restoreText(event.target.value))}
           placeholder={t("Search or process:firefox country:US")}
-          value={query}
+          value={active ? displayText(query) : query}
         />
         <kbd>Ctrl F</kbd>
         {queryError && (
@@ -88,61 +146,27 @@ export function TopBar({
         )}
       </div>
       <div className="topbar__actions">
-        <div className="capture-control">
+        <span
+          className="capture-status-summary"
+          aria-label={t("Capture status: {status}", { status: captureLabel })}
+        >
           <span
             aria-hidden="true"
             className={`status-dot${captureActive ? " is-live" : ""}`}
           />
-          <select
-            aria-label={t("Capture mode")}
-            onChange={(event) => {
-              const mode = event.target.value as CaptureMode;
-              const selectedIsUsable = interfaces.some(
-                (item) =>
-                  item.id === capture.selected_interface &&
-                  item.is_up &&
-                  item.addresses.length > 0,
-              );
-              void onCapture(
-                mode,
-                mode === "live" && !selectedIsUsable
-                  ? null
-                  : capture.selected_interface,
-              );
-            }}
-            value={capture.mode}
+          <span>{captureLabel}</span>
+        </span>
+        {presentationMode && (
+          <span
+            className="presentation-topbar-badge"
+            title={t("Visual pseudonyms are active")}
           >
-            <option value="off">{t("Capture off")}</option>
-            <option value="live">{t("Live capture")}</option>
-            <option value="demo">{t("Demo data")}</option>
-          </select>
-        </div>
-        {interfaces.length > 0 && capture.mode === "live" && (
-          <select
-            aria-label={t("Network interface")}
-            className="interface-select"
-            onChange={(event) =>
-              void onCapture("live", event.target.value || null)
-            }
-            value={capture.selected_interface ?? ""}
-          >
-            <option value="">{t("All interfaces")}</option>
-            {interfaces
-              .filter((item) => item.id !== "all")
-              .map((item) => (
-                <option
-                  disabled={!item.is_up || item.addresses.length === 0}
-                  key={item.id}
-                  value={item.id}
-                >
-                  {item.name}
-                  {item.addresses.length === 0
-                    ? t(" (address unavailable)")
-                    : ""}
-                </option>
-              ))}
-          </select>
+            <Icon name="shield" />
+            <span>{t("Presentation")}</span>
+          </span>
         )}
+        <div className="capture-control">{captureSelect(false)}</div>
+        {interfaceSelect(false)}
         <button
           aria-label={
             recording ? t("Recording in progress") : t("Start packet recording")
@@ -172,6 +196,45 @@ export function TopBar({
         >
           <Icon name="settings" />
         </button>
+        <details className="topbar-compact-menu">
+          <summary aria-label={t("Open capture and actions menu")}>
+            <Icon name="command" />
+          </summary>
+          <div>
+            <nav aria-label={t("Primary navigation in compact menu")}>
+              {navigation.map((item) => (
+                <button
+                  aria-current={primaryView === item.id ? "page" : undefined}
+                  key={item.id}
+                  onClick={() => onView(item.id)}
+                  type="button"
+                >
+                  <Icon name={item.icon} />
+                  {t(item.label)}
+                </button>
+              ))}
+            </nav>
+            <label>
+              <span>{t("Capture mode")}</span>
+              {captureSelect(true)}
+            </label>
+            {interfaceSelect(true)}
+            <button onClick={onRecord} type="button">
+              <Icon name="record" />
+              {recording
+                ? t("Recording in progress")
+                : t("Start packet recording")}
+            </button>
+            <button onClick={onPalette} type="button">
+              <Icon name="command" />
+              {t("Command palette")}
+            </button>
+            <button onClick={() => onView("health")} type="button">
+              <Icon name="settings" />
+              {t("Settings")}
+            </button>
+          </div>
+        </details>
       </div>
     </header>
   );

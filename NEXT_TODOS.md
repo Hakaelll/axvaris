@@ -1,8 +1,8 @@
 # Sabicheiro: plan de aligeramiento y mejora interna
 
-Última actualización: **2026-08-16**
+Última actualización: **2026-08-22**
 
-Base auditada: **0.4.1**
+Base auditada: **0.4.2**
 
 Objetivo: **siguiente versión de mantenimiento, centrada en peso, arranque, consumo y
 mantenibilidad**
@@ -18,6 +18,30 @@ historial de releases y validaciones ya realizadas. El historial terminado perte
 `CHANGELOG.md` y la evidencia de versiones publicadas a `docs/VALIDATION.md`. Hasta
 cerrar este plan no se añaden grandes funciones nuevas: primero se simplifica y se mide
 lo que ya existe.
+
+## Addendum de experiencia Today y presentación — 2026-08-22
+
+La mejora visual/arquitectónica posterior al aligeramiento está implementada y medida:
+
+| Entrega | Estado | Evidencia cerrada |
+| --- | --- | --- |
+| Bootstrap Today nativo | DONE | Una llamada acotada; novedad contra todo el historial retenido; prueba fuera de las últimas 500 filas |
+| Franja y comparación de sesión | DONE | Duración, procesos/conexiones, tráfico y calidad de contadores; deltas por proceso/destino/país/puerto y listeners |
+| Presentation mode | DONE | Pseudónimos estables solo en memoria; texto, `title` y etiquetas accesibles; filtros, SQLite y exportaciones intactos |
+| Responsive/inspector | DONE | 720×600, escala 200 %, captura siempre disponible, inspector acoplado/overlay, foco y Escape |
+| Destinos sin ubicación | DONE | Cinco motivos explícitos, filtro local y acceso a GeoIP; nunca se inventan coordenadas |
+| Ajustes | DONE | Búsqueda local bilingüe, foco de sección y controles de presentación/paleta |
+| Robustez UI | DONE | Gates de petición obsoleta, listener estable, vistas secundarias y paneles Live diferidos |
+| Estrés visual web | DONE | 50 cambios Map↔Globe, un único canvas y sin acumulación de escenas/nodos atribuible al cambio |
+| Matriz nativa | REVIEW | WebView, lector de pantalla, HiDPI del SO y Linux/ETW siguen sin afirmarse sin ejecutarlos |
+
+El artefacto de 6.528.512 B usado en la evidencia histórica no es una referencia de
+paquete válida: se reproduce con `cargo build --release`, lleva `cfg(dev)` y no contiene
+los chunks de `frontendDist`. El mismo `HEAD` construido con Tauri y sus 12 recursos
+produce 6.857.216 B / 3.172.137 B. La entrega actual produce 6.922.240 B /
+3.201.195 B: +0,95 % / +0,92 % respecto a esa referencia reproducible, dentro de los
+límites de 7 MiB y 3,1 MiB. `BUILD.md` prohíbe desde ahora usar un build Cargo sin
+recursos como línea base distribuible.
 
 Al terminar:
 
@@ -194,9 +218,11 @@ explicar el límite; no se maquilla la medición.
   registran entorno, commit base, hashes de fixtures, assets, dependencias, espacio y
   artefactos. El frontend baja de 9.612.676 B a 1.163.691 B, los recursos iniciales de
   2.939.648 B a 398.749 B y los source maps de 5.228.126 B a cero.
-- Portable/NSIS bajan de 20.589.568/8.689.212 B a 6.528.512/2.851.022 B. La comparación
-  limpia `z`/`s` fue 6.528.000/7.347.200 B; se conserva `z`. El gate completo ocupó
-  8.086.743.018 B (7,53 GiB) y la limpieza final deja `target` a 0 B.
+- El registro histórico midió 6.528.512/2.851.022 B para Portable/NSIS y comparó
+  `z`/`s` como 6.528.000/7.347.200 B. La auditoría de 2026-08-22 demostró que aquel
+  portable usaba `cfg(dev)` y omitía `frontendDist`; se conserva como evidencia del
+  experimento, no como baseline distribuible. La referencia Tauri corregida y los
+  tamaños actuales están en el addendum anterior y en `docs/VALIDATION.md`.
 - La fixture SQLite de 100.000 filas devuelve 500 filas/716.705 B en 5,77 ms p95,
   filtra en 4,26 ms p95, recorre 201 páginas/100.000 IDs únicos en 800,84 ms y exporta
   las 100.000 filas en 1.365,52 ms.

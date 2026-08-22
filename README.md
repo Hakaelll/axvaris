@@ -7,8 +7,9 @@ history and explainable behaviour signals without accounts, telemetry or a paid 
 
 > Status: `0.4.2` lightweight Windows validation candidate. The strict test
 > suite, production frontend, 100,000-row benchmark, SPDX SBOM, release binary and NSIS
-> install/launch/uninstall cycle are validated locally. Native Linux/eBPF packaging,
-> elevated Windows ETW, the eight-hour soak and OS screen-reader/HiDPI matrix remain
+> generation are validated locally. The current native launch/install lifecycle,
+> Linux/eBPF packaging, elevated Windows ETW, the eight-hour soak and OS
+> screen-reader/HiDPI matrix remain
 > open, so this is not yet labelled a stable cross-platform release. Exact evidence is in
 > [docs/VALIDATION.md](docs/VALIDATION.md).
 
@@ -18,19 +19,30 @@ The deterministic demo is the reproducible visual fixture (`pnpm dev`, then **De
 mode**). The retained 0.3 review covers first-run/offline state, dense 3D and 2D data, map
 zoom/pan/frame/expand/restore, inspector evidence, compact/comfortable density,
 English/Castellano, keyboard map controls and the semantic tree. The 0.4 areas and
-controls pass the production/i18n/static accessibility gates, but their full native
-visual and screen-reader matrix remains recorded as `REVIEW`. The markers,
+controls also pass browser checks at 720×600, 200% text scale, wide/narrow inspector
+layouts, keyboard Escape/focus restoration and 50 Map↔Globe swaps. Their full native
+WebView, screen-reader and OS HiDPI matrix remains recorded as `REVIEW`. The markers,
 routes and map use only packaged geometry—there are no remote map tiles.
 
 ## Highlights
 
 - Five task-oriented areas: Today, Live, Investigate, Exposure and Data & Health.
-- Immutable SQLite v5 evidence journal with provider clocks, sequence gaps,
+- Immutable SQLite v7 evidence journal with provider clocks, sequence gaps,
   field-level provenance, deterministic replay and tiered retention/FTS.
 - Process-instance lineage, local executable revision/hash/signature evidence, DNS
   causal candidates, native route context and pseudonymous network profiles.
-- Today change cards, application/network profiles, typed versioned rules, grouped
-  quiet-hour notifications and listener exposure snapshots.
+- A single bounded Today bootstrap covering the active-session strip, novelty across
+  all retained history, previous-session comparison, listener changes and direct
+  evidence drill-downs without loading the latest 500 connections.
+- Explicit unlocated-destination reasons and filters: absent GeoIP, local/reserved,
+  low precision, missing coordinates or pending enrichment; no invented coordinates.
+- In-memory Presentation mode with stable pseudonyms for addresses, domains, paths,
+  users, gateways and profiles. It changes only rendered text and never stored data,
+  filters or exports.
+- Responsive primary navigation that keeps capture state/actions available at narrow
+  widths, plus a docked wide inspector and accessible narrow overlay.
+- Application/network profiles, typed versioned rules, grouped quiet-hour
+  notifications and listener exposure snapshots.
 - Virtualized 100,000-row evidence table with a paginated semantic alternative and a
   local boolean query builder supporting grouped AND/OR/NOT expressions.
 - Versioned, bounded, hash-verified `.sabi` investigation bundles opened read-only and
@@ -91,8 +103,9 @@ install the `.deb` using the normal distro tooling.
 The standalone [docs.html](docs.html) guide provides the complete user-facing setup and
 feature reference for both platforms, including current validation limits.
 
-The interface language can be selected on the welcome screen and changed later under
-**Settings -> Display -> Interface language**. The choice is stored locally.
+The interface language can be changed under **Settings -> Display -> Interface
+language**. Settings also has a local English/Castellano search that focuses the
+matching control. The choice is stored locally.
 
 No account, subscription, license key or paid service is required. Sabicheiro works
 without a GeoIP dataset and displays `Unknown location`; the optional **Settings →
@@ -119,6 +132,10 @@ by default because enabling it can reveal queried IPs to the user's configured D
 resolver. The only built-in download is the user-triggered, free whole-dataset GeoIP
 update; individual observed IPs are never sent to DB-IP. No API key, subscription,
 account or paid service is used by any feature.
+
+Presentation mode is a visual privacy boundary only. Its stable pseudonyms live in
+memory for the current app run; enabling or disabling it does not rewrite SQLite,
+alter the active query or redact an export requested by the user.
 
 All required application dependencies have compatible free/open-source terms, and all
 primary features have runtime cost **€0**. See [PRIVACY.md](PRIVACY.md) and

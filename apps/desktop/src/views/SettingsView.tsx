@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type {
   AppSettings,
@@ -18,6 +18,12 @@ import type {
 } from "../types";
 import { formatBytes, formatDateTime } from "../lib/format";
 import { Icon } from "../components/Icon";
+import {
+  usePresentation,
+  type SensitiveKind,
+} from "../privacy/PresentationMode";
+import { LatestRequest } from "../lib/latestRequest";
+import { findSettingsSections } from "../lib/settingsSearch";
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -44,6 +50,8 @@ interface SettingsViewProps {
   onAddIgnoreRule: (kind: RuleKind, value: string) => void;
   onToggleIgnoreRule: (id: number, enabled: boolean) => void;
   onRemoveIgnoreRule: (id: number) => void;
+  presentationMode: boolean;
+  onPresentationModeChange: (active: boolean) => void;
 }
 
 function Toggle({
@@ -83,6 +91,13 @@ function timeToMinute(value: string): number {
   return Math.max(0, Math.min(1_439, (hour ?? 0) * 60 + (minute ?? 0)));
 }
 
+function sensitiveKindForRule(kind: RuleKind): SensitiveKind | null {
+  if (kind === "process") return "process";
+  if (kind === "domain") return "domain";
+  if (kind === "ip") return "public_ip";
+  return null;
+}
+
 export function SettingsView({
   settings,
   interfaces,
@@ -104,8 +119,15 @@ export function SettingsView({
   onAddIgnoreRule,
   onToggleIgnoreRule,
   onRemoveIgnoreRule,
+  presentationMode,
+  onPresentationModeChange,
 }: SettingsViewProps) {
   const t = useI18n();
+  const {
+    active: presentationActive,
+    display,
+    restoreText,
+  } = usePresentation();
   const diagnostics = snapshot.diagnostics;
   const [ruleMode, setRuleMode] = useState<"bookmark" | "ignore">("bookmark");
   const [ruleKind, setRuleKind] = useState<RuleKind>("process");
@@ -121,11 +143,76 @@ export function SettingsView({
   const [bundleIncludeSettings, setBundleIncludeSettings] = useState(true);
   const [bundleIncludeLogs, setBundleIncludeLogs] = useState(true);
   const [bundleResult, setBundleResult] = useState<ExportResult | null>(null);
-  const [storageHealth, setStorageHealth] = useState<StorageHealth | null>(null);
+  const [storageHealth, setStorageHealth] = useState<StorageHealth | null>(
+    null,
+  );
   const [localDataCategory, setLocalDataCategory] =
     useState<LocalDataCategory>("sessions");
   const [localDataResult, setLocalDataResult] =
     useState<LocalDataRemovalResult | null>(null);
+  const [settingsSearch, setSettingsSearch] = useState("");
+  const requestGates = useRef({
+    maintenance: new LatestRequest(),
+    bundle: new LatestRequest(),
+    selfTest: new LatestRequest(),
+  });
+  useEffect(
+    () => () => {
+      requestGates.current.maintenance.invalidate();
+      requestGates.current.bundle.invalidate();
+      requestGates.current.selfTest.invalidate();
+    },
+    [],
+  );
+  const matchingSettings = findSettingsSections(settingsSearch);
+  const focusSection = (section: string) => {
+    const element = document.getElementById(section);
+    if (!element) return;
+    window.history.replaceState(null, "", `#${section}`);
+    element.scrollIntoView({
+      behavior: settings.reduce_motion ? "auto" : "smooth",
+      block: "start",
+    });
+    window.requestAnimationFrame(() =>
+      element
+        .querySelector<HTMLElement>(
+          "input:not([disabled]), select:not([disabled]), button:not([disabled]), a[href]",
+        )
+        ?.focus(),
+    );
+  };
+  const clearSelectedData = async () => {
+    const request = requestGates.current.maintenance.begin();
+    const result = await onClearLocalData(localDataCategory);
+    if (requestGates.current.maintenance.isCurrent(request)) {
+      setLocalDataResult(result);
+    }
+  };
+  const compactStorage = async () => {
+    const request = requestGates.current.maintenance.begin();
+    const result = await onCompactStorage();
+    if (requestGates.current.maintenance.isCurrent(request)) {
+      setStorageHealth(result);
+    }
+  };
+  const exportSupportBundle = async () => {
+    const request = requestGates.current.bundle.begin();
+    const result = await onExportSupportBundle({
+      path: bundlePath.trim(),
+      include_settings: bundleIncludeSettings,
+      include_logs: bundleIncludeLogs,
+    });
+    if (requestGates.current.bundle.isCurrent(request)) setBundleResult(result);
+  };
+  const runSelfTest = async () => {
+    const request = requestGates.current.selfTest.begin();
+    setSelfTestRunning(true);
+    const result = await onRunSelfTest();
+    if (requestGates.current.selfTest.isCurrent(request)) {
+      setSelfTest(result);
+      setSelfTestRunning(false);
+    }
+  };
   const submitRule = () => {
     const value = ruleKind === "localhost" ? "localhost" : ruleValue.trim();
     if (!value) return;
@@ -172,6 +259,37 @@ export function SettingsView({
             )}
           </p>
         </div>
+        <div className="settings-search">
+          <label>
+            <Icon name="search" />
+            <span className="sr-only">{t("Search settings")}</span>
+            <input
+              aria-controls="settings-search-results"
+              onChange={(event) => setSettingsSearch(event.target.value)}
+              placeholder={t("Search settings in English or Spanish")}
+              type="search"
+              value={settingsSearch}
+            />
+          </label>
+          {settingsSearch.trim() && (
+            <div id="settings-search-results" role="listbox">
+              {matchingSettings.map((item) => (
+                <button
+                  key={item.section}
+                  onClick={() => focusSection(item.section)}
+                  role="option"
+                  type="button"
+                >
+                  <Icon name="chevron" />
+                  {t(item.label)}
+                </button>
+              ))}
+              {matchingSettings.length === 0 && (
+                <p>{t("No matching settings.")}</p>
+              )}
+            </div>
+          )}
+        </div>
       </header>
       <div className="settings-layout">
         <nav aria-label={t("Settings sections")}>
@@ -199,23 +317,33 @@ export function SettingsView({
             <label className="setting-row">
               <span>
                 <strong>{t("Operation profile")}</strong>
-                <small>{t("Profiles change capture cadence and resource budgets; the active behavior remains visible.")}</small>
                 <small>
-                  {t("Traffic samples: every {seconds} seconds; high fidelity preserves one-second detail.", {
-                    seconds:
-                      settings.operation_profile === "investigation_high_fidelity"
-                        ? 1
-                        : settings.operation_profile === "background_low_resource"
-                          ? 30
-                          : 10,
-                  })}
+                  {t(
+                    "Profiles change capture cadence and resource budgets; the active behavior remains visible.",
+                  )}
+                </small>
+                <small>
+                  {t(
+                    "Traffic samples: every {seconds} seconds; high fidelity preserves one-second detail.",
+                    {
+                      seconds:
+                        settings.operation_profile ===
+                        "investigation_high_fidelity"
+                          ? 1
+                          : settings.operation_profile ===
+                              "background_low_resource"
+                            ? 30
+                            : 10,
+                    },
+                  )}
                 </small>
               </span>
               <select
                 onChange={(event) =>
                   onUpdate({
                     ...settings,
-                    operation_profile: event.target.value as AppSettings["operation_profile"],
+                    operation_profile: event.target
+                      .value as AppSettings["operation_profile"],
                     ephemeral_capture:
                       event.target.value === "ephemeral"
                         ? true
@@ -225,29 +353,41 @@ export function SettingsView({
                 value={settings.operation_profile}
               >
                 <option value="visible">{t("Visible")}</option>
-                <option value="background_low_resource">{t("Background low-resource")}</option>
-                <option value="investigation_high_fidelity">{t("Investigation high-fidelity")}</option>
+                <option value="background_low_resource">
+                  {t("Background low-resource")}
+                </option>
+                <option value="investigation_high_fidelity">
+                  {t("Investigation high-fidelity")}
+                </option>
                 <option value="ephemeral">{t("Ephemeral")}</option>
               </select>
             </label>
             <Toggle
               checked={settings.autostart_enabled}
-              detail={t("Disabled by default. Enabling records explicit intent; platform startup registration is reported separately in diagnostics.")}
+              detail={t(
+                "Disabled by default. Enabling records explicit intent; platform startup registration is reported separately in diagnostics.",
+              )}
               label={t("Start Sabicheiro when I sign in")}
               onChange={(value) =>
                 onUpdate({ ...settings, autostart_enabled: value })
               }
             />
-            <div className={`handshake-mode ${settings.handshake_metadata_enabled ? "is-active" : ""}`}>
+            <div
+              className={`handshake-mode ${settings.handshake_metadata_enabled ? "is-active" : ""}`}
+            >
               <Toggle
                 checked={settings.handshake_metadata_enabled}
-                detail={t("Optional, bounded and non-persistent TLS/QUIC metadata only: version, SNI and ALPN when observable. No payload, decryption, keys or MITM.")}
+                detail={t(
+                  "Optional, bounded and non-persistent TLS/QUIC metadata only: version, SNI and ALPN when observable. No payload, decryption, keys or MITM.",
+                )}
                 label={t("Ephemeral handshake metadata")}
                 onChange={(value) => {
                   if (
                     value &&
                     !window.confirm(
-                      t("Enable bounded handshake metadata until you turn it off? Buffers are discarded and application payload is never persisted."),
+                      t(
+                        "Enable bounded handshake metadata until you turn it off? Buffers are discarded and application payload is never persisted.",
+                      ),
                     )
                   )
                     return;
@@ -255,7 +395,9 @@ export function SettingsView({
                 }}
               />
               {settings.handshake_metadata_enabled && (
-                <strong role="status">{t("HANDSHAKE METADATA MODE IS ACTIVE")}</strong>
+                <strong role="status">
+                  {t("HANDSHAKE METADATA MODE IS ACTIVE")}
+                </strong>
               )}
             </div>
             <label className="setting-row">
@@ -283,7 +425,7 @@ export function SettingsView({
                       key={item.id}
                       value={item.id}
                     >
-                      {item.name}
+                      {display("interface", item.name)}
                       {item.is_vpn ? " · VPN" : ""}
                       {item.addresses.length === 0
                         ? t(" (address unavailable)")
@@ -367,15 +509,23 @@ export function SettingsView({
               <input
                 aria-label={t("Rule value")}
                 disabled={ruleKind === "localhost"}
-                onChange={(event) => setRuleValue(event.target.value)}
+                onChange={(event) =>
+                  setRuleValue(restoreText(event.target.value))
+                }
                 placeholder={
                   ruleKind === "country"
                     ? "ES"
-                    : ruleKind === "ip"
+                    : ruleKind === "ip" && !presentationActive
                       ? "1.1.1.1"
-                      : t("Value")
+                      : ruleKind === "ip"
+                        ? t("IP address")
+                        : t("Value")
                 }
-                value={ruleValue}
+                value={
+                  presentationActive && sensitiveKindForRule(ruleKind)
+                    ? display(sensitiveKindForRule(ruleKind)!, ruleValue)
+                    : ruleValue
+                }
               />
               <button
                 className="button button--secondary"
@@ -393,10 +543,24 @@ export function SettingsView({
                   <div className="saved-rule" key={bookmark.id}>
                     <span>
                       <small>{bookmark.kind}</small>
-                      <strong>{bookmark.value}</strong>
+                      <strong>
+                        {sensitiveKindForRule(bookmark.kind)
+                          ? display(
+                              sensitiveKindForRule(bookmark.kind)!,
+                              bookmark.value,
+                            )
+                          : bookmark.value}
+                      </strong>
                     </span>
                     <button
-                      aria-label={`Remove bookmark ${bookmark.value}`}
+                      aria-label={t("Remove bookmark {value}", {
+                        value: sensitiveKindForRule(bookmark.kind)
+                          ? display(
+                              sensitiveKindForRule(bookmark.kind)!,
+                              bookmark.value,
+                            )
+                          : bookmark.value,
+                      })}
                       onClick={() => onRemoveBookmark(bookmark.id)}
                       type="button"
                     >
@@ -425,11 +589,25 @@ export function SettingsView({
                       />
                       <span>
                         <small>{rule.kind}</small>
-                        <strong>{rule.value}</strong>
+                        <strong>
+                          {sensitiveKindForRule(rule.kind)
+                            ? display(
+                                sensitiveKindForRule(rule.kind)!,
+                                rule.value,
+                              )
+                            : rule.value}
+                        </strong>
                       </span>
                     </label>
                     <button
-                      aria-label={`Remove ignore rule ${rule.value}`}
+                      aria-label={t("Remove ignore rule {value}", {
+                        value: sensitiveKindForRule(rule.kind)
+                          ? display(
+                              sensitiveKindForRule(rule.kind)!,
+                              rule.value,
+                            )
+                          : rule.value,
+                      })}
                       onClick={() => onRemoveIgnoreRule(rule.id)}
                       type="button"
                     >
@@ -460,7 +638,9 @@ export function SettingsView({
             <div className="quiet-hours">
               <Toggle
                 checked={settings.notification_quiet_hours_enabled}
-                detail={t("Suppresses new local alerts during the selected local-time window; grouped evidence remains retained.")}
+                detail={t(
+                  "Suppresses new local alerts during the selected local-time window; grouped evidence remains retained.",
+                )}
                 label={t("Quiet hours")}
                 onChange={(value) =>
                   onUpdate({
@@ -471,8 +651,40 @@ export function SettingsView({
               />
               {settings.notification_quiet_hours_enabled && (
                 <div>
-                  <label><span>{t("Start")}</span><input onChange={(event) => onUpdate({ ...settings, notification_quiet_start_minute: timeToMinute(event.target.value) })} type="time" value={minuteToTime(settings.notification_quiet_start_minute)} /></label>
-                  <label><span>{t("End")}</span><input onChange={(event) => onUpdate({ ...settings, notification_quiet_end_minute: timeToMinute(event.target.value) })} type="time" value={minuteToTime(settings.notification_quiet_end_minute)} /></label>
+                  <label>
+                    <span>{t("Start")}</span>
+                    <input
+                      onChange={(event) =>
+                        onUpdate({
+                          ...settings,
+                          notification_quiet_start_minute: timeToMinute(
+                            event.target.value,
+                          ),
+                        })
+                      }
+                      type="time"
+                      value={minuteToTime(
+                        settings.notification_quiet_start_minute,
+                      )}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("End")}</span>
+                    <input
+                      onChange={(event) =>
+                        onUpdate({
+                          ...settings,
+                          notification_quiet_end_minute: timeToMinute(
+                            event.target.value,
+                          ),
+                        })
+                      }
+                      type="time"
+                      value={minuteToTime(
+                        settings.notification_quiet_end_minute,
+                      )}
+                    />
+                  </label>
                 </div>
               )}
             </div>
@@ -632,7 +844,9 @@ export function SettingsView({
             />
             <Toggle
               checked={settings.offline_enforced}
-              detail={t("Rejects every optional network action, including GeoIP downloads and reverse DNS. Offline imports remain available.")}
+              detail={t(
+                "Rejects every optional network action, including GeoIP downloads and reverse DNS. Offline imports remain available.",
+              )}
               label={t("Enforce offline mode")}
               onChange={(value) =>
                 onUpdate({
@@ -684,7 +898,9 @@ export function SettingsView({
                   <option value="geo_ip">{t("GeoIP databases")}</option>
                   <option value="dns_cache">{t("DNS cache")}</option>
                   <option value="logs">{t("Application logs")}</option>
-                  <option value="all">{t("All local data and settings")}</option>
+                  <option value="all">
+                    {t("All local data and settings")}
+                  </option>
                 </select>
                 <button
                   className="button button--danger"
@@ -695,9 +911,7 @@ export function SettingsView({
                       ),
                     );
                     if (!confirmed) return;
-                    void onClearLocalData(localDataCategory).then(
-                      setLocalDataResult,
-                    );
+                    void clearSelectedData();
                   }}
                   type="button"
                 >
@@ -705,7 +919,7 @@ export function SettingsView({
                 </button>
                 <button
                   className="button button--secondary"
-                  onClick={() => void onCompactStorage().then(setStorageHealth)}
+                  onClick={() => void compactStorage()}
                   type="button"
                 >
                   {t("Check and compact SQLite")}
@@ -754,8 +968,14 @@ export function SettingsView({
               <div className="support-bundle-panel__controls">
                 <input
                   aria-label={t("Support bundle filename")}
-                  onChange={(event) => setBundlePath(event.target.value)}
-                  value={bundlePath}
+                  onChange={(event) =>
+                    setBundlePath(restoreText(event.target.value))
+                  }
+                  value={
+                    presentationActive
+                      ? display("path", bundlePath)
+                      : bundlePath
+                  }
                 />
                 <label>
                   <input
@@ -780,13 +1000,7 @@ export function SettingsView({
                 <button
                   className="button button--secondary"
                   disabled={!bundlePath.trim()}
-                  onClick={() =>
-                    void onExportSupportBundle({
-                      path: bundlePath.trim(),
-                      include_settings: bundleIncludeSettings,
-                      include_logs: bundleIncludeLogs,
-                    }).then(setBundleResult)
-                  }
+                  onClick={() => void exportSupportBundle()}
                   type="button"
                 >
                   {t("Export reviewed ZIP")}
@@ -871,11 +1085,15 @@ export function SettingsView({
                       </div>
                       <div>
                         <dt>{t("Built")}</dt>
-                        <dd>{formatDateTime(dataset?.build_epoch_ms ?? null)}</dd>
+                        <dd>
+                          {formatDateTime(dataset?.build_epoch_ms ?? null)}
+                        </dd>
                       </div>
                       <div>
                         <dt>{t("Updated")}</dt>
-                        <dd>{formatDateTime(dataset?.last_update_ms ?? null)}</dd>
+                        <dd>
+                          {formatDateTime(dataset?.last_update_ms ?? null)}
+                        </dd>
                       </div>
                       <div>
                         <dt>{t("Generation")}</dt>
@@ -918,7 +1136,11 @@ export function SettingsView({
                       </button>
                     </div>
                     <small>
-                      {t(dataset?.attribution ?? geoStatus?.attribution ?? "Unavailable")}
+                      {t(
+                        dataset?.attribution ??
+                          geoStatus?.attribution ??
+                          "Unavailable",
+                      )}
                     </small>
                   </article>
                 );
@@ -950,9 +1172,15 @@ export function SettingsView({
               </select>
               <input
                 aria-label={t("MMDB file path")}
-                onChange={(event) => setGeoImportPath(event.target.value)}
+                onChange={(event) =>
+                  setGeoImportPath(restoreText(event.target.value))
+                }
                 placeholder="C:\\Data\\dbip-city-lite.mmdb"
-                value={geoImportPath}
+                value={
+                  presentationActive
+                    ? display("path", geoImportPath)
+                    : geoImportPath
+                }
               />
               <button
                 className="button button--secondary"
@@ -978,6 +1206,14 @@ export function SettingsView({
                 <p>{t("Visual preferences never change captured evidence.")}</p>
               </div>
             </header>
+            <Toggle
+              checked={presentationMode}
+              detail={t(
+                "Pseudonymizes sensitive values only in the current visual session. Stored evidence, filters and export redaction remain unchanged.",
+              )}
+              label={t("Presentation mode")}
+              onChange={onPresentationModeChange}
+            />
             <label className="setting-row">
               <span>
                 <strong>{t("Interface language")}</strong>
@@ -1029,7 +1265,9 @@ export function SettingsView({
             />
             <Toggle
               checked={settings.enhanced_contrast}
-              detail={t("Raises text and border contrast without changing evidence semantics.")}
+              detail={t(
+                "Raises text and border contrast without changing evidence semantics.",
+              )}
               label={t("Enhanced contrast")}
               onChange={(value) =>
                 onUpdate({ ...settings, enhanced_contrast: value })
@@ -1038,12 +1276,16 @@ export function SettingsView({
             <label className="setting-row">
               <span>
                 <strong>{t("Text scale")}</strong>
-                <small>{t("Applies from 90% to 150% and is clamped to a safe migrated value.")}</small>
+                <small>
+                  {t(
+                    "Applies from 90% to 200% and is clamped to a safe migrated value.",
+                  )}
+                </small>
               </span>
               <span className="text-scale-control">
                 <input
                   aria-label={t("Text scale")}
-                  max={150}
+                  max={200}
                   min={90}
                   onChange={(event) =>
                     onUpdate({
@@ -1157,13 +1399,15 @@ export function SettingsView({
               <div>
                 <small>{t("IPC REQUESTS / EMPTY")}</small>
                 <strong>
-                  {diagnostics.dashboard_requests} / {diagnostics.dashboard_empty_deltas}
+                  {diagnostics.dashboard_requests} /{" "}
+                  {diagnostics.dashboard_empty_deltas}
                 </strong>
               </div>
               <div>
                 <small>{t("IPC BYTES / OVERLAPS")}</small>
                 <strong>
-                  {formatBytes(diagnostics.dashboard_bytes_serialized)} / {diagnostics.dashboard_overlaps}
+                  {formatBytes(diagnostics.dashboard_bytes_serialized)} /{" "}
+                  {diagnostics.dashboard_overlaps}
                 </strong>
               </div>
             </div>
@@ -1180,7 +1424,8 @@ export function SettingsView({
                   <p>{t(subsystem.message)}</p>
                   {subsystem.action && <small>{t(subsystem.action)}</small>}
                   <code>
-                    {subsystem.queue_depth}/{subsystem.queue_capacity} · {t("dropped")} {subsystem.dropped_events}
+                    {subsystem.queue_depth}/{subsystem.queue_capacity} ·{" "}
+                    {t("dropped")} {subsystem.dropped_events}
                   </code>
                 </article>
               ))}
@@ -1197,13 +1442,7 @@ export function SettingsView({
               <button
                 className="button button--secondary"
                 disabled={selfTestRunning}
-                onClick={() => {
-                  setSelfTestRunning(true);
-                  void onRunSelfTest().then((result) => {
-                    setSelfTest(result);
-                    setSelfTestRunning(false);
-                  });
-                }}
+                onClick={() => void runSelfTest()}
                 type="button"
               >
                 {selfTestRunning ? t("Running checks...") : t("Run self-test")}
@@ -1237,12 +1476,21 @@ export function SettingsView({
                         role="row"
                       >
                         <span>
-                          {capability.protocol.toUpperCase()} · {capability.family}
+                          {capability.protocol.toUpperCase()} ·{" "}
+                          {capability.family}
                         </span>
-                        <span>{t("endpoint")}: {t(capability.endpoint)}</span>
-                        <span>{t("process")}: {t(capability.process)}</span>
-                        <span>{t("interface")}: {t(capability.interface)}</span>
-                        <span>{t("close")}: {t(capability.close_event)}</span>
+                        <span>
+                          {t("endpoint")}: {t(capability.endpoint)}
+                        </span>
+                        <span>
+                          {t("process")}: {t(capability.process)}
+                        </span>
+                        <span>
+                          {t("interface")}: {t(capability.interface)}
+                        </span>
+                        <span>
+                          {t("close")}: {t(capability.close_event)}
+                        </span>
                         {capability.limitation && (
                           <small>{t(capability.limitation)}</small>
                         )}

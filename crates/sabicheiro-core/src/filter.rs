@@ -497,6 +497,16 @@ fn matches_term(term: &FilterTerm, connection: &Connection) -> bool {
                 || cidr_contains(*network, *prefix, connection.key.remote.address)
         }
         FilterTerm::Scope(scope) => connection.key.remote.scope == *scope,
+        FilterTerm::Geo(value) if value == "unlocated" => connection
+            .geo
+            .as_ref()
+            .and_then(|geo| geo.coordinates())
+            .is_none(),
+        FilterTerm::Geo(value) if value == "plotted" => connection
+            .geo
+            .as_ref()
+            .and_then(|geo| geo.coordinates())
+            .is_some(),
         FilterTerm::Geo(value) => connection.geo.as_ref().is_some_and(|geo| {
             geo.country_code
                 .iter()
@@ -707,6 +717,44 @@ mod tests {
                 .parse::<ConnectionFilter>()
                 .expect("negative filter")
                 .matches(&connection)
+        );
+    }
+
+    #[test]
+    fn distinguishes_unlocated_from_plotted_geo_evidence() {
+        let unlocated = Connection::placeholder(0);
+        assert!(
+            "geo:unlocated"
+                .parse::<ConnectionFilter>()
+                .expect("unlocated filter")
+                .matches(&unlocated)
+        );
+        assert!(
+            !"geo:plotted"
+                .parse::<ConnectionFilter>()
+                .expect("plotted filter")
+                .matches(&unlocated)
+        );
+
+        let mut plotted = Connection::placeholder(1);
+        plotted.geo = Some(GeoLocation {
+            latitude: Some(40.4168),
+            longitude: Some(-3.7038),
+            precision: crate::GeoPrecision::Coordinates,
+            placement: crate::PlacementKind::DatabaseCoordinate,
+            ..GeoLocation::default()
+        });
+        assert!(
+            "geo:plotted"
+                .parse::<ConnectionFilter>()
+                .expect("plotted filter")
+                .matches(&plotted)
+        );
+        assert!(
+            !"geo:unlocated"
+                .parse::<ConnectionFilter>()
+                .expect("unlocated filter")
+                .matches(&plotted)
         );
     }
 

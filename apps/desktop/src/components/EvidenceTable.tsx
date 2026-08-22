@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type { HistoryEntry } from "../types";
 import { formatDateTime, formatDuration } from "../lib/format";
+import {
+  usePresentation,
+  type SensitiveKind,
+} from "../privacy/PresentationMode";
 
 type ColumnId =
   | "time"
@@ -64,7 +68,15 @@ const builtInPresets: TablePreset[] = [
   },
   {
     name: "Causal",
-    visible: ["time", "process", "destination", "dns", "path", "quality", "source"],
+    visible: [
+      "time",
+      "process",
+      "destination",
+      "dns",
+      "path",
+      "quality",
+      "source",
+    ],
     widths: { ...defaultWidths, dns: 230, path: 190 },
     sort: "time",
     direction: "descending",
@@ -106,27 +118,103 @@ function valueFor(entry: HistoryEntry, column: ColumnId): string | number {
   }
 }
 
-function cell(entry: HistoryEntry, column: ColumnId, t: ReturnType<typeof useI18n>) {
+function cell(
+  entry: HistoryEntry,
+  column: ColumnId,
+  t: ReturnType<typeof useI18n>,
+  display: (kind: SensitiveKind, value: string | null | undefined) => string,
+) {
   const connection = entry.connection;
+  const remoteKind: SensitiveKind =
+    connection.key.remote.scope === "global" ? "public_ip" : "local_ip";
   switch (column) {
     case "time":
-      return <><strong>{formatDateTime(connection.first_seen_ms)}</strong><small>{formatDuration(connection.duration_ms)}</small></>;
+      return (
+        <>
+          <strong>{formatDateTime(connection.first_seen_ms)}</strong>
+          <small>{formatDuration(connection.duration_ms)}</small>
+        </>
+      );
     case "process":
-      return <><strong>{connection.process.name}</strong><small>{connection.key.process_instance ?? `PID ${connection.process.pid ?? "?"}`}</small></>;
+      return (
+        <>
+          <strong>{display("process", connection.process.name)}</strong>
+          <small>
+            {connection.key.process_instance ??
+              `PID ${connection.process.pid ?? "?"}`}
+          </small>
+        </>
+      );
     case "destination":
-      return <><strong>{connection.domain ?? connection.key.remote.address}</strong><small>{connection.key.remote.address}:{connection.key.remote.port}</small></>;
+      return (
+        <>
+          <strong>
+            {connection.domain
+              ? display("domain", connection.domain)
+              : display(remoteKind, connection.key.remote.address)}
+          </strong>
+          <small>
+            {display(remoteKind, connection.key.remote.address)}:
+            {connection.key.remote.port}
+          </small>
+        </>
+      );
     case "dns":
-      return <><strong>{connection.hostname ?? connection.domain ?? t("No DNS evidence")}</strong><small>{connection.hostname || connection.domain ? t("Observed or correlated name") : t("IP evidence remains valid")}</small></>;
+      return (
+        <>
+          <strong>
+            {connection.hostname || connection.domain
+              ? display("domain", connection.hostname ?? connection.domain)
+              : t("No DNS evidence")}
+          </strong>
+          <small>
+            {connection.hostname || connection.domain
+              ? t("Observed or correlated name")
+              : t("IP evidence remains valid")}
+          </small>
+        </>
+      );
     case "protocol":
-      return <><strong>{connection.protocol.toUpperCase()} {connection.key.remote.port}</strong><small>{t(connection.direction)}</small></>;
+      return (
+        <>
+          <strong>
+            {connection.protocol.toUpperCase()} {connection.key.remote.port}
+          </strong>
+          <small>{t(connection.direction)}</small>
+        </>
+      );
     case "path":
-      return <><strong>{connection.interface ?? t("System default")}</strong><small>{t("Open row for native route evidence")}</small></>;
+      return (
+        <>
+          <strong>
+            {connection.interface
+              ? display("interface", connection.interface)
+              : t("System default")}
+          </strong>
+          <small>{t("Open row for native route evidence")}</small>
+        </>
+      );
     case "state":
-      return <><strong>{t(connection.state)}</strong><small>{connection.active ? t("active") : t("closed")}</small></>;
+      return (
+        <>
+          <strong>{t(connection.state)}</strong>
+          <small>{connection.active ? t("active") : t("closed")}</small>
+        </>
+      );
     case "quality":
-      return <><strong>{t(connection.evidence.correlation_quality)}</strong><small>{t(connection.evidence.endpoint_role)}</small></>;
+      return (
+        <>
+          <strong>{t(connection.evidence.correlation_quality)}</strong>
+          <small>{t(connection.evidence.endpoint_role)}</small>
+        </>
+      );
     case "source":
-      return <><strong>{t(connection.evidence.observation_source)}</strong><small>#{connection.evidence.sequence || "—"}</small></>;
+      return (
+        <>
+          <strong>{t(connection.evidence.observation_source)}</strong>
+          <small>#{connection.evidence.sequence || "—"}</small>
+        </>
+      );
   }
 }
 
@@ -135,15 +223,23 @@ function loadCustomPreset(): TablePreset | null {
     const raw = localStorage.getItem("sabicheiro:evidence-table-preset:v1");
     if (!raw) return null;
     const parsed = JSON.parse(raw) as TablePreset;
-    if (!Array.isArray(parsed.visible) || !columnIds.includes(parsed.sort)) return null;
+    if (!Array.isArray(parsed.visible) || !columnIds.includes(parsed.sort))
+      return null;
     return parsed;
   } catch {
     return null;
   }
 }
 
-export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen }: EvidenceTableProps) {
+export function EvidenceTable({
+  entries,
+  loading,
+  pinnedIds,
+  onTogglePin,
+  onOpen,
+}: EvidenceTableProps) {
   const t = useI18n();
+  const { display } = usePresentation();
   const [preset, setPreset] = useState<TablePreset>(
     () => loadCustomPreset() ?? builtInPresets[0]!,
   );
@@ -158,9 +254,10 @@ export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen
     indexed.sort((left, right) => {
       const a = valueFor(left.entry, preset.sort);
       const b = valueFor(right.entry, preset.sort);
-      const compared = typeof a === "number" && typeof b === "number"
-        ? a - b
-        : String(a).localeCompare(String(b));
+      const compared =
+        typeof a === "number" && typeof b === "number"
+          ? a - b
+          : String(a).localeCompare(String(b));
       const stable = compared || left.index - right.index;
       return preset.direction === "ascending" ? stable : -stable;
     });
@@ -169,25 +266,40 @@ export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen
       group === "process"
         ? entry.connection.process.name
         : group === "domain"
-          ? entry.connection.domain ?? entry.connection.key.remote.address
+          ? (entry.connection.domain ?? entry.connection.key.remote.address)
           : entry.connection.evidence.observation_source;
     return indexed
       .map((item) => item.entry)
-      .sort((a, b) => groupValue(a).localeCompare(groupValue(b)) || a.connection.id.localeCompare(b.connection.id));
+      .sort(
+        (a, b) =>
+          groupValue(a).localeCompare(groupValue(b)) ||
+          a.connection.id.localeCompare(b.connection.id),
+      );
   }, [entries, group, preset.direction, preset.sort]);
 
   useEffect(() => {
-    setPage((current) => Math.min(current, Math.max(0, Math.ceil(sorted.length / pageSize) - 1)));
+    setPage((current) =>
+      Math.min(current, Math.max(0, Math.ceil(sorted.length / pageSize) - 1)),
+    );
   }, [sorted.length]);
 
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - 6);
-  const end = Math.min(sorted.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + 6);
+  const end = Math.min(
+    sorted.length,
+    Math.ceil((scrollTop + viewportHeight) / rowHeight) + 6,
+  );
   const virtualRows = sorted.slice(start, end);
   const semanticRows = sorted.slice(page * pageSize, (page + 1) * pageSize);
-  const gridTemplate = preset.visible.map((column) => `${preset.widths[column] ?? defaultWidths[column]}px`).join(" ");
+  const gridTemplate = preset.visible
+    .map((column) => `${preset.widths[column] ?? defaultWidths[column]}px`)
+    .join(" ");
 
   const applyPreset = (next: TablePreset) => {
-    setPreset({ ...next, widths: { ...next.widths }, visible: [...next.visible] });
+    setPreset({
+      ...next,
+      widths: { ...next.widths },
+      visible: [...next.visible],
+    });
     setScrollTop(0);
     if (viewportRef.current) viewportRef.current.scrollTop = 0;
   };
@@ -197,7 +309,9 @@ export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen
       name: "Custom",
       visible: current.visible.includes(column)
         ? current.visible.filter((item) => item !== column)
-        : columnIds.filter((item) => current.visible.includes(item) || item === column),
+        : columnIds.filter(
+            (item) => current.visible.includes(item) || item === column,
+          ),
     }));
   };
   const changeSort = (column: ColumnId) => {
@@ -213,7 +327,10 @@ export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen
   };
   const savePreset = () => {
     const custom = { ...preset, name: "Saved local preset" };
-    localStorage.setItem("sabicheiro:evidence-table-preset:v1", JSON.stringify(custom));
+    localStorage.setItem(
+      "sabicheiro:evidence-table-preset:v1",
+      JSON.stringify(custom),
+    );
     setPreset(custom);
   };
 
@@ -225,12 +342,27 @@ export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen
         className={`evidence-grid__row${pinned ? " is-pinned" : ""}`}
         key={`${entry.session_id}:${entry.connection.id}`}
         role="row"
-        style={{ gridTemplateColumns: `${gridTemplate} 88px`, height: virtual ? rowHeight : undefined }}
+        style={{
+          gridTemplateColumns: `${gridTemplate} 88px`,
+          height: virtual ? rowHeight : undefined,
+        }}
       >
-        {preset.visible.map((column) => <div key={column} role="cell">{cell(entry, column, t)}</div>)}
+        {preset.visible.map((column) => (
+          <div key={column} role="cell">
+            {cell(entry, column, t, display)}
+          </div>
+        ))}
         <div className="evidence-grid__actions" role="cell">
-          <button aria-pressed={pinned} onClick={() => onTogglePin(entry.connection.id)} type="button">{pinned ? t("Unpin") : t("Pin")}</button>
-          <button onClick={() => onOpen(entry)} type="button">{t("Open")}</button>
+          <button
+            aria-pressed={pinned}
+            onClick={() => onTogglePin(entry.connection.id)}
+            type="button"
+          >
+            {pinned ? t("Unpin") : t("Pin")}
+          </button>
+          <button onClick={() => onOpen(entry)} type="button">
+            {t("Open")}
+          </button>
         </div>
       </div>
     );
@@ -239,23 +371,120 @@ export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen
   return (
     <section className="evidence-grid" aria-labelledby="evidence-grid-title">
       <header>
-        <div><span className="eyebrow">{t("FIRST-CLASS EVIDENCE TABLE")}</span><h2 id="evidence-grid-title">{t("Connections")}</h2><p>{t("The exact filtered IDs used by timeline, map and export.")}</p></div>
+        <div>
+          <span className="eyebrow">{t("FIRST-CLASS EVIDENCE TABLE")}</span>
+          <h2 id="evidence-grid-title">{t("Connections")}</h2>
+          <p>{t("The exact filtered IDs used by timeline, map and export.")}</p>
+        </div>
         <strong>{t("{count} exact rows", { count: sorted.length })}</strong>
       </header>
       <div className="evidence-grid__toolbar">
-        <label><span>{t("Preset")}</span><select value={preset.name} onChange={(event) => {
-          const next = [...builtInPresets, loadCustomPreset()].find((item) => item?.name === event.target.value);
-          if (next) applyPreset(next);
-        }}>{builtInPresets.map((item) => <option key={item.name} value={item.name}>{t(item.name)}</option>)}{loadCustomPreset() && <option value="Saved local preset">{t("Saved local preset")}</option>}<option disabled value="Custom">{t("Custom")}</option></select></label>
-        <label><span>{t("Group")}</span><select onChange={(event) => setGroup(event.target.value as GroupMode)} value={group}><option value="none">{t("None")}</option><option value="process">{t("Process")}</option><option value="domain">{t("Domain")}</option><option value="source">{t("Source")}</option></select></label>
-        <div className="segmented" aria-label={t("Accessibility rendering mode")}>
-          <button aria-pressed={mode === "virtual"} className={mode === "virtual" ? "is-active" : undefined} onClick={() => setMode("virtual")} type="button">{t("Virtual 100k+")}</button>
-          <button aria-pressed={mode === "semantic"} className={mode === "semantic" ? "is-active" : undefined} onClick={() => setMode("semantic")} type="button">{t("Screen reader pages")}</button>
+        <label>
+          <span>{t("Preset")}</span>
+          <select
+            value={preset.name}
+            onChange={(event) => {
+              const next = [...builtInPresets, loadCustomPreset()].find(
+                (item) => item?.name === event.target.value,
+              );
+              if (next) applyPreset(next);
+            }}
+          >
+            {builtInPresets.map((item) => (
+              <option key={item.name} value={item.name}>
+                {t(item.name)}
+              </option>
+            ))}
+            {loadCustomPreset() && (
+              <option value="Saved local preset">
+                {t("Saved local preset")}
+              </option>
+            )}
+            <option disabled value="Custom">
+              {t("Custom")}
+            </option>
+          </select>
+        </label>
+        <label>
+          <span>{t("Group")}</span>
+          <select
+            onChange={(event) => setGroup(event.target.value as GroupMode)}
+            value={group}
+          >
+            <option value="none">{t("None")}</option>
+            <option value="process">{t("Process")}</option>
+            <option value="domain">{t("Domain")}</option>
+            <option value="source">{t("Source")}</option>
+          </select>
+        </label>
+        <div
+          className="segmented"
+          aria-label={t("Accessibility rendering mode")}
+        >
+          <button
+            aria-pressed={mode === "virtual"}
+            className={mode === "virtual" ? "is-active" : undefined}
+            onClick={() => setMode("virtual")}
+            type="button"
+          >
+            {t("Virtual 100k+")}
+          </button>
+          <button
+            aria-pressed={mode === "semantic"}
+            className={mode === "semantic" ? "is-active" : undefined}
+            onClick={() => setMode("semantic")}
+            type="button"
+          >
+            {t("Screen reader pages")}
+          </button>
         </div>
-        <details><summary>{t("Columns and widths")}</summary><div>{columnIds.map((column) => <label key={column}><input checked={preset.visible.includes(column)} disabled={preset.visible.length === 1 && preset.visible.includes(column)} onChange={() => toggleColumn(column)} type="checkbox" />{t(column)}<input aria-label={t("{column} width", { column: t(column) })} max={360} min={80} onChange={(event) => setPreset((current) => ({ ...current, name: "Custom", widths: { ...current.widths, [column]: Number(event.target.value) } }))} type="range" value={preset.widths[column] ?? defaultWidths[column]} /></label>)}</div></details>
-        <button className="button button--secondary" onClick={savePreset} type="button">{t("Save preset locally")}</button>
+        <details>
+          <summary>{t("Columns and widths")}</summary>
+          <div>
+            {columnIds.map((column) => (
+              <label key={column}>
+                <input
+                  checked={preset.visible.includes(column)}
+                  disabled={
+                    preset.visible.length === 1 &&
+                    preset.visible.includes(column)
+                  }
+                  onChange={() => toggleColumn(column)}
+                  type="checkbox"
+                />
+                {t(column)}
+                <input
+                  aria-label={t("{column} width", { column: t(column) })}
+                  max={360}
+                  min={80}
+                  onChange={(event) =>
+                    setPreset((current) => ({
+                      ...current,
+                      name: "Custom",
+                      widths: {
+                        ...current.widths,
+                        [column]: Number(event.target.value),
+                      },
+                    }))
+                  }
+                  type="range"
+                  value={preset.widths[column] ?? defaultWidths[column]}
+                />
+              </label>
+            ))}
+          </div>
+        </details>
+        <button
+          className="button button--secondary"
+          onClick={savePreset}
+          type="button"
+        >
+          {t("Save preset locally")}
+        </button>
       </div>
-      {loading ? <div className="loading-line" /> : mode === "virtual" ? (
+      {loading ? (
+        <div className="loading-line" />
+      ) : mode === "virtual" ? (
         <div
           aria-colcount={preset.visible.length + 1}
           aria-label={t("Virtualized connection evidence")}
@@ -267,21 +496,119 @@ export function EvidenceTable({ entries, loading, pinnedIds, onTogglePin, onOpen
           style={{ height: viewportHeight }}
           tabIndex={0}
         >
-          <div className="evidence-grid__head" role="row" style={{ gridTemplateColumns: `${gridTemplate} 88px` }}>
-            {preset.visible.map((column) => <button aria-sort={preset.sort === column ? preset.direction : "none"} key={column} onClick={() => changeSort(column)} role="columnheader" type="button">{t(column)}{preset.sort === column ? (preset.direction === "ascending" ? " ↑" : " ↓") : ""}</button>)}
+          <div
+            className="evidence-grid__head"
+            role="row"
+            style={{ gridTemplateColumns: `${gridTemplate} 88px` }}
+          >
+            {preset.visible.map((column) => (
+              <button
+                aria-sort={preset.sort === column ? preset.direction : "none"}
+                key={column}
+                onClick={() => changeSort(column)}
+                role="columnheader"
+                type="button"
+              >
+                {t(column)}
+                {preset.sort === column
+                  ? preset.direction === "ascending"
+                    ? " ↑"
+                    : " ↓"
+                  : ""}
+              </button>
+            ))}
             <span role="columnheader">{t("Actions")}</span>
           </div>
-          <div style={{ height: sorted.length * rowHeight, position: "relative", minWidth: `calc(${gridTemplate.split(" ").join(" + ")} + 88px)` }}>
-            <div style={{ position: "absolute", top: start * rowHeight, left: 0 }}>{virtualRows.map((entry) => row(entry, true))}</div>
+          <div
+            style={{
+              height: sorted.length * rowHeight,
+              position: "relative",
+              minWidth: `calc(${gridTemplate.split(" ").join(" + ")} + 88px)`,
+            }}
+          >
+            <div
+              style={{ position: "absolute", top: start * rowHeight, left: 0 }}
+            >
+              {virtualRows.map((entry) => row(entry, true))}
+            </div>
           </div>
         </div>
       ) : (
         <div className="evidence-grid__semantic">
-          <table><caption>{t("Page {page} of {pages}; {count} exact rows", { page: page + 1, pages: Math.max(1, Math.ceil(sorted.length / pageSize)), count: sorted.length })}</caption><thead><tr>{preset.visible.map((column) => <th aria-sort={preset.sort === column ? preset.direction : "none"} key={column}><button onClick={() => changeSort(column)} type="button">{t(column)}</button></th>)}<th>{t("Actions")}</th></tr></thead><tbody>{semanticRows.map((entry) => <tr key={`${entry.session_id}:${entry.connection.id}`}>{preset.visible.map((column) => <td key={column}>{cell(entry, column, t)}</td>)}<td><button onClick={() => onTogglePin(entry.connection.id)} type="button">{pinnedIds.includes(entry.connection.id) ? t("Unpin") : t("Pin")}</button><button onClick={() => onOpen(entry)} type="button">{t("Open")}</button></td></tr>)}</tbody></table>
-          <nav aria-label={t("Evidence pages")}><button disabled={page === 0} onClick={() => setPage((current) => current - 1)} type="button">{t("Previous")}</button><span>{page + 1} / {Math.max(1, Math.ceil(sorted.length / pageSize))}</span><button disabled={(page + 1) * pageSize >= sorted.length} onClick={() => setPage((current) => current + 1)} type="button">{t("Next")}</button></nav>
+          <table>
+            <caption>
+              {t("Page {page} of {pages}; {count} exact rows", {
+                page: page + 1,
+                pages: Math.max(1, Math.ceil(sorted.length / pageSize)),
+                count: sorted.length,
+              })}
+            </caption>
+            <thead>
+              <tr>
+                {preset.visible.map((column) => (
+                  <th
+                    aria-sort={
+                      preset.sort === column ? preset.direction : "none"
+                    }
+                    key={column}
+                  >
+                    <button onClick={() => changeSort(column)} type="button">
+                      {t(column)}
+                    </button>
+                  </th>
+                ))}
+                <th>{t("Actions")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {semanticRows.map((entry) => (
+                <tr key={`${entry.session_id}:${entry.connection.id}`}>
+                  {preset.visible.map((column) => (
+                    <td key={column}>{cell(entry, column, t, display)}</td>
+                  ))}
+                  <td>
+                    <button
+                      onClick={() => onTogglePin(entry.connection.id)}
+                      type="button"
+                    >
+                      {pinnedIds.includes(entry.connection.id)
+                        ? t("Unpin")
+                        : t("Pin")}
+                    </button>
+                    <button onClick={() => onOpen(entry)} type="button">
+                      {t("Open")}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <nav aria-label={t("Evidence pages")}>
+            <button
+              disabled={page === 0}
+              onClick={() => setPage((current) => current - 1)}
+              type="button"
+            >
+              {t("Previous")}
+            </button>
+            <span>
+              {page + 1} / {Math.max(1, Math.ceil(sorted.length / pageSize))}
+            </span>
+            <button
+              disabled={(page + 1) * pageSize >= sorted.length}
+              onClick={() => setPage((current) => current + 1)}
+              type="button"
+            >
+              {t("Next")}
+            </button>
+          </nav>
         </div>
       )}
-      {!loading && sorted.length === 0 && <p className="list-empty">{t("No retained evidence matches this query.")}</p>}
+      {!loading && sorted.length === 0 && (
+        <p className="list-empty">
+          {t("No retained evidence matches this query.")}
+        </p>
+      )}
     </section>
   );
 }

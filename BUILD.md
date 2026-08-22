@@ -135,3 +135,10 @@ chosen data-retention behavior. Linux artifacts
 must be tested on Linux; Tauri bundles are not meaningfully validated by merely
 cross-compiling them from Windows. The current evidence is maintained in
 `docs/VALIDATION.md`.
+
+Use `pnpm --dir apps/desktop tauri build --bundles nsis` for a distributable Windows
+artifact. A plain `cargo build --release` is useful for native diagnostics but may set
+Tauri's `cfg(dev)` boundary and omit `frontendDist`; its smaller executable must never
+be used as a packaging baseline. Release verification therefore also checks that the
+portable executable contains the production asset keys from `apps/desktop/dist` and
+that the NSIS bundle was produced from that same executable.

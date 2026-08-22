@@ -3,6 +3,41 @@
 All notable changes are documented here. Sabicheiro follows semantic versioning for
 its local desktop releases.
 
+## Unreleased — Today clarity and presentation
+
+### Added
+
+- One bounded native Today bootstrap with all-retained-history novelty, active-session
+  summary, previous-session/listener comparison and typed evidence drill-downs.
+- In-memory Presentation mode with stable visual pseudonyms for addresses, domains,
+  paths, users, gateways and profiles, plus a permanent active indicator.
+- Explicit unlocated-destination reasons and plotted/unlocated filters, and a local
+  English/Castellano Settings search that focuses matching controls.
+- UI contract tests for privacy DOM attributes, responsive capture controls, stale
+  request rejection, settings search, unlocated classification and quick comparison.
+
+### Changed
+
+- SQLite schema v7 retains executable revisions and indexes bounded Today novelty;
+  migrations from every retained schema create readable pre-v7 backups.
+- Narrow navigation keeps capture state/actions in a compact menu; the inspector is a
+  docked wide column or accessible narrow overlay. Secondary and live-only panels load
+  lazily, and Today/History/Settings reject stale async responses.
+- Today no longer fetches a 500-row history page to infer novelty. Aggregate session
+  comparison runs in SQLite and unavailable/incomparable traffic remains explicit.
+
+### Validation status
+
+- 138 Rust tests, strict format/Clippy, 996-key i18n, TypeScript/UI tests, four product
+  audits and production/NSIS builds pass. Browser QA covers 720×600, 200% app text,
+  wide/narrow inspector focus, presentation redaction and 50 Map↔Globe swaps.
+- Frontend/initial resources are 1.201.180/401.145 B with zero source maps. The valid
+  production-baseline comparison is 6.857.216→6.922.240 B portable (+0,95%) and
+  3.172.137→3.201.195 B NSIS (+0,92%), within the 7 MiB/3,1 MiB budgets.
+- The historical 6.528.512 B artifact is excluded from package comparisons because a
+  reproducible audit shows `cfg(dev)` omitted every Vite chunk. Native WebView/HiDPI,
+  screen-reader, Linux, elevated ETW and long-soak evidence remain unclaimed.
+
 ## 0.4.2 — 2026-08-16 — Lightweight runtime
 
 ### Added

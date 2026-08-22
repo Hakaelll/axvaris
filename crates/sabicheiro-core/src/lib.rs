@@ -9,6 +9,7 @@ mod models;
 mod network_action;
 mod notifications;
 mod rules;
+mod today;
 
 pub use aggregation::ConnectionAggregator;
 pub use baseline::{BaselineBook, BaselineObservation};
@@ -21,6 +22,7 @@ pub use models::*;
 pub use network_action::*;
 pub use notifications::*;
 pub use rules::*;
+pub use today::*;
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()

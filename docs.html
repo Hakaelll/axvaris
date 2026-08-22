@@ -1518,10 +1518,10 @@
 
         <div class="side-card">
           <span>Importante</span>
-          <strong>Windows validado; Linux en revisión</strong>
+          <strong>Build Windows validado; ciclo nativo en revisión</strong>
           <p>
-            El código Linux compila, pero los paquetes nativos y eBPF todavía
-            requieren pruebas en un equipo Linux real.
+            El build y NSIS de Windows pasan. El ciclo nativo actual y los
+            paquetes/eBPF de Linux todavía requieren su equipo real.
           </p>
         </div>
       </aside>
@@ -1621,8 +1621,8 @@
                   <td>IP Helper; ETW opcional cuando el sistema lo permite</td>
                   <td>Pktmon del sistema</td>
                   <td>
-                    <span class="status-text is-validated"
-                      >Aplicación y NSIS validados</span
+                    <span class="status-text is-review"
+                      >Build y NSIS; ciclo nativo pendiente</span
                     >
                   </td>
                 </tr>
@@ -1679,7 +1679,7 @@
               <span class="eyebrow">Windows 10 / 11</span>
               <h2>Instalación en Windows</h2>
             </div>
-            <span class="platform-badge is-validated">Ciclo NSIS validado</span>
+            <span class="platform-badge is-review">Paquete NSIS generado</span>
           </div>
 
           <div class="grid grid--2">
@@ -1743,10 +1743,11 @@
               <strong>Datos y desinstalación</strong>
               <p>
                 La base de datos, ajustes y logs residen en
-                <code>%APPDATA%\io.sabicheiro.desktop\</code>. El ciclo NSIS
-                validado elimina el programa y el acceso de Inicio, pero
-                conserva esos datos para evitar una pérdida accidental. Puedes
-                borrarlos desde Datos y estado o manualmente después de cerrar
+                <code>%APPDATA%\io.sabicheiro.desktop\</code>. El instalador
+                está diseñado para eliminar el programa y el acceso de Inicio,
+                pero conservar esos datos para evitar una pérdida accidental;
+                el ciclo nativo de esta revisión sigue pendiente. Puedes borrar
+                los datos desde Datos y estado o manualmente después de cerrar
                 Sabicheiro.
               </p>
             </div>
@@ -1936,8 +1937,10 @@ pnpm tauri build --bundles appimage,deb</code></pre>
                 del equipo.
               </p>
               <ul>
-                <li>Procesos, dominios, ASN y listeners nuevos</li>
-                <li>Tarjetas fijables o descartables</li>
+                <li>Novedad contra todo el historial retenido, no solo la última página</li>
+                <li>Franja de sesión con tráfico y calidad de contadores</li>
+                <li>Comparación con la sesión y listeners anteriores</li>
+                <li>Acceso directo a la evidencia en Investigate</li>
                 <li>Reglas locales tipadas y versionadas</li>
                 <li>Notificaciones agrupadas con horas silenciosas</li>
               </ul>
@@ -2004,6 +2007,8 @@ pnpm tauri build --bundles appimage,deb</code></pre>
                 <li>Diagnóstico por subsistema y contadores de pérdidas</li>
                 <li>Retención, integridad, compactación y borrado granular</li>
                 <li>GeoIP City/ASN local con importación y rollback</li>
+                <li>Motivo y filtro para cada destino sin ubicación</li>
+                <li>Búsqueda local de ajustes en castellano e inglés</li>
                 <li>
                   Contraste, escala de texto, densidad y movimiento reducido
                 </li>
@@ -2200,6 +2205,15 @@ asn:15169 OR domain:"google.com"</code></pre>
                 Rechaza todas las acciones de red opcionales incluso si otro
                 ajuste está activado. Las importaciones de archivos locales
                 siguen disponibles.
+              </p>
+            </article>
+            <article class="card">
+              <span class="feature-code">PRESENTACIÓN</span>
+              <h3>Seudónimos visuales</h3>
+              <p>
+                Oculta IP, dominios, rutas, usuarios, gateways y perfiles al
+                compartir pantalla. El mapeo estable vive solo en memoria y no
+                modifica SQLite, filtros ni exportaciones.
               </p>
             </article>
           </div>

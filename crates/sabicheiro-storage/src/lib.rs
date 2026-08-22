@@ -1,25 +1,33 @@
 use rusqlite::{Connection as SqliteConnection, OpenFlags, OptionalExtension, Transaction, params};
 use sabicheiro_core::{
-    AppSettings, BaselineBook, Bookmark, Connection, ConnectionAnnotation, ConnectionFilter,
-    ConnectionHistoryStats, CounterSource, DerivedGeoEnrichment, EvidenceJournalStats,
-    EvidenceObservation, EvidenceQuery, ExportFormat, ExportRedaction, ExportRequest, ExportResult,
-    FocusRules, HandshakeModeAudit, HistoryCursor, HistoryEntry, HistoryQuery, IgnoreRule,
-    InvestigationQuery, ListenerExposure, ListenerSnapshot, LocalNotificationRecord, LocalRule,
-    LocalRuleAction, NetworkActionAudit, NetworkActionIntent, NetworkDestinationClass,
-    NetworkProfile, NotificationState, RecordingState, RecordingStatus, RecordingSummary,
-    RecoveryReport, RetentionBatchResult, RetentionEstimate, RetentionPolicy, RetentionTier,
-    RuleKind, RuleMatch, SavedInvestigation, SessionSummary, StorageHealth, TimelineQuery,
-    TodayCardState, TrafficCounters, TrafficSample, TransferRates,
+    AppSettings, BaselineBook, Bookmark, ComparisonRow, Connection, ConnectionAnnotation,
+    ConnectionFilter, ConnectionHistoryStats, CounterSource, DerivedGeoEnrichment,
+    EvidenceJournalStats, EvidenceObservation, EvidenceQuery, ExportFormat, ExportRedaction,
+    ExportRequest, ExportResult, FocusRules, HandshakeModeAudit, HistoryCursor, HistoryEntry,
+    HistoryQuery, IgnoreRule, InvestigationQuery, ListenerExposure, ListenerSnapshot,
+    LocalNotificationRecord, LocalRule, LocalRuleAction, NetworkActionAudit, NetworkActionIntent,
+    NetworkDestinationClass, NetworkProfile, NotificationState, RecordingState, RecordingStatus,
+    RecordingSummary, RecoveryReport, RetentionBatchResult, RetentionEstimate, RetentionPolicy,
+    RetentionTier, RuleKind, RuleMatch, SavedInvestigation, SessionComparison, SessionSummary,
+    StorageHealth, TimelineQuery, TodayCardState, TodayChangeExample, TodayChangeGroup,
+    TodayChangeKind, TodayEvidenceTarget, TrafficCounters, TrafficSample, TransferRates,
 };
 use sha2::{Digest, Sha256};
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fs, io,
     path::{Path, PathBuf},
 };
 use thiserror::Error;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const MAX_QUERY_LIMIT: usize = 100_000;
+const V7_TODAY_INDEXES_SQL: &str = "
+CREATE INDEX IF NOT EXISTS idx_connections_process_remote
+  ON connections(process_name, remote_ip, session_id);
+CREATE INDEX IF NOT EXISTS idx_connections_executable_revision
+  ON connections(process_name, executable_revision, session_id);
+";
 const V6_TRAFFIC_ROLLUPS_SQL: &str = "
 CREATE INDEX IF NOT EXISTS idx_connections_history_cursor
   ON connections(last_seen_ms DESC, id DESC);
@@ -163,6 +171,122 @@ pub struct HistoryPage {
     pub has_more: bool,
 }
 
+#[derive(Debug, Default)]
+struct SessionComparisonCounts {
+    processes: BTreeMap<String, usize>,
+    destinations: BTreeMap<String, usize>,
+    countries: BTreeMap<String, usize>,
+    ports: BTreeMap<String, usize>,
+}
+
+fn quote_filter(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
+}
+
+fn today_connection_example(
+    kind: TodayChangeKind,
+    category: &str,
+    primary: String,
+    secondary: Option<String>,
+    connection: &Connection,
+    query: Option<String>,
+) -> TodayChangeExample {
+    TodayChangeExample {
+        id: format!("{category}:{}", connection.id),
+        kind,
+        primary,
+        secondary,
+        connection_id: Some(connection.id.clone()),
+        query,
+        target: TodayEvidenceTarget::Investigate,
+        observed_at_ms: connection.last_seen_ms,
+    }
+}
+
+fn comparison_counts_for_connections(connections: &[Connection]) -> SessionComparisonCounts {
+    let mut counts = SessionComparisonCounts::default();
+    for connection in connections {
+        let weight = connection.repeat_count.max(1) as usize;
+        *counts
+            .processes
+            .entry(connection.process.name.clone())
+            .or_default() += weight;
+        *counts
+            .destinations
+            .entry(
+                connection
+                    .domain
+                    .clone()
+                    .or_else(|| connection.hostname.clone())
+                    .unwrap_or_else(|| connection.key.remote.address.to_string()),
+            )
+            .or_default() += weight;
+        *counts
+            .countries
+            .entry(
+                connection
+                    .geo
+                    .as_ref()
+                    .and_then(|geo| geo.country_name.clone())
+                    .unwrap_or_else(|| "Unknown geography".into()),
+            )
+            .or_default() += weight;
+        *counts
+            .ports
+            .entry(connection.key.remote.port.to_string())
+            .or_default() += weight;
+    }
+    counts
+}
+
+fn comparison_from_counts(
+    left_session_id: &str,
+    right_session_id: &str,
+    left: &SessionComparisonCounts,
+    right: &SessionComparisonCounts,
+) -> SessionComparison {
+    SessionComparison {
+        left_session_id: left_session_id.to_owned(),
+        right_session_id: right_session_id.to_owned(),
+        processes: comparison_rows(&left.processes, &right.processes),
+        destinations: comparison_rows(&left.destinations, &right.destinations),
+        countries: comparison_rows(&left.countries, &right.countries),
+        ports: comparison_rows(&left.ports, &right.ports),
+    }
+}
+
+fn comparison_rows(
+    left: &BTreeMap<String, usize>,
+    right: &BTreeMap<String, usize>,
+) -> Vec<ComparisonRow> {
+    let keys = left
+        .keys()
+        .chain(right.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let mut rows = keys
+        .into_iter()
+        .map(|key| {
+            let left_count = left.get(&key).copied().unwrap_or(0);
+            let right_count = right.get(&key).copied().unwrap_or(0);
+            ComparisonRow {
+                key,
+                left_count,
+                right_count,
+                delta: right_count as i64 - left_count as i64,
+            }
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        right
+            .delta
+            .unsigned_abs()
+            .cmp(&left.delta.unsigned_abs())
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    rows
+}
+
 impl Storage {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref();
@@ -178,6 +302,7 @@ impl Storage {
         storage.migrate()?;
         storage.ensure_v5_extensions()?;
         storage.ensure_v6_extensions()?;
+        storage.ensure_v7_extensions()?;
         Ok(storage)
     }
 
@@ -191,6 +316,7 @@ impl Storage {
         storage.migrate()?;
         storage.ensure_v5_extensions()?;
         storage.ensure_v6_extensions()?;
+        storage.ensure_v7_extensions()?;
         Ok(storage)
     }
 
@@ -224,8 +350,11 @@ impl Storage {
         if (1..5).contains(&current) {
             self.back_up_before_version(current, 5)?;
         }
-        if (1..SCHEMA_VERSION).contains(&current) {
+        if (1..6).contains(&current) {
             self.back_up_before_version(current, 6)?;
+        }
+        if (1..SCHEMA_VERSION).contains(&current) {
+            self.back_up_before_version(current, SCHEMA_VERSION)?;
         }
         if current < 1 {
             let transaction = self.connection.transaction()?;
@@ -277,6 +406,15 @@ impl Storage {
             migration_v6(&transaction)?;
             transaction.execute(
                 "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
+                params![6, chrono::Utc::now().timestamp_millis()],
+            )?;
+            transaction.commit()?;
+        }
+        if current < 7 {
+            let transaction = self.connection.transaction()?;
+            migration_v7(&transaction)?;
+            transaction.execute(
+                "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
                 params![SCHEMA_VERSION, chrono::Utc::now().timestamp_millis()],
             )?;
             transaction.commit()?;
@@ -303,6 +441,15 @@ impl Storage {
             )?;
         }
         self.connection.execute_batch(V6_TRAFFIC_ROLLUPS_SQL)?;
+        Ok(())
+    }
+
+    fn ensure_v7_extensions(&self) -> Result<(), StorageError> {
+        if !table_has_column(&self.connection, "connections", "executable_revision")? {
+            self.connection
+                .execute_batch("ALTER TABLE connections ADD COLUMN executable_revision TEXT;")?;
+        }
+        self.connection.execute_batch(V7_TODAY_INDEXES_SQL)?;
         Ok(())
     }
 
@@ -377,11 +524,11 @@ impl Storage {
                    state, domain, country_code, asn, active, remote_scope,
                    endpoint_role, role_reason, observation_source, correlation_quality,
                    process_instance, interface_id, capture_generation, flow_generation,
-                   city_generation, asn_generation, connection_json
+                   city_generation, asn_generation, executable_revision, connection_json
                  ) VALUES (
                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
                    ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26,
-                   ?27, ?28, ?29
+                   ?27, ?28, ?29, ?30
                  )
                  ON CONFLICT(id) DO UPDATE SET
                    last_seen_ms=excluded.last_seen_ms,
@@ -403,6 +550,7 @@ impl Storage {
                    flow_generation=excluded.flow_generation,
                    city_generation=excluded.city_generation,
                    asn_generation=excluded.asn_generation,
+                   executable_revision=excluded.executable_revision,
                    connection_json=excluded.connection_json",
             )?;
             for connection in connections {
@@ -453,6 +601,7 @@ impl Storage {
                         .asn
                         .as_ref()
                         .map_or(0, |asn| to_sql_u64(asn.generation)),
+                    connection.process.executable_revision_id,
                     json,
                 ])?;
             }
@@ -1012,6 +1161,420 @@ impl Storage {
 
     pub fn query_history(&self, query: &HistoryQuery) -> Result<Vec<HistoryEntry>, StorageError> {
         self.query_history_page(query).map(|page| page.entries)
+    }
+
+    /// Classifies the current connection set against every retained connection row.
+    /// Only the compact candidate keys cross into SQLite; historical connection JSON is
+    /// never materialized in Rust or sent over IPC.
+    pub fn today_novelty(
+        &self,
+        current_session_id: Option<&str>,
+        connections: &[Connection],
+        example_limit: usize,
+    ) -> Result<Vec<TodayChangeGroup>, StorageError> {
+        let example_limit = example_limit.clamp(1, 10);
+        let mut processes = BTreeMap::<String, &Connection>::new();
+        let mut destinations = BTreeMap::<(String, String), &Connection>::new();
+        let mut domains = BTreeMap::<String, &Connection>::new();
+        let mut asns = BTreeMap::<String, &Connection>::new();
+        let mut countries = BTreeMap::<String, &Connection>::new();
+        let mut revisions = BTreeMap::<(String, String), &Connection>::new();
+
+        for connection in connections {
+            let process = connection.process.name.trim();
+            if !process.is_empty() {
+                processes.entry(process.to_owned()).or_insert(connection);
+                destinations
+                    .entry((
+                        process.to_owned(),
+                        connection.key.remote.address.to_string(),
+                    ))
+                    .or_insert(connection);
+            }
+            if let Some(domain) = connection
+                .domain
+                .as_deref()
+                .or(connection.hostname.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                domains
+                    .entry(domain.to_ascii_lowercase())
+                    .or_insert(connection);
+            }
+            if let Some(asn) = connection.asn.as_ref().filter(|asn| asn.number > 0) {
+                asns.entry(asn.number.to_string()).or_insert(connection);
+            }
+            if let Some(country) = connection
+                .geo
+                .as_ref()
+                .and_then(|geo| geo.country_code.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                countries
+                    .entry(country.to_ascii_uppercase())
+                    .or_insert(connection);
+            }
+            if let Some(revision) = connection
+                .process
+                .executable_revision_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                revisions
+                    .entry((process.to_owned(), revision.to_owned()))
+                    .or_insert(connection);
+            }
+        }
+
+        let unseen_processes = self.unseen_scalar_candidates(
+            processes.keys().cloned().collect(),
+            current_session_id,
+            "process",
+        )?;
+        let unseen_destinations = self.unseen_pair_candidates(
+            destinations.keys().cloned().collect(),
+            current_session_id,
+            "destination",
+        )?;
+        let unseen_domains = self.unseen_scalar_candidates(
+            domains.keys().cloned().collect(),
+            current_session_id,
+            "domain",
+        )?;
+        let unseen_asns = self.unseen_scalar_candidates(
+            asns.keys().cloned().collect(),
+            current_session_id,
+            "asn",
+        )?;
+        let unseen_countries = self.unseen_scalar_candidates(
+            countries.keys().cloned().collect(),
+            current_session_id,
+            "country",
+        )?;
+        let unseen_revisions = self.unseen_pair_candidates(
+            revisions.keys().cloned().collect(),
+            current_session_id,
+            "revision",
+        )?;
+
+        let process_examples = unseen_processes
+            .iter()
+            .take(example_limit)
+            .filter_map(|value| {
+                processes.get(value).map(|connection| {
+                    today_connection_example(
+                        TodayChangeKind::Process,
+                        "process",
+                        value.clone(),
+                        None,
+                        connection,
+                        Some(format!("process:{}", quote_filter(value))),
+                    )
+                })
+            })
+            .collect();
+        let destination_examples = unseen_destinations
+            .iter()
+            .take(example_limit)
+            .filter_map(|key| {
+                destinations.get(key).map(|connection| {
+                    let display = connection
+                        .domain
+                        .clone()
+                        .or_else(|| connection.hostname.clone())
+                        .unwrap_or_else(|| key.1.clone());
+                    let destination_filter =
+                        if connection.domain.is_some() || connection.hostname.is_some() {
+                            format!("domain:{}", quote_filter(&display))
+                        } else {
+                            format!("ip:{}", key.1)
+                        };
+                    today_connection_example(
+                        TodayChangeKind::ApplicationDestination,
+                        "destination",
+                        display,
+                        Some(key.0.clone()),
+                        connection,
+                        Some(format!(
+                            "process:{} AND {destination_filter}",
+                            quote_filter(&key.0)
+                        )),
+                    )
+                })
+            })
+            .collect();
+        let domain_examples = unseen_domains
+            .iter()
+            .take(example_limit)
+            .filter_map(|value| {
+                domains.get(value).map(|connection| {
+                    today_connection_example(
+                        TodayChangeKind::Domain,
+                        "domain",
+                        value.clone(),
+                        Some(connection.process.name.clone()),
+                        connection,
+                        Some(format!("domain:{}", quote_filter(value))),
+                    )
+                })
+            })
+            .collect();
+        let asn_examples = unseen_asns
+            .iter()
+            .take(example_limit)
+            .filter_map(|value| {
+                asns.get(value).map(|connection| {
+                    today_connection_example(
+                        TodayChangeKind::Asn,
+                        "asn",
+                        format!("AS{value}"),
+                        connection
+                            .asn
+                            .as_ref()
+                            .and_then(|asn| asn.organization.clone()),
+                        connection,
+                        Some(format!("asn:{value}")),
+                    )
+                })
+            })
+            .collect();
+        let country_examples = unseen_countries
+            .iter()
+            .take(example_limit)
+            .filter_map(|value| {
+                countries.get(value).map(|connection| {
+                    today_connection_example(
+                        TodayChangeKind::Country,
+                        "country",
+                        connection
+                            .geo
+                            .as_ref()
+                            .and_then(|geo| geo.country_name.clone())
+                            .unwrap_or_else(|| value.clone()),
+                        Some(value.clone()),
+                        connection,
+                        Some(format!("country:{value}")),
+                    )
+                })
+            })
+            .collect();
+        let revision_examples = unseen_revisions
+            .iter()
+            .take(example_limit)
+            .filter_map(|key| {
+                revisions.get(key).map(|connection| {
+                    today_connection_example(
+                        TodayChangeKind::ExecutableRevision,
+                        "revision",
+                        key.1.clone(),
+                        Some(key.0.clone()),
+                        connection,
+                        Some(format!("process:{}", quote_filter(&key.0))),
+                    )
+                })
+            })
+            .collect();
+
+        Ok(vec![
+            TodayChangeGroup {
+                kind: TodayChangeKind::Process,
+                count: unseen_processes.len(),
+                examples: process_examples,
+            },
+            TodayChangeGroup {
+                kind: TodayChangeKind::ApplicationDestination,
+                count: unseen_destinations.len(),
+                examples: destination_examples,
+            },
+            TodayChangeGroup {
+                kind: TodayChangeKind::Domain,
+                count: unseen_domains.len(),
+                examples: domain_examples,
+            },
+            TodayChangeGroup {
+                kind: TodayChangeKind::Asn,
+                count: unseen_asns.len(),
+                examples: asn_examples,
+            },
+            TodayChangeGroup {
+                kind: TodayChangeKind::Country,
+                count: unseen_countries.len(),
+                examples: country_examples,
+            },
+            TodayChangeGroup {
+                kind: TodayChangeKind::ExecutableRevision,
+                count: unseen_revisions.len(),
+                examples: revision_examples,
+            },
+        ])
+    }
+
+    fn unseen_scalar_candidates(
+        &self,
+        candidates: Vec<String>,
+        current_session_id: Option<&str>,
+        category: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let historical_expression = match category {
+            "process" => "history.process_name",
+            "domain" => "LOWER(history.domain)",
+            "asn" => "CAST(history.asn AS TEXT)",
+            "country" => "UPPER(history.country_code)",
+            _ => {
+                return Err(StorageError::InvalidEvidence(
+                    "unknown novelty category".into(),
+                ));
+            }
+        };
+        let candidates_json = serde_json::to_string(&candidates)?;
+        let sql = format!(
+            "WITH candidates(value) AS (
+               SELECT DISTINCT CAST(value AS TEXT) FROM json_each(?1)
+             )
+             SELECT candidate.value FROM candidates candidate
+             WHERE NOT EXISTS (
+               SELECT 1 FROM connections history
+               WHERE (?2 IS NULL OR history.session_id <> ?2)
+                 AND {historical_expression} = candidate.value
+             )
+             ORDER BY candidate.value"
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params![candidates_json, current_session_id], |row| {
+            row.get::<_, String>(0)
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    fn unseen_pair_candidates(
+        &self,
+        candidates: Vec<(String, String)>,
+        current_session_id: Option<&str>,
+        category: &str,
+    ) -> Result<Vec<(String, String)>, StorageError> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let second_expression = match category {
+            "destination" => "history.remote_ip",
+            "revision" => "history.executable_revision",
+            _ => {
+                return Err(StorageError::InvalidEvidence(
+                    "unknown novelty category".into(),
+                ));
+            }
+        };
+        let candidates_json = serde_json::to_string(&candidates)?;
+        let sql = format!(
+            "WITH candidates(first_value, second_value) AS (
+               SELECT DISTINCT
+                 CAST(json_extract(value, '$[0]') AS TEXT),
+                 CAST(json_extract(value, '$[1]') AS TEXT)
+               FROM json_each(?1)
+             )
+             SELECT candidate.first_value, candidate.second_value
+             FROM candidates candidate
+             WHERE NOT EXISTS (
+               SELECT 1 FROM connections history
+               WHERE (?2 IS NULL OR history.session_id <> ?2)
+                 AND history.process_name = candidate.first_value
+                 AND {second_expression} = candidate.second_value
+             )
+             ORDER BY candidate.first_value, candidate.second_value"
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let rows = statement.query_map(params![candidates_json, current_session_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn compare_sessions(
+        &self,
+        left_session_id: &str,
+        right_session_id: &str,
+    ) -> Result<SessionComparison, StorageError> {
+        let left = self.session_comparison_counts(left_session_id)?;
+        let right = self.session_comparison_counts(right_session_id)?;
+        Ok(comparison_from_counts(
+            left_session_id,
+            right_session_id,
+            &left,
+            &right,
+        ))
+    }
+
+    pub fn compare_session_to_connections(
+        &self,
+        left_session_id: &str,
+        right_session_id: &str,
+        right_connections: &[Connection],
+    ) -> Result<SessionComparison, StorageError> {
+        let left = self.session_comparison_counts(left_session_id)?;
+        let right = comparison_counts_for_connections(right_connections);
+        Ok(comparison_from_counts(
+            left_session_id,
+            right_session_id,
+            &left,
+            &right,
+        ))
+    }
+
+    pub fn session_connection_count(&self, session_id: &str) -> Result<usize, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT COUNT(*) FROM connections WHERE session_id=?1",
+                params![session_id],
+                |row| Ok(row.get::<_, i64>(0)?.max(0) as usize),
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn session_counter_sources(&self, session_id: &str) -> Result<Vec<String>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT DISTINCT COALESCE(json_extract(connection_json, '$.counter_source'), 'unavailable')
+             FROM connections WHERE session_id=?1 ORDER BY 1",
+        )?;
+        let rows = statement.query_map(params![session_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    fn session_comparison_counts(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionComparisonCounts, StorageError> {
+        let load = |key_expression: &str| -> Result<BTreeMap<String, usize>, StorageError> {
+            let sql = format!(
+                "SELECT {key_expression} AS comparison_key,
+                        SUM(COALESCE(NULLIF(CAST(json_extract(connection_json, '$.repeat_count') AS INTEGER), 0), 1))
+                 FROM connections
+                 WHERE session_id=?1
+                 GROUP BY comparison_key"
+            );
+            let mut statement = self.connection.prepare(&sql)?;
+            let rows = statement.query_map(params![session_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?.max(0) as usize,
+                ))
+            })?;
+            rows.collect::<Result<BTreeMap<_, _>, _>>()
+                .map_err(Into::into)
+        };
+        Ok(SessionComparisonCounts {
+            processes: load("process_name")?,
+            destinations: load("COALESCE(NULLIF(domain, ''), remote_ip)")?,
+            countries: load(
+                "COALESCE(NULLIF(json_extract(connection_json, '$.geo.country_name'), ''), 'Unknown geography')",
+            )?,
+            ports: load("CAST(remote_port AS TEXT)")?,
+        })
     }
 
     pub fn query_history_page(&self, query: &HistoryQuery) -> Result<HistoryPage, StorageError> {
@@ -2978,6 +3541,11 @@ fn migration_v6(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
     transaction.execute_batch(V6_TRAFFIC_ROLLUPS_SQL)
 }
 
+fn migration_v7(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
+    transaction.execute_batch("ALTER TABLE connections ADD COLUMN executable_revision TEXT;")?;
+    transaction.execute_batch(V7_TODAY_INDEXES_SQL)
+}
+
 fn validate_export_path(value: &str, format: ExportFormat) -> Result<PathBuf, StorageError> {
     if value.trim().is_empty() || value.as_bytes().contains(&0) {
         return Err(StorageError::InvalidExportPath(
@@ -3345,6 +3913,87 @@ mod tests {
             },
             [],
         )
+    }
+
+    #[test]
+    fn today_novelty_uses_all_retained_history_beyond_latest_five_hundred() {
+        let mut storage = Storage::in_memory().expect("storage");
+        storage
+            .start_session("historical", 1_000)
+            .expect("historical session");
+
+        let mut known = sample_connection();
+        known.id = "known-outside-page".into();
+        known.process.name = "Known Browser".into();
+        known.domain = Some("known.example".into());
+        known.process.executable_revision_id = Some("revision-known".into());
+        known.asn = Some(sabicheiro_core::AsnInfo {
+            number: 64_500,
+            ..sabicheiro_core::AsnInfo::default()
+        });
+        known.geo = Some(sabicheiro_core::GeoLocation {
+            country_code: Some("ES".into()),
+            country_name: Some("Spain".into()),
+            ..sabicheiro_core::GeoLocation::default()
+        });
+        storage
+            .save_connections("historical", std::slice::from_ref(&known))
+            .expect("known history");
+
+        let fillers = (0..501)
+            .map(|index| {
+                let mut connection = sample_connection();
+                connection.id = format!("newer-{index:03}");
+                connection.process.name = format!("Filler {index:03}");
+                connection.last_seen_ms = 10_000 + index;
+                connection
+            })
+            .collect::<Vec<_>>();
+        storage
+            .save_connections("historical", &fillers)
+            .expect("newer history");
+
+        let mut current_known = known.clone();
+        current_known.id = "current-known".into();
+        current_known.last_seen_ms = 50_000;
+        let mut genuinely_new = sample_connection();
+        genuinely_new.id = "current-new".into();
+        genuinely_new.process.name = "Genuinely New".into();
+        genuinely_new.key.remote.address = "198.51.100.77".parse().expect("new IP");
+        genuinely_new.domain = Some("new.example".into());
+        genuinely_new.process.executable_revision_id = Some("revision-new".into());
+        genuinely_new.asn = Some(sabicheiro_core::AsnInfo {
+            number: 64_501,
+            ..sabicheiro_core::AsnInfo::default()
+        });
+        genuinely_new.geo = Some(sabicheiro_core::GeoLocation {
+            country_code: Some("PT".into()),
+            country_name: Some("Portugal".into()),
+            ..sabicheiro_core::GeoLocation::default()
+        });
+
+        let groups = storage
+            .today_novelty(Some("current"), &[current_known, genuinely_new], 3)
+            .expect("today novelty");
+        for kind in [
+            TodayChangeKind::Process,
+            TodayChangeKind::ApplicationDestination,
+            TodayChangeKind::Domain,
+            TodayChangeKind::Asn,
+            TodayChangeKind::Country,
+            TodayChangeKind::ExecutableRevision,
+        ] {
+            let group = groups
+                .iter()
+                .find(|group| group.kind == kind)
+                .expect("novelty category");
+            assert_eq!(group.count, 1, "unexpected count for {kind:?}");
+            assert_eq!(group.examples.len(), 1);
+            assert_eq!(
+                group.examples[0].connection_id.as_deref(),
+                Some("current-new")
+            );
+        }
     }
 
     #[test]
@@ -4210,6 +4859,7 @@ mod tests {
                 3 => migration_v3(&transaction).expect("v3"),
                 4 => migration_v4(&transaction).expect("v4"),
                 5 => migration_v5(&transaction).expect("v5"),
+                6 => migration_v6(&transaction).expect("v6"),
                 _ => unreachable!("supported legacy schema"),
             }
             transaction
@@ -4288,6 +4938,37 @@ mod tests {
             );
             drop(storage);
             let backup = path.with_extension(format!("pre-v6-from-v{version}.bak"));
+            assert!(backup.is_file());
+            let backup_connection = SqliteConnection::open(backup).expect("open backup");
+            assert_eq!(
+                backup_connection
+                    .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .expect("backup version"),
+                version
+            );
+        }
+    }
+
+    #[test]
+    fn every_legacy_schema_creates_a_readable_pre_v7_backup() {
+        for version in 1..=6 {
+            let directory = tempfile::tempdir().expect("tempdir");
+            let path = directory.path().join(format!("legacy-v{version}.sqlite3"));
+            create_legacy_database(&path, version);
+            let storage = Storage::open(&path).expect("migrate legacy database");
+            assert_eq!(
+                storage
+                    .connection
+                    .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .expect("schema version"),
+                SCHEMA_VERSION
+            );
+            drop(storage);
+            let backup = path.with_extension(format!("pre-v7-from-v{version}.bak"));
             assert!(backup.is_file());
             let backup_connection = SqliteConnection::open(backup).expect("open backup");
             assert_eq!(

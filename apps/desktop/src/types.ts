@@ -204,6 +204,12 @@ export interface TransferRates {
   packets_per_second: number;
 }
 
+export interface TrafficTrendPoint {
+  timestamp_ms: number;
+  down_bytes_per_second: number;
+  up_bytes_per_second: number;
+}
+
 export type SignalKind =
   | "new_destination"
   | "new_country"
@@ -886,6 +892,78 @@ export interface TodayCardState {
   dismissed: boolean;
   pinned: boolean;
   updated_at_ms: number;
+}
+
+export type TodayChangeKind =
+  | "process"
+  | "application_destination"
+  | "domain"
+  | "asn"
+  | "country"
+  | "executable_revision"
+  | "network_profile"
+  | "listener_added"
+  | "listener_removed"
+  | "listener_widened"
+  | "provider_degradation";
+
+export type TodayEvidenceTarget =
+  | "live"
+  | "investigate"
+  | "exposure"
+  | "health"
+  | "settings";
+
+export interface TodayChangeExample {
+  id: string;
+  kind: TodayChangeKind;
+  primary: string;
+  secondary: string | null;
+  connection_id: string | null;
+  query: string | null;
+  target: TodayEvidenceTarget;
+  observed_at_ms: number;
+}
+
+export interface TodayChangeGroup {
+  kind: TodayChangeKind;
+  count: number;
+  examples: TodayChangeExample[];
+}
+
+export interface TodaySessionComparison {
+  previous_session: SessionSummary;
+  current_session_id: string;
+  comparison: SessionComparison;
+  previous_traffic: TrafficCounters;
+  current_traffic: TrafficCounters;
+  traffic_comparable: boolean;
+  traffic_limitation: string | null;
+  listener_added: ListenerExposure[];
+  listener_removed: ListenerExposure[];
+  listener_widened: ListenerExposure[];
+}
+
+export interface TodayPayloadLimits {
+  examples_per_category: number;
+  comparison_rows_per_category: number;
+  card_states: number;
+  profiles: number;
+  rules: number;
+  notifications: number;
+}
+
+export interface TodayBootstrap {
+  generated_at_ms: number;
+  history_scope: "all_retained";
+  limits: TodayPayloadLimits;
+  changes: TodayChangeGroup[];
+  card_states: TodayCardState[];
+  profiles: NetworkProfile[];
+  rules: LocalRule[];
+  notifications: LocalNotificationRecord[];
+  active_profile_id: string | null;
+  previous_session: TodaySessionComparison | null;
 }
 
 export interface ListenerSnapshot {

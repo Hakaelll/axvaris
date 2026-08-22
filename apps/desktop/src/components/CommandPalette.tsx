@@ -8,6 +8,7 @@ interface CommandPaletteProps {
   paused: boolean;
   recording: boolean;
   localTrafficVisible: boolean;
+  presentationMode: boolean;
   onClose: () => void;
   onView: (view: PrimaryView) => void;
   onVisualization: (mode: ViewMode) => void;
@@ -17,6 +18,8 @@ interface CommandPaletteProps {
   onClearSession: () => void;
   onSearchPreset: (query: string) => void;
   onToggleLocalTraffic: () => void;
+  onTogglePresentationMode: () => void;
+  onOpenSettings: (section: string) => void;
 }
 
 export function CommandPalette({
@@ -24,6 +27,7 @@ export function CommandPalette({
   paused,
   recording,
   localTrafficVisible,
+  presentationMode,
   onClose,
   onView,
   onVisualization,
@@ -33,6 +37,8 @@ export function CommandPalette({
   onClearSession,
   onSearchPreset,
   onToggleLocalTraffic,
+  onTogglePresentationMode,
+  onOpenSettings,
 }: CommandPaletteProps) {
   const t = useI18n();
   const [query, setQuery] = useState("");
@@ -129,6 +135,29 @@ export function CommandPalette({
         run: onExport,
       },
       {
+        label: t("Open GeoIP settings"),
+        keywords:
+          "settings configuración geoip location ubicación mmdb city asn",
+        icon: "map" as IconName,
+        run: () => onOpenSettings("geo"),
+      },
+      {
+        label: t("Open presentation settings"),
+        keywords:
+          "settings configuración presentation presentación privacy privacidad pseudonyms seudónimos",
+        icon: "shield" as IconName,
+        run: () => onOpenSettings("display"),
+      },
+      {
+        label: presentationMode
+          ? t("Disable presentation mode")
+          : t("Enable presentation mode"),
+        keywords:
+          "privacy visual pseudonyms privacidad presentación seudónimos",
+        icon: "shield" as IconName,
+        run: onTogglePresentationMode,
+      },
+      {
         label: t("Open Data & Health"),
         keywords: "privacy diagnostics",
         icon: "settings" as IconName,
@@ -143,9 +172,12 @@ export function CommandPalette({
       onRecord,
       onSearchPreset,
       onToggleLocalTraffic,
+      onTogglePresentationMode,
+      onOpenSettings,
       onView,
       onVisualization,
       paused,
+      presentationMode,
       recording,
       t,
     ],

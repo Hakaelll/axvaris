@@ -22,7 +22,6 @@ import type {
   ListenerSnapshot,
   LocalDataCategory,
   LocalDataRemovalResult,
-  LocalNotificationRecord,
   LocalRule,
   NetworkInterface,
   NetworkProfile,
@@ -40,6 +39,7 @@ import type {
   SupportBundleRequest,
   TimelineQuery,
   TodayCardState,
+  TodayBootstrap,
   TrafficSample,
 } from "../types";
 
@@ -53,45 +53,59 @@ export const desktopApi = {
   getDashboardUpdate: (afterSequence: number | null) =>
     call<DashboardUpdate>("get_dashboard_update", { afterSequence }),
   setCaptureState: (mode: CaptureMode, selectedInterface: string | null) =>
-    call<CaptureSummary>("set_capture_state", { request: { mode, selectedInterface } }),
+    call<CaptureSummary>("set_capture_state", {
+      request: { mode, selectedInterface },
+    }),
   listInterfaces: () => call<NetworkInterface[]>("list_interfaces"),
   runCaptureSelfTest: () => call<CaptureSelfTest>("run_capture_self_test"),
   setViewPaused: (paused: boolean) => call<void>("set_view_paused", { paused }),
   clearSession: () => call<CaptureSummary>("clear_session"),
-  queryHistory: (query: HistoryQuery) => call<HistoryResponse>("query_history", { query }),
+  queryHistory: (query: HistoryQuery) =>
+    call<HistoryResponse>("query_history", { query }),
   saveInvestigation: (investigation: SavedInvestigation) =>
     call<SavedInvestigation>("save_investigation", { investigation }),
   listInvestigations: () => call<SavedInvestigation[]>("list_investigations"),
-  deleteInvestigation: (id: string) => call<boolean>("delete_investigation", { id }),
-  saveLocalRule: (rule: LocalRule) => call<LocalRule>("save_local_rule", { rule }),
-  listLocalRules: () => call<LocalRule[]>("list_local_rules"),
+  deleteInvestigation: (id: string) =>
+    call<boolean>("delete_investigation", { id }),
+  saveLocalRule: (rule: LocalRule) =>
+    call<LocalRule>("save_local_rule", { rule }),
   deleteLocalRule: (id: string) => call<boolean>("delete_local_rule", { id }),
   previewLocalRule: (rule: LocalRule, query: HistoryQuery) =>
     call<RuleMatch[]>("preview_local_rule", { rule, query }),
-  listLocalNotifications: (limit = 200) =>
-    call<LocalNotificationRecord[]>("list_notifications", { limit }),
   updateLocalNotification: (
     id: string,
     notificationState: NotificationState,
     snoozedUntilMs: number | null,
-  ) => call<boolean>("update_notification_state", { id, notificationState, snoozedUntilMs }),
+  ) =>
+    call<boolean>("update_notification_state", {
+      id,
+      notificationState,
+      snoozedUntilMs,
+    }),
   listNetworkProfiles: () => call<NetworkProfile[]>("list_network_profiles"),
   renameNetworkProfile: (id: string, displayName: string | null) =>
     call<NetworkProfile>("rename_network_profile", { id, displayName }),
   saveTodayCardState: (card: TodayCardState) =>
     call<TodayCardState>("save_today_card_state", { card }),
-  listTodayCardStates: () => call<TodayCardState[]>("list_today_card_states"),
-  captureListenerSnapshot: () => call<ListenerSnapshot>("capture_listener_snapshot"),
+  getTodayBootstrap: () => call<TodayBootstrap>("get_today_bootstrap"),
+  captureListenerSnapshot: () =>
+    call<ListenerSnapshot>("capture_listener_snapshot"),
   listListenerSnapshots: (limit = 100) =>
     call<ListenerSnapshot[]>("list_listener_snapshots", { limit }),
   getConnectionContext: (connectionId: string) =>
     call<ConnectionContextResponse>("get_connection_context", { connectionId }),
   getIdentityTimeline: (connectionId: string, sessionId: string | null) =>
-    call<IdentityTimelineEvent[]>("get_identity_timeline", { connectionId, sessionId }),
+    call<IdentityTimelineEvent[]>("get_identity_timeline", {
+      connectionId,
+      sessionId,
+    }),
   queryTrafficTimeline: (query: TimelineQuery) =>
     call<TrafficSample[]>("query_traffic_timeline", { query }),
   compareSessions: (leftSessionId: string, rightSessionId: string) =>
-    call<SessionComparison>("compare_sessions", { leftSessionId, rightSessionId }),
+    call<SessionComparison>("compare_sessions", {
+      leftSessionId,
+      rightSessionId,
+    }),
   exportSessionComparison: (request: ComparisonExportRequest) =>
     call<ExportResult>("export_session_comparison", {
       request: {
@@ -102,28 +116,39 @@ export const desktopApi = {
       },
     }),
   getSettings: () => call<AppSettings>("get_settings"),
-  updateSettings: (settings: AppSettings) => call<AppSettings>("update_settings", { settings }),
-  setRetention: (retention: RetentionPolicy) => call<number>("set_retention", { retention }),
+  updateSettings: (settings: AppSettings) =>
+    call<AppSettings>("update_settings", { settings }),
+  setRetention: (retention: RetentionPolicy) =>
+    call<number>("set_retention", { retention }),
   getFocusRules: () => call<FocusRules>("get_focus_rules"),
   addBookmark: (kind: Exclude<RuleKind, "localhost">, value: string) =>
     call<FocusRules["bookmarks"][number]>("add_bookmark", { kind, value }),
   removeBookmark: (id: number) => call<boolean>("remove_bookmark", { id }),
   addIgnoreRule: (kind: RuleKind, value: string) =>
-    call<FocusRules["ignore_rules"][number]>("add_ignore_rule", { kind, value }),
+    call<FocusRules["ignore_rules"][number]>("add_ignore_rule", {
+      kind,
+      value,
+    }),
   setIgnoreRuleEnabled: (id: number, enabled: boolean) =>
     call<boolean>("set_ignore_rule_enabled", { id, enabled }),
   removeIgnoreRule: (id: number) => call<boolean>("remove_ignore_rule", { id }),
   getConnectionHistoryStats: (remoteIp: string) =>
     call<ConnectionHistoryStats>("get_connection_history_stats", { remoteIp }),
-  reconstructHistory: (atMs: number, sessionId: string | null, query: string | null) =>
-    call<Connection[]>("reconstruct_history", { atMs, sessionId, query }),
+  reconstructHistory: (
+    atMs: number,
+    sessionId: string | null,
+    query: string | null,
+  ) => call<Connection[]>("reconstruct_history", { atMs, sessionId, query }),
   startSessionReenrichment: (sessionId: string) =>
     call<ReenrichmentJobStatus>("start_session_reenrichment", { sessionId }),
   getReenrichmentJob: (id: string) =>
     call<ReenrichmentJobStatus>("get_reenrichment_job", { id }),
   cancelReenrichmentJob: (id: string) =>
     call<boolean>("cancel_reenrichment_job", { id }),
-  startExecutableInspection: (processInstance: string, maximumMegabytes = 256) =>
+  startExecutableInspection: (
+    processInstance: string,
+    maximumMegabytes = 256,
+  ) =>
     call<ExecutableInspectionStatus>("start_executable_inspection", {
       processInstance,
       maximumMegabytes,
@@ -145,9 +170,12 @@ export const desktopApi = {
     call<GeoDatabaseStatus>("rollback_geo_database", { kind }),
   removeGeoDatabase: (kind: "city" | "asn") =>
     call<GeoDatabaseStatus>("remove_geo_database", { kind }),
-  exportView: (request: ExportRequest) => call<ExportResult>("export_view", { request }),
-  exportSabi: (request: SabiExportRequest) => call<ExportResult>("export_sabi", { request }),
-  importSabi: (path: string) => call<ImportedSabiBundle>("import_sabi", { path }),
+  exportView: (request: ExportRequest) =>
+    call<ExportResult>("export_view", { request }),
+  exportSabi: (request: SabiExportRequest) =>
+    call<ExportResult>("export_sabi", { request }),
+  importSabi: (path: string) =>
+    call<ImportedSabiBundle>("import_sabi", { path }),
   exportSupportBundle: (request: SupportBundleRequest) =>
     call<ExportResult>("export_support_bundle", { request }),
   startRecording: (request: RecordingRequest) =>

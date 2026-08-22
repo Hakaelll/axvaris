@@ -1,4 +1,5 @@
 use chrono::Timelike;
+mod today;
 #[cfg(target_os = "windows")]
 use sabicheiro_capture::WindowsEventCapture;
 use sabicheiro_capture::{
@@ -8,25 +9,25 @@ use sabicheiro_capture::{
 };
 use sabicheiro_core::{
     AddressFamily, AppSettings, Bookmark, CapabilityAvailability, CaptureCapability,
-    CaptureCapabilityKind, CaptureMode, CaptureSelfTest, CaptureStatus, CaptureSummary,
-    ComparisonRow, Connection, ConnectionAggregator, ConnectionFilter, ConnectionHistoryStats,
-    ConnectionKey, CorrelationQuality, CounterSource, DashboardSnapshot, DashboardUpdate,
-    DerivedGeoEnrichment, Diagnostics, DnsAnswerEvidence, DnsCausalGraph, DnsCausalRelation,
-    ExecutableInspectionState, ExecutableInspectionStatus, ExportFormat, ExportRequest,
-    ExportResult, FocusRules, GeoDatabaseStatus, HandshakeModeAudit, HistoryCursor, HistoryEntry,
-    HistoryQuery, IdentityEventKind, IdentityTimelineEvent, IgnoreRule, ImportedSabiBundle,
-    ListenerExposure, ListenerScope, ListenerSnapshot, LocalDataCategory, LocalDataRemovalResult,
-    LocalNotificationRecord, LocalRule, LocalRuleAction, NetworkActionBroker, NetworkActionGrant,
-    NetworkActionIntent, NetworkActionPolicy, NetworkEventKind, NetworkPathEvidence,
-    NetworkPathKind, NetworkProfile, NetworkProtocol, NormalizedNetworkEvent,
-    NotificationCenterEngine, NotificationState, ObservationSource, OfflineServiceHint,
-    OperationProfile, ProviderCapability, ProviderDescriptor, ProviderMode, QuietHours,
-    RecordingRequest, RecordingState, RecordingStatus, RecordingSummary, ReenrichmentJobState,
-    ReenrichmentJobStatus, RetentionPolicy, RuleContext, RuleKind, RuleMatch, SabiExportRequest,
-    SabiManifest, SavedInvestigation, SelfTestCheck, SelfTestLevel, SessionComparison,
-    SessionSummary, StorageHealth, SubsystemDiagnostic, SubsystemStatus, SupportBundleRequest,
-    TimelineQuery, TimelineResolution, TodayCardState, TrafficCounters, TrafficSample,
-    TransferRates, reconstruct_at,
+    CaptureCapabilityKind, CaptureMode, CaptureSelfTest, CaptureStatus, CaptureSummary, Connection,
+    ConnectionAggregator, ConnectionFilter, ConnectionHistoryStats, ConnectionKey,
+    CorrelationQuality, CounterSource, DashboardSnapshot, DashboardUpdate, DerivedGeoEnrichment,
+    Diagnostics, DnsAnswerEvidence, DnsCausalGraph, DnsCausalRelation, ExecutableInspectionState,
+    ExecutableInspectionStatus, ExportFormat, ExportRequest, ExportResult, FocusRules,
+    GeoDatabaseStatus, HandshakeModeAudit, HistoryCursor, HistoryEntry, HistoryQuery,
+    IdentityEventKind, IdentityTimelineEvent, IgnoreRule, ImportedSabiBundle, ListenerExposure,
+    ListenerScope, ListenerSnapshot, LocalDataCategory, LocalDataRemovalResult, LocalRule,
+    LocalRuleAction, NetworkActionBroker, NetworkActionGrant, NetworkActionIntent,
+    NetworkActionPolicy, NetworkEventKind, NetworkPathEvidence, NetworkPathKind, NetworkProfile,
+    NetworkProtocol, NormalizedNetworkEvent, NotificationCenterEngine, NotificationState,
+    ObservationSource, OfflineServiceHint, OperationProfile, ProviderCapability,
+    ProviderDescriptor, ProviderMode, QuietHours, RecordingRequest, RecordingState,
+    RecordingStatus, RecordingSummary, ReenrichmentJobState, ReenrichmentJobStatus,
+    RetentionPolicy, RuleContext, RuleKind, RuleMatch, SabiExportRequest, SabiManifest,
+    SavedInvestigation, SelfTestCheck, SelfTestLevel, SessionComparison, SessionSummary,
+    StorageHealth, SubsystemDiagnostic, SubsystemStatus, SupportBundleRequest, TimelineQuery,
+    TimelineResolution, TodayBootstrap, TodayCardState, TodayPayloadLimits, TodaySessionComparison,
+    TrafficCounters, TrafficSample, TransferRates, reconstruct_at,
 };
 use sabicheiro_geo::{
     AddressScope, DnsResolver, GeoDatabaseKind, GeoLookup, LocalGeoResolver, import_mmdb,
@@ -623,6 +624,8 @@ struct Engine {
     last_tick_at: Instant,
     network_signature: String,
     active_network_profile_id: Option<String>,
+    previous_network_profile_id: Option<String>,
+    network_profile_changed_at_ms: Option<i64>,
     local_rules: Vec<LocalRule>,
     notification_center: NotificationCenterEngine,
 }
@@ -759,6 +762,8 @@ impl Runtime {
                 last_tick_at: Instant::now(),
                 network_signature: String::new(),
                 active_network_profile_id: None,
+                previous_network_profile_id: None,
+                network_profile_changed_at_ms: None,
                 local_rules,
                 notification_center,
             }),
@@ -1459,11 +1464,12 @@ impl Engine {
             .iter()
             .any(|network_interface| network_interface.is_up && network_interface.is_vpn);
         if !self.network_signature.is_empty() {
+            let observed_at_ms = sabicheiro_core::now_ms();
             let mut profile = NetworkProfile::pseudonymous(
                 &self.network_signature,
                 None,
                 self.vpn_active,
-                sabicheiro_core::now_ms(),
+                observed_at_ms,
             );
             if let Ok(existing_profiles) = self.storage.list_network_profiles() {
                 if let Some(existing) = existing_profiles
@@ -1474,10 +1480,16 @@ impl Engine {
                     profile.display_name = existing.display_name;
                 }
             }
+            if self
+                .active_network_profile_id
+                .as_ref()
+                .is_some_and(|active| active != &profile.id)
+            {
+                self.previous_network_profile_id = self.active_network_profile_id.clone();
+                self.network_profile_changed_at_ms = Some(observed_at_ms);
+            }
             self.active_network_profile_id = Some(profile.id.clone());
-            let _ = self
-                .storage
-                .save_network_profile(&profile, sabicheiro_core::now_ms());
+            let _ = self.storage.save_network_profile(&profile, observed_at_ms);
         }
         let Some(selected) = self.selected_interface.as_deref() else {
             return;
@@ -1984,6 +1996,21 @@ impl Engine {
         if self.session.is_none() {
             return;
         }
+        if self.capture_mode == CaptureMode::Live
+            && self
+                .session
+                .as_ref()
+                .is_some_and(|session| !session.ephemeral)
+        {
+            let listeners = self.current_listener_exposures(ended_at_ms);
+            if let Err(error) = self.storage.save_listener_snapshot(
+                self.session.as_ref().map(|session| session.id.as_str()),
+                ended_at_ms,
+                &listeners,
+            ) {
+                self.diagnostics.last_error = Some(error.to_string());
+            }
+        }
         if self
             .session
             .as_ref()
@@ -2067,6 +2094,22 @@ impl Engine {
             // Interface discovery is cached when capture starts, not repeated per snapshot.
             vpn_active: self.vpn_active,
         }
+    }
+
+    fn current_listener_exposures(&self, observed_at_ms: i64) -> Vec<ListenerExposure> {
+        self.aggregator
+            .connections()
+            .filter(|connection| connection.state == sabicheiro_core::ConnectionState::Listening)
+            .map(|connection| {
+                ListenerExposure::classify(
+                    connection.key.local.clone(),
+                    connection.protocol,
+                    connection.key.process_instance.clone(),
+                    self.vpn_active,
+                    observed_at_ms,
+                )
+            })
+            .collect()
     }
 
     fn snapshot(&mut self) -> DashboardSnapshot {
@@ -3326,18 +3369,6 @@ fn save_local_rule(rule: LocalRule, state: State<'_, AppState>) -> Result<LocalR
 }
 
 #[tauri::command]
-fn list_local_rules(state: State<'_, AppState>) -> Result<Vec<LocalRule>, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .list_local_rules()
-        .map_err(|error| CommandError::recoverable("local_rule_unavailable", error))
-}
-
-#[tauri::command]
 fn delete_local_rule(id: String, state: State<'_, AppState>) -> Result<bool, CommandError> {
     let mut engine = state
         .0
@@ -3386,21 +3417,6 @@ fn preview_local_rule(
         .map(|entry| rule.evaluate(&entry.connection, &context))
         .filter(|rule_match| rule_match.matched)
         .collect())
-}
-
-#[tauri::command]
-fn list_notifications(
-    limit: usize,
-    state: State<'_, AppState>,
-) -> Result<Vec<LocalNotificationRecord>, CommandError> {
-    state
-        .0
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .list_notifications(limit)
-        .map_err(|error| CommandError::recoverable("notifications_unavailable", error))
 }
 
 #[tauri::command]
@@ -3503,15 +3519,168 @@ fn save_today_card_state(
 }
 
 #[tauri::command]
-fn list_today_card_states(state: State<'_, AppState>) -> Result<Vec<TodayCardState>, CommandError> {
-    state
+fn get_today_bootstrap(state: State<'_, AppState>) -> Result<TodayBootstrap, CommandError> {
+    let engine = state
         .0
         .engine
         .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
+        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+    let generated_at_ms = sabicheiro_core::now_ms();
+    let limits = TodayPayloadLimits::default();
+    let current_session_id = engine.session.as_ref().map(|session| session.id.as_str());
+    let connections = engine.aggregator.connections().cloned().collect::<Vec<_>>();
+    let storage_error = |error| CommandError::recoverable("today_summary_unavailable", error);
+
+    let mut changes = engine
+        .storage
+        .today_novelty(
+            current_session_id,
+            &connections,
+            limits.examples_per_category,
+        )
+        .map_err(storage_error)?;
+    let mut profiles = engine
+        .storage
+        .list_network_profiles()
+        .map_err(storage_error)?;
+    profiles.truncate(limits.profiles);
+
+    let current_listeners = engine.current_listener_exposures(generated_at_ms);
+    let previous_listener_snapshot = engine
+        .storage
+        .list_listener_snapshots(32)
+        .map_err(storage_error)?
+        .into_iter()
+        .find(|snapshot| snapshot.session_id.as_deref() != current_session_id);
+    let listener_changes = today::compare_listeners(
+        &current_listeners,
+        previous_listener_snapshot
+            .as_ref()
+            .map_or(&[], |snapshot| snapshot.listeners.as_slice()),
+    );
+    changes.extend(today::listener_groups(
+        &listener_changes,
+        limits.examples_per_category,
+    ));
+
+    let profile_changed_at = engine
+        .network_profile_changed_at_ms
+        .unwrap_or(generated_at_ms);
+    let profile_changed = engine
+        .network_profile_changed_at_ms
+        .is_some_and(|changed_at| {
+            engine
+                .session
+                .as_ref()
+                .is_none_or(|session| changed_at >= session.started_at_ms)
+        });
+    changes.push(today::profile_group(
+        engine.active_network_profile_id.as_deref(),
+        engine.previous_network_profile_id.as_deref(),
+        &profiles,
+        profile_changed,
+        profile_changed_at,
+    ));
+    changes.push(today::provider_group(
+        &engine.diagnostics.subsystems,
+        limits.examples_per_category,
+        generated_at_ms,
+    ));
+
+    let previous_session = if let Some(current_session) = engine.session.as_ref() {
+        let prior = engine
+            .storage
+            .list_sessions(32)
+            .map_err(storage_error)?
+            .into_iter()
+            .find(|session| session.id != current_session.id && session.connection_count > 0);
+        prior
+            .map(|previous| {
+                let comparison = engine
+                    .storage
+                    .compare_session_to_connections(
+                        &previous.id,
+                        &current_session.id,
+                        &connections,
+                    )
+                    .map_err(storage_error)?;
+                let previous_sources = engine
+                    .storage
+                    .session_counter_sources(&previous.id)
+                    .map_err(storage_error)?;
+                let traffic_comparable = today::traffic_sources_are_comparable(
+                    &previous_sources,
+                    connections
+                        .iter()
+                        .map(|connection| connection.counter_source.as_str().to_owned()),
+                );
+                let mut current_traffic = TrafficCounters::default();
+                for connection in &connections {
+                    current_traffic.add_assign(connection.traffic);
+                }
+                Ok(TodaySessionComparison {
+                    previous_traffic: previous.traffic,
+                    current_traffic,
+                    previous_session: previous,
+                    current_session_id: current_session.id.clone(),
+                    comparison: today::bound_comparison(
+                        comparison,
+                        limits.comparison_rows_per_category,
+                    ),
+                    traffic_comparable,
+                    traffic_limitation: (!traffic_comparable).then(|| {
+                        "Traffic totals use unavailable, mixed or different counter sources; structural differences remain comparable."
+                            .into()
+                    }),
+                    listener_added: listener_changes
+                        .added
+                        .iter()
+                        .take(limits.comparison_rows_per_category)
+                        .cloned()
+                        .collect(),
+                    listener_removed: listener_changes
+                        .removed
+                        .iter()
+                        .take(limits.comparison_rows_per_category)
+                        .cloned()
+                        .collect(),
+                    listener_widened: listener_changes
+                        .widened
+                        .iter()
+                        .take(limits.comparison_rows_per_category)
+                        .cloned()
+                        .collect(),
+                })
+            })
+            .transpose()?
+    } else {
+        None
+    };
+
+    let mut card_states = engine
         .storage
         .list_today_card_states()
-        .map_err(|error| CommandError::recoverable("today_state_unavailable", error))
+        .map_err(storage_error)?;
+    card_states.truncate(limits.card_states);
+    let mut rules = engine.storage.list_local_rules().map_err(storage_error)?;
+    rules.truncate(limits.rules);
+    let notifications = engine
+        .storage
+        .list_notifications(limits.notifications)
+        .map_err(storage_error)?;
+
+    Ok(TodayBootstrap {
+        generated_at_ms,
+        history_scope: "all_retained".into(),
+        limits,
+        changes,
+        card_states,
+        profiles,
+        rules,
+        notifications,
+        active_profile_id: engine.active_network_profile_id.clone(),
+        previous_session,
+    })
 }
 
 #[tauri::command]
@@ -3522,20 +3691,7 @@ fn capture_listener_snapshot(state: State<'_, AppState>) -> Result<ListenerSnaps
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
     let observed_at_ms = sabicheiro_core::now_ms();
-    let listeners = engine
-        .aggregator
-        .connections()
-        .filter(|connection| connection.state == sabicheiro_core::ConnectionState::Listening)
-        .map(|connection| {
-            ListenerExposure::classify(
-                connection.key.local.clone(),
-                connection.protocol,
-                connection.key.process_instance.clone(),
-                engine.vpn_active,
-                observed_at_ms,
-            )
-        })
-        .collect::<Vec<_>>();
+    let listeners = engine.current_listener_exposures(observed_at_ms);
     engine
         .storage
         .save_listener_snapshot(
@@ -3927,92 +4083,21 @@ fn build_session_comparison(
             "two saved session identifiers are required",
         ));
     }
-    let load = |session_id: &str| {
-        storage.query_history(&HistoryQuery {
-            from_ms: None,
-            to_ms: None,
-            session_id: Some(session_id.to_owned()),
-            query: None,
-            limit: 10_000,
-            cursor: None,
-        })
-    };
-    let left = load(left_session_id)
+    let left_count = storage
+        .session_connection_count(left_session_id)
         .map_err(|error| CommandError::recoverable("comparison_unavailable", error))?;
-    let right = load(right_session_id)
+    let right_count = storage
+        .session_connection_count(right_session_id)
         .map_err(|error| CommandError::recoverable("comparison_unavailable", error))?;
-    if left.is_empty() || right.is_empty() {
+    if left_count == 0 || right_count == 0 {
         return Err(CommandError::recoverable(
             "comparison_empty",
             "both sessions must contain saved connections",
         ));
     }
-    let counts = |entries: &[HistoryEntry], category: &str| {
-        let mut values = BTreeMap::<String, usize>::new();
-        for entry in entries {
-            let connection = &entry.connection;
-            let key = match category {
-                "process" => connection.process.name.clone(),
-                "destination" => connection
-                    .domain
-                    .clone()
-                    .or_else(|| connection.hostname.clone())
-                    .unwrap_or_else(|| connection.key.remote.address.to_string()),
-                "country" => connection
-                    .geo
-                    .as_ref()
-                    .and_then(|geo| geo.country_name.clone())
-                    .unwrap_or_else(|| "Unknown geography".into()),
-                "port" => connection.key.remote.port.to_string(),
-                _ => continue,
-            };
-            *values.entry(key).or_default() += connection.repeat_count.max(1) as usize;
-        }
-        values
-    };
-    Ok(SessionComparison {
-        left_session_id: left_session_id.to_owned(),
-        right_session_id: right_session_id.to_owned(),
-        processes: comparison_rows(&counts(&left, "process"), &counts(&right, "process")),
-        destinations: comparison_rows(
-            &counts(&left, "destination"),
-            &counts(&right, "destination"),
-        ),
-        countries: comparison_rows(&counts(&left, "country"), &counts(&right, "country")),
-        ports: comparison_rows(&counts(&left, "port"), &counts(&right, "port")),
-    })
-}
-
-fn comparison_rows(
-    left: &BTreeMap<String, usize>,
-    right: &BTreeMap<String, usize>,
-) -> Vec<ComparisonRow> {
-    let keys = left
-        .keys()
-        .chain(right.keys())
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let mut rows = keys
-        .into_iter()
-        .map(|key| {
-            let left_count = left.get(&key).copied().unwrap_or(0);
-            let right_count = right.get(&key).copied().unwrap_or(0);
-            ComparisonRow {
-                key,
-                left_count,
-                right_count,
-                delta: right_count as i64 - left_count as i64,
-            }
-        })
-        .collect::<Vec<_>>();
-    rows.sort_by(|left, right| {
-        right
-            .delta
-            .unsigned_abs()
-            .cmp(&left.delta.unsigned_abs())
-            .then_with(|| left.key.cmp(&right.key))
-    });
-    rows
+    storage
+        .compare_sessions(left_session_id, right_session_id)
+        .map_err(|error| CommandError::recoverable("comparison_unavailable", error))
 }
 
 fn comparison_csv(comparison: &SessionComparison) -> String {
@@ -6111,15 +6196,13 @@ pub fn run() {
             list_investigations,
             delete_investigation,
             save_local_rule,
-            list_local_rules,
             delete_local_rule,
             preview_local_rule,
-            list_notifications,
             update_notification_state,
             list_network_profiles,
             rename_network_profile,
             save_today_card_state,
-            list_today_card_states,
+            get_today_bootstrap,
             capture_listener_snapshot,
             list_listener_snapshots,
             get_connection_context,

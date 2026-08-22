@@ -18,11 +18,8 @@ const spanish: Record<string, string> = {
   "{count} grouped events": "{count} eventos agrupados",
   "{count} listeners": "{count} listeners",
   "{count} local profiles": "{count} perfiles locales",
-  "{count} local services are listening":
-    "{count} servicios locales están escuchando",
   "{count} retained": "{count} conservados",
   "{count} versioned rules": "{count} reglas versionadas",
-  "{count} visible": "{count} visibles",
   "A rule needs a condition and at least one safe action.":
     "Una regla necesita una condición y al menos una acción segura.",
   "Accessibility rendering mode": "Modo de representación accesible",
@@ -35,8 +32,6 @@ const spanish: Record<string, string> = {
   "added since previous snapshot": "añadidos desde el snapshot anterior",
   "AND requires every condition; OR accepts either group. Negation excludes matching evidence.":
     "AND exige todas las condiciones; OR acepta cualquiera de los grupos. La negación excluye la evidencia coincidente.",
-  "Applies from 90% to 150% and is clamped to a safe migrated value.":
-    "Se aplica del 90 % al 150 % y se limita a un valor migrado seguro.",
   "ASN is local dataset context, not a security verdict.":
     "El ASN es contexto del dataset local, no un veredicto de seguridad.",
   "Background low-resource": "Segundo plano de bajo consumo",
@@ -96,8 +91,6 @@ const spanish: Record<string, string> = {
   "Firewall evidence": "Evidencia del firewall",
   "Firewall state is reported as not queryable until a native read-only rule provider supplies evidence. Bind scope alone never becomes a vulnerability verdict.":
     "El estado del firewall se muestra como no consultable hasta que un proveedor nativo de solo lectura aporte evidencia. El alcance del bind por sí solo nunca se convierte en un veredicto de vulnerabilidad.",
-  "First observed in the retained local baseline for this network context.":
-    "Primera observación en el baseline local conservado para este contexto de red.",
   "First observed opening a network connection on this device.":
     "Primera observación abriendo una conexión de red en este dispositivo.",
   "FIRST-CLASS EVIDENCE TABLE": "TABLA DE EVIDENCIA PRINCIPAL",
@@ -116,7 +109,6 @@ const spanish: Record<string, string> = {
   Join: "Unión",
   Latest: "Más reciente",
   "Loading listener snapshots…": "Cargando snapshots de listeners…",
-  "Listener change": "Cambio de listener",
   "Listener evidence": "Evidencia de listeners",
   "listeners in latest snapshot": "listeners en el snapshot más reciente",
   "LOCAL DECISION SUMMARY": "RESUMEN LOCAL PARA DECIDIR",
@@ -127,10 +119,7 @@ const spanish: Record<string, string> = {
   Meaning: "Significado",
   Negate: "Negar",
   "Network path": "Camino de red",
-  "Network path change": "Cambio del camino de red",
   "New domain": "Dominio nuevo",
-  "New for {process}; open the evidence to inspect source and quality.":
-    "Nuevo para {process}; abre la evidencia para comprobar su fuente y calidad.",
   "New network owner hint": "Nueva pista de propietario de red",
   "New workspace": "Nuevo workspace",
   Next: "Siguiente",
@@ -192,12 +181,8 @@ const spanish: Record<string, string> = {
   "removed since previous snapshot": "eliminados desde el snapshot anterior",
   "Require every condition (AND)": "Exigir todas las condiciones (AND)",
   Resolve: "Resolver",
-  "Review bind scope and firewall evidence in Exposure.":
-    "Revisa el alcance del bind y la evidencia del firewall en Exposición.",
   "Revision unavailable": "Revisión no disponible",
   "Route evidence": "Evidencia de ruta",
-  "Route evidence is tied to the current network generation.":
-    "La evidencia de ruta está vinculada a la generación de red actual.",
   "Route limitation": "Limitación de ruta",
   "Route metric": "Métrica de ruta",
   "Rule name": "Nombre de la regla",
@@ -504,7 +489,9 @@ const spanish: Record<string, string> = {
     "Globo interactivo con destinos de red filtrados. Usa el feed de conexiones como alternativa accesible mediante teclado.",
   "Loading local globe...": "Cargando globo local...",
   "Loading detailed local map...": "Cargando mapa local detallado...",
+  "Loading live workspace...": "Cargando espacio de trabajo en vivo...",
   "Loading local history...": "Cargando historial local...",
+  "Loading local summary...": "Cargando resumen local...",
   "Loading exposure data...": "Cargando datos de exposición...",
   "Loading local settings...": "Cargando ajustes locales...",
   "Traffic samples: every {seconds} seconds; high fidelity preserves one-second detail.":
@@ -1133,6 +1120,105 @@ const spanish: Record<string, string> = {
   "User / session": "Usuario / sesión",
   "Usual hours": "Horas habituales",
   "VPN observed": "VPN observada",
+  "{count} in this category.": "{count} en esta categoría.",
+  "{count} retained changes": "{count} cambios conservados",
+  "A capture or enrichment capability is degraded.":
+    "Una capacidad de captura o enriquecimiento está degradada.",
+  "A comparison appears after a retained session contains connection evidence.":
+    "La comparación aparecerá cuando una sesión conservada contenga evidencia de conexiones.",
+  "A listener changed to a broader bind scope.":
+    "Un listener cambió a un alcance de escucha más amplio.",
+  "A listening endpoint from the previous snapshot is no longer present.":
+    "Un endpoint en escucha del snapshot anterior ya no está presente.",
+  "A local listening endpoint appeared; review bind scope and firewall evidence.":
+    "Apareció un endpoint local en escucha; revisa el alcance y la evidencia del firewall.",
+  "Active connections": "Conexiones activas",
+  "Active processes": "Procesos activos",
+  Added: "Añadidos",
+  "Aggregate counters": "Contadores agregados",
+  "Applies from 90% to 200% and is clamped to a safe migrated value.":
+    "Se aplica del 90 % al 200 % y se limita a un valor migrado seguro.",
+  "Capture active": "Captura activa",
+  "Capture mode in compact menu": "Modo de captura en el menú compacto",
+  "Capture status: {status}": "Estado de la captura: {status}",
+  "Compared with {date}": "Comparado con {date}",
+  "Configure local GeoIP": "Configurar GeoIP local",
+  "Counters unavailable": "Contadores no disponibles",
+  "CURRENT SESSION": "SESIÓN ACTUAL",
+  "Deterministic demo counters": "Contadores deterministas de la demo",
+  "Disable presentation mode": "Desactivar el modo presentación",
+  "Enable presentation mode": "Activar el modo presentación",
+  "Enrichment pending": "Enriquecimiento pendiente",
+  "Every current target has a usable plotted position.":
+    "Todos los destinos actuales tienen una posición utilizable.",
+  "Filter unlocated evidence": "Filtrar evidencia sin ubicación",
+  "First observed country estimate in retained evidence; location is approximate.":
+    "Primera estimación de país observada en la evidencia conservada; la ubicación es aproximada.",
+  "First observed domain in the complete retained local baseline.":
+    "Primer dominio observado en toda la referencia local conservada.",
+  "GeoIP data absent or no local match":
+    "Datos GeoIP ausentes o sin coincidencia local",
+  Inspect: "Inspeccionar",
+  "Inspect {process} to {destination}: {reason}":
+    "Inspeccionar {process} hacia {destination}: {reason}",
+  "Listener added": "Listener añadido",
+  "Listener removed": "Listener eliminado",
+  "Listener scope widened": "Alcance del listener ampliado",
+  "Local or reserved destination": "Destino local o reservado",
+  "LOCATION COVERAGE": "COBERTURA DE UBICACIÓN",
+  "Location precision is too low":
+    "La precisión de ubicación es demasiado baja",
+  "Missing coordinates stay unplotted; Sabicheiro never invents a location.":
+    "Los destinos sin coordenadas no se representan; Sabicheiro nunca inventa una ubicación.",
+  "Network interface in compact menu": "Interfaz de red en el menú compacto",
+  "Network profile change": "Cambio de perfil de red",
+  "New country": "País nuevo",
+  "New destination for application": "Destino nuevo para la aplicación",
+  "New executable revision": "Revisión nueva del ejecutable",
+  "New for {process}; open the retained evidence to inspect source and quality.":
+    "Nuevo para {process}; abre la evidencia conservada para comprobar su fuente y calidad.",
+  "No matching settings.": "Ningún ajuste coincide.",
+  "No previous valid session": "No hay una sesión anterior válida",
+  "No structural differences from the previous session.":
+    "No hay diferencias estructurales respecto a la sesión anterior.",
+  "No usable coordinates": "No hay coordenadas utilizables",
+  "Open capture and actions menu": "Abrir el menú de captura y acciones",
+  "Open presentation settings": "Abrir los ajustes de presentación",
+  "Per-flow counters": "Contadores por flujo",
+  Plotted: "Representados",
+  Presentation: "Presentación",
+  "Presentation mode": "Modo presentación",
+  "Presentation mode · visual pseudonyms active":
+    "Modo presentación · seudónimos visuales activos",
+  "Previous session": "Sesión anterior",
+  "Primary navigation in compact menu":
+    "Navegación principal en el menú compacto",
+  "Pseudonymizes sensitive values only in the current visual session. Stored evidence, filters and export redaction remain unchanged.":
+    "Seudonimiza los valores sensibles solo en la sesión visual actual. La evidencia guardada, los filtros y la redacción de las exportaciones no cambian.",
+  "QUICK COMPARISON": "COMPARACIÓN RÁPIDA",
+  Received: "Recibido",
+  "Received difference": "Diferencia recibida",
+  Removed: "Eliminados",
+  "Remove ignore rule {value}": "Eliminar la regla de exclusión {value}",
+  "Search settings": "Buscar ajustes",
+  "Search settings in English or Spanish": "Buscar ajustes en inglés o español",
+  Sent: "Enviado",
+  "Sent difference": "Diferencia enviada",
+  "The pseudonymous local network profile changed during this session.":
+    "El perfil de red local seudónimo cambió durante esta sesión.",
+  "this application": "esta aplicación",
+  "This application revision was not present in retained network evidence.":
+    "Esta revisión de la aplicación no estaba presente en la evidencia de red conservada.",
+  "Traffic totals are not comparable because counter sources differ or are unavailable. Structural changes remain valid.":
+    "Los totales de tráfico no son comparables porque las fuentes de los contadores difieren o no están disponibles. Los cambios estructurales siguen siendo válidos.",
+  "Traffic trend unavailable": "Tendencia de tráfico no disponible",
+  "Traffic trend with {count} samples; latest {rate}":
+    "Tendencia de tráfico con {count} muestras; última tasa: {rate}",
+  Unlocated: "Sin ubicación",
+  "Unlocated target evidence": "Evidencia de destinos sin ubicación",
+  "Unlocated targets": "Destinos sin ubicación",
+  "Visual pseudonyms are active": "Los seudónimos visuales están activos",
+  Widened: "Ampliados",
 };
 
 const I18nContext = createContext<Language>("en");

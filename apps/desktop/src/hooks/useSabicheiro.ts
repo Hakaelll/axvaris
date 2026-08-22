@@ -26,6 +26,7 @@ import type {
   RuleKind,
   SupportBundleRequest,
   TimeMachineState,
+  TrafficTrendPoint,
   ViewMode,
 } from "../types";
 
@@ -358,6 +359,7 @@ export function useSabicheiro() {
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [notifications, setNotifications] = useState<LocalNotification[]>([]);
+  const [trafficTrend, setTrafficTrend] = useState<TrafficTrendPoint[]>([]);
   const liveSnapshotRef = useRef<DashboardSnapshot>(emptySnapshot);
   const pausedRef = useRef(paused);
   const dashboardWakeRef = useRef<() => void>(() => undefined);
@@ -369,6 +371,7 @@ export function useSabicheiro() {
   const seenProcesses = useRef(new Set<string>());
   const seenCountries = useRef(new Set<string>());
   const notificationCooldowns = useRef(new Map<string, number>());
+  const trafficTrendSession = useRef<string | null>(null);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -413,15 +416,20 @@ export function useSabicheiro() {
     const firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
         void Promise.allSettled([
-          desktopApi.getGeoStatus().then((value) => !cancelled && setGeoStatus(value)),
+          desktopApi
+            .getGeoStatus()
+            .then((value) => !cancelled && setGeoStatus(value)),
           desktopApi
             .getRecordingState()
             .then((value) => !cancelled && setRecording(value)),
-          desktopApi.getFocusRules().then((value) => !cancelled && setFocusRules(value)),
+          desktopApi
+            .getFocusRules()
+            .then((value) => !cancelled && setFocusRules(value)),
         ]).then((results) => {
           if (cancelled) return;
           const rejected = results.find(
-            (result): result is PromiseRejectedResult => result.status === "rejected",
+            (result): result is PromiseRejectedResult =>
+              result.status === "rejected",
           );
           if (rejected) setError(normalizeError(rejected.reason));
         });
@@ -459,6 +467,23 @@ export function useSabicheiro() {
           liveSnapshotRef.current = next;
           setLiveSnapshot(next);
           if (!pausedRef.current) setVisualSnapshot(next);
+        }
+        const nextSessionId = next.session?.id ?? null;
+        if (trafficTrendSession.current !== nextSessionId) {
+          trafficTrendSession.current = nextSessionId;
+          setTrafficTrend([]);
+        }
+        if (nextSessionId) {
+          const point: TrafficTrendPoint = {
+            timestamp_ms: next.generated_at_ms,
+            down_bytes_per_second: next.stats.down_bytes_per_second,
+            up_bytes_per_second: next.stats.up_bytes_per_second,
+          };
+          setTrafficTrend((current) => {
+            if (current.at(-1)?.timestamp_ms === point.timestamp_ms)
+              return current;
+            return [...current, point].slice(-60);
+          });
         }
         const active = next.connections.filter(
           (connection) => connection.active,
@@ -980,7 +1005,7 @@ export function useSabicheiro() {
           connections: reconstructed,
           session_id: sessionId,
         });
-      setPrimaryView("live");
+        setPrimaryView("live");
         setSelectedId(
           reconstructed.some(
             (connection) => connection.id === preferredConnectionId,
@@ -1062,5 +1087,6 @@ export function useSabicheiro() {
       setNotifications((current) => current.filter((item) => item.id !== id)),
     clearNotifications: () => setNotifications([]),
     workspaceCounts,
+    trafficTrend,
   };
 }

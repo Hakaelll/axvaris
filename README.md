@@ -96,9 +96,13 @@ routes and map use only packaged geometry—there are no remote map tiles.
 ## Install
 
 Windows users can run `Sabicheiro_0.4.2_x64-setup.exe`; it installs per-user,
-adds a Start-menu entry and an uninstaller. Linux packages can be produced natively
-with the commands in [BUILD.md](BUILD.md); when built, mark the AppImage executable or
-install the `.deb` using the normal distro tooling.
+adds a Start-menu entry and an uninstaller. For Linux, follow the detailed
+[installation guide](linux.md) to download the source, install dependencies,
+build and run a native `.deb` or AppImage.
+
+For per-device DNS visibility through a router or DNS server, see the
+[preparation guide](dns.md). Importing those external logs into Sabicheiro is
+not implemented yet.
 
 The standalone [docs.html](docs.html) guide provides the complete user-facing setup and
 feature reference for both platforms, including current validation limits.
@@ -167,9 +171,10 @@ such as Pktmon and dumpcap are not redistributed by this source tree.
 - **Capture unavailable:** choose **All interfaces**, check OS visibility/permissions,
   or switch to deterministic Demo mode. Adapter names, addresses and state are read
   through native APIs on Windows; stale selections are reset safely.
-- **Where are LAN/listener sockets?** Use the **Remote**, **Local** and **Listeners**
-  tabs. Their counts and semantics stay separate and listeners never train remote
-  destination baselines.
+- **Where are LAN devices and listener sockets?** Use the **Remote**, **Devices**
+  and **Listeners** tabs. Devices combines observed local connections with the OS
+  neighbor cache. MAC and interface evidence groups addresses; unverified IPs stay
+  separate. The cache is passive and cannot enumerate every device on the router.
 - **Connection rows show no byte rate:** Windows IP Helper exposes endpoints and PIDs,
   not per-flow byte counters. The bottom strip shows real aggregate device traffic;
   ETW flow correlation appears only when Windows accepts the trace. Diagnostics shows

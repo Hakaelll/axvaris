@@ -631,12 +631,8 @@ pub fn update_dbip_lite(
         .build()?;
 
     download_and_install(&client, &city_url, &city_path, GeoDatabaseKind::City)?;
-    if let Err(error) = download_and_install(&client, &asn_url, &asn_path, GeoDatabaseKind::Asn) {
-        // City data remains useful. Do not remove a previously valid ASN database.
-        if !asn_path.exists() {
-            return Err(error);
-        }
-    }
+    // ASN is optional. A failed ASN download must not hide a valid City install.
+    let _ = download_and_install(&client, &asn_url, &asn_path, GeoDatabaseKind::Asn);
     Ok(UpdatedDatabases {
         city_path,
         asn_path,

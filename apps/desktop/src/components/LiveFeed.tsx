@@ -12,6 +12,7 @@ import {
 
 interface LiveFeedProps {
   connections: Connection[];
+  cityInstalled: boolean;
   selectedId: string | null;
   paused: boolean;
   queued: number;
@@ -82,6 +83,7 @@ function groupConnections(
 
 export function LiveFeed({
   connections,
+  cityInstalled,
   selectedId,
   paused,
   queued,
@@ -164,9 +166,20 @@ export function LiveFeed({
               representative.hostname ??
               representative.key.remote.address;
             const place =
-              [representative.geo?.city, representative.geo?.country_code]
+              [
+                representative.geo?.city,
+                representative.geo?.country_name ??
+                  representative.geo?.country_code,
+              ]
                 .filter(Boolean)
-                .join(", ") || t("Unknown location");
+                .join(", ") ||
+              t(
+                representative.key.remote.scope !== "global"
+                  ? "Local address — no public location"
+                  : cityInstalled
+                    ? "No match in City database"
+                    : "City database not installed",
+              );
             const totalRate = group.items.reduce(
               (sum, item) =>
                 sum +

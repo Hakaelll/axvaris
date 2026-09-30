@@ -256,6 +256,25 @@ impl ConnectionAggregator {
         true
     }
 
+    /// Replaces GeoIP data, including clearing locations removed by a dataset change.
+    pub fn replace_geo(
+        &mut self,
+        key: &ConnectionKey,
+        geo: Option<GeoLocation>,
+        asn: Option<AsnInfo>,
+    ) -> bool {
+        let Some(connection) = self.connections.get_mut(key) else {
+            return false;
+        };
+        if connection.geo == geo && connection.asn == asn {
+            return false;
+        }
+        connection.geo = geo;
+        connection.asn = asn;
+        self.revision = self.revision.saturating_add(1);
+        true
+    }
+
     pub fn connections(&self) -> impl Iterator<Item = &Connection> {
         self.connections.values()
     }
@@ -572,6 +591,26 @@ mod tests {
             snapshot.destinations[0].domain.as_deref(),
             Some("one.one.one.one")
         );
+    }
+
+    #[test]
+    fn replacing_geo_clears_removed_dataset_values_without_erasing_dns() {
+        let mut aggregator = ConnectionAggregator::default();
+        let opened = event(NetworkEventKind::Opened, 1_000);
+        let key = opened.key.clone();
+        aggregator.apply(opened);
+        let geo = GeoLocation {
+            country_code: Some("US".into()),
+            ..GeoLocation::default()
+        };
+        assert!(aggregator.replace_geo(&key, Some(geo), None));
+        let revision = aggregator.revision();
+        assert!(aggregator.replace_geo(&key, None, None));
+        assert_eq!(aggregator.revision(), revision + 1);
+        assert!(!aggregator.replace_geo(&key, None, None));
+        let connection = aggregator.connection(&key).expect("connection");
+        assert_eq!(connection.hostname.as_deref(), Some("one.one.one.one"));
+        assert!(connection.geo.is_none());
     }
 
     #[test]

@@ -320,16 +320,20 @@ function mergeDashboardUpdate(
   ) {
     return current;
   }
-  const connections = new Map(
-    current.connections.map((connection) => [connection.id, connection]),
-  );
-  for (const id of update.removed_connection_ids) connections.delete(id);
-  for (const connection of update.upserted_connections)
-    connections.set(connection.id, connection);
+  let connections = current.connections;
+  if (hasConnectionChanges) {
+    const byId = new Map(
+      current.connections.map((connection) => [connection.id, connection]),
+    );
+    for (const id of update.removed_connection_ids) byId.delete(id);
+    for (const connection of update.upserted_connections)
+      byId.set(connection.id, connection);
+    connections = [...byId.values()];
+  }
   return {
     generated_at_ms: update.generated_at_ms,
     revision: update.revision,
-    connections: [...connections.values()],
+    connections,
     processes: update.processes ?? current.processes,
     destinations: update.destinations ?? current.destinations,
     stats: update.stats ?? current.stats,
@@ -345,6 +349,7 @@ export function useSabicheiro() {
   const [settings, setSettings] = useState(defaultSettings);
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([]);
   const [geoStatus, setGeoStatus] = useState<GeoDatabaseStatus | null>(null);
+  const [geoUpdating, setGeoUpdating] = useState(false);
   const [recording, setRecording] = useState<RecordingState | null>(null);
   const [focusRules, setFocusRules] = useState<FocusRules>(emptyFocusRules);
   const [timeMachine, setTimeMachine] = useState<TimeMachineState | null>(null);
@@ -363,6 +368,7 @@ export function useSabicheiro() {
   const liveSnapshotRef = useRef<DashboardSnapshot>(emptySnapshot);
   const pausedRef = useRef(paused);
   const dashboardWakeRef = useRef<() => void>(() => undefined);
+  const geoUpdateInFlight = useRef(false);
   const ipcSequence = useRef<number | null>(null);
   const pausedRevision = useRef(0);
   const settingsRef = useRef(settings);
@@ -609,18 +615,21 @@ export function useSabicheiro() {
     if (recording?.status !== "recording" && recording?.status !== "starting")
       return;
     let cancelled = false;
+    let timer = 0;
     const refresh = async () => {
       try {
         const next = await desktopApi.getRecordingState();
         if (!cancelled) setRecording(next);
       } catch (cause) {
         if (!cancelled) setError(normalizeError(cause));
+      } finally {
+        if (!cancelled) timer = window.setTimeout(() => void refresh(), 1_000);
       }
     };
-    const timer = window.setInterval(() => void refresh(), 1_000);
+    timer = window.setTimeout(() => void refresh(), 1_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [recording?.status]);
 
@@ -829,11 +838,18 @@ export function useSabicheiro() {
   }, []);
 
   const updateGeo = useCallback(async () => {
+    if (geoUpdateInFlight.current) return;
+    geoUpdateInFlight.current = true;
+    setGeoUpdating(true);
     try {
       setGeoStatus(await desktopApi.updateGeoDatabase());
       setError(null);
+      dashboardWakeRef.current();
     } catch (cause) {
       setError(normalizeError(cause));
+    } finally {
+      geoUpdateInFlight.current = false;
+      setGeoUpdating(false);
     }
   }, []);
 
@@ -1036,6 +1052,7 @@ export function useSabicheiro() {
     settings,
     interfaces,
     geoStatus,
+    geoUpdating,
     recording,
     focusRules,
     timeMachine,

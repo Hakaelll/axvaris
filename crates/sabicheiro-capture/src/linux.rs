@@ -18,6 +18,7 @@ use std::{
 pub(crate) struct LinuxCaptureProvider {
     processes: ProcessResolver,
     sequence: u32,
+    response_buffer: Vec<u8>,
 }
 
 impl LinuxCaptureProvider {
@@ -25,6 +26,7 @@ impl LinuxCaptureProvider {
         Self {
             processes: ProcessResolver::new(),
             sequence: 1,
+            response_buffer: vec![0_u8; 4 * 1024 * 1024],
         }
     }
 }
@@ -40,7 +42,12 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
         for family in [libc::AF_INET as u8, libc::AF_INET6 as u8] {
             for protocol in [NetworkProtocol::Tcp, NetworkProtocol::Udp] {
                 self.sequence = self.sequence.wrapping_add(1).max(1);
-                rows.extend(socket.dump(family, protocol, self.sequence)?);
+                rows.extend(socket.dump(
+                    family,
+                    protocol,
+                    self.sequence,
+                    &mut self.response_buffer,
+                )?);
             }
         }
         let wanted = rows.iter().map(|row| row.inode).collect::<HashSet<_>>();
@@ -178,6 +185,7 @@ impl InetDiagSocket {
         family: u8,
         protocol: NetworkProtocol,
         sequence: u32,
+        buffer: &mut [u8],
     ) -> Result<Vec<DiagSocketRow>, CaptureError> {
         let request = request_bytes(family, protocol, sequence);
         let sent = unsafe {
@@ -192,7 +200,6 @@ impl InetDiagSocket {
             return Err(os_error("sending INET_DIAG request"));
         }
         let mut rows = Vec::new();
-        let mut buffer = vec![0_u8; 4 * 1024 * 1024];
         for _ in 0..1_024 {
             let received = loop {
                 let result =
@@ -302,6 +309,9 @@ fn linux_state(value: u8, protocol: NetworkProtocol) -> ConnectionState {
 
 fn socket_owners(wanted: &HashSet<u64>) -> HashMap<u64, u32> {
     let mut owners = HashMap::new();
+    if wanted.is_empty() {
+        return owners;
+    }
     let Ok(processes) = fs::read_dir("/proc") else {
         return owners;
     };

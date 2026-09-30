@@ -1,4 +1,5 @@
 import {
+  Component,
   lazy,
   Suspense,
   useCallback,
@@ -6,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { desktopApi } from "#backend";
 import { useSabicheiro } from "./hooks/useSabicheiro";
@@ -33,6 +35,11 @@ const FocusBar = lazy(async () => {
 const LiveFeed = lazy(async () => {
   const module = await import("./components/LiveFeed");
   return { default: module.LiveFeed };
+});
+
+const LocalPeers = lazy(async () => {
+  const module = await import("./components/LocalPeers");
+  return { default: module.LocalPeers };
 });
 
 const TopContext = lazy(async () => {
@@ -99,6 +106,25 @@ const MapView = lazy(async () => {
   const module = await import("./components/visualization/MapView");
   return { default: module.MapView };
 });
+
+class GlobeErrorBoundary extends Component<
+  { children: ReactNode; onError: () => void },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override componentDidCatch() {
+    this.props.onError();
+  }
+
+  override render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 function isEditable(target: EventTarget | null): boolean {
   return (
@@ -189,6 +215,7 @@ export default function App() {
     toMs: number | null;
   }>({ sessionId: null, fromMs: null, toMs: null });
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [webglFailed, setWebglFailed] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
   const mainStageRef = useRef<HTMLElement>(null);
   const home = useMemo<[number, number]>(
@@ -208,6 +235,7 @@ export default function App() {
       return false;
     }
   }, []);
+  const webglAvailable = webglSupported && !webglFailed;
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -328,7 +356,7 @@ export default function App() {
         }
         if (event.key.toLowerCase() === "g") {
           app.setPrimaryView("live");
-          app.setViewMode("globe");
+          if (webglAvailable) app.setViewMode("globe");
         }
         if (event.key.toLowerCase() === "m") {
           app.setPrimaryView("live");
@@ -353,6 +381,7 @@ export default function App() {
     app.setViewMode,
     app.stopRecording,
     recordingActive,
+    webglAvailable,
   ]);
 
   const reportFps = useCallback((fps: number) => {
@@ -453,7 +482,13 @@ export default function App() {
                     <section className="visual-canvas">
                       <div className="visual-canvas__heading">
                         <div>
-                          <span className="eyebrow">{t("GLOBAL ROUTES")}</span>
+                          <span className="eyebrow">
+                            {t(
+                              app.settings.active_workspace === "local"
+                                ? "LOCAL DEVICES"
+                                : "GLOBAL ROUTES",
+                            )}
+                          </span>
                           <strong>
                             {t("{count} active", {
                               count: app.snapshot.stats.active_connections,
@@ -461,9 +496,13 @@ export default function App() {
                           </strong>
                           <small>
                             {" / "}
-                            {t("{count} countries", {
-                              count: app.snapshot.stats.countries,
-                            })}
+                            {app.settings.active_workspace === "local"
+                              ? t("{count} connections", {
+                                  count: app.snapshot.connections.length,
+                                })
+                              : t("{count} countries", {
+                                  count: app.snapshot.stats.countries,
+                                })}
                           </small>
                         </div>
                         <WorkspaceTabs
@@ -476,57 +515,78 @@ export default function App() {
                             })
                           }
                         />
-                        <div
-                          className="view-switcher"
-                          aria-label={t("Visualization mode")}
-                        >
-                          <button
-                            aria-pressed={app.viewMode === "globe"}
-                            disabled={!webglSupported}
-                            onClick={() => app.setViewMode("globe")}
-                            title={
-                              webglSupported
-                                ? t("3D globe (G)")
-                                : t("WebGL unavailable")
-                            }
-                            type="button"
+                        {app.settings.active_workspace !== "local" && (
+                          <div
+                            className="view-switcher"
+                            aria-label={t("Visualization mode")}
                           >
-                            <Icon name="globe" />
-                            3D
-                          </button>
-                          <button
-                            aria-pressed={
-                              app.viewMode === "map" || !webglSupported
-                            }
-                            onClick={() => app.setViewMode("map")}
-                            title={t("2D map (M)")}
-                            type="button"
-                          >
-                            <Icon name="map" />
-                            2D
-                          </button>
-                        </div>
+                            <button
+                              aria-pressed={app.viewMode === "globe"}
+                              disabled={!webglAvailable}
+                              onClick={() => app.setViewMode("globe")}
+                              title={
+                                webglAvailable
+                                  ? t("3D globe (G)")
+                                  : t("WebGL unavailable")
+                              }
+                              type="button"
+                            >
+                              <Icon name="globe" />
+                              3D
+                            </button>
+                            <button
+                              aria-pressed={
+                                app.viewMode === "map" || !webglAvailable
+                              }
+                              onClick={() => app.setViewMode("map")}
+                              title={t("2D map (M)")}
+                              type="button"
+                            >
+                              <Icon name="map" />
+                              2D
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div className="visual-canvas__scene">
-                        {app.viewMode === "globe" && webglSupported ? (
+                        {app.settings.active_workspace === "local" ? (
                           <Suspense
                             fallback={
                               <div className="scene-loading">
-                                <span />
-                                {t("Loading local globe...")}
+                                {t("Loading local devices...")}
                               </div>
                             }
                           >
-                            <GlobeScene
+                            <LocalPeers
                               connections={app.snapshot.connections}
-                              home={home}
-                              onFps={reportFps}
                               onSelect={app.setSelectedId}
-                              reduceMotion={app.settings.reduce_motion}
                               selectedId={app.selectedId}
-                              smartFocus={app.settings.auto_focus}
                             />
                           </Suspense>
+                        ) : app.viewMode === "globe" && webglAvailable ? (
+                          <GlobeErrorBoundary
+                            onError={() => setWebglFailed(true)}
+                          >
+                            <Suspense
+                              fallback={
+                                <div className="scene-loading">
+                                  <span />
+                                  {t("Loading local globe...")}
+                                </div>
+                              }
+                            >
+                              <GlobeScene
+                                connections={app.snapshot.connections}
+                                home={home}
+                                onFps={reportFps}
+                                onUnavailable={() => setWebglFailed(true)}
+                                onSelect={app.setSelectedId}
+                                reduceMotion={app.settings.reduce_motion}
+                                selectedId={app.selectedId}
+                                smartFocus={app.settings.auto_focus}
+                              />
+                            </Suspense>
+                          </GlobeErrorBoundary>
                         ) : (
                           <Suspense
                             fallback={
@@ -557,31 +617,56 @@ export default function App() {
                           ) && (
                             <div className="geo-empty-guidance">
                               <strong>
-                                {t("Geography is not available yet")}
+                                {t(
+                                  app.geoStatus?.city.installed
+                                    ? "No map coordinates for these destinations"
+                                    : "City database not installed",
+                                )}
                               </strong>
                               <p>
                                 {t(
-                                  "Connections are still captured. Install or import a free local City MMDB to place public destinations on the map.",
+                                  app.geoStatus?.city.installed
+                                    ? "The local City database has no coordinates for the visible addresses. Inspect each connection for available country data."
+                                    : "Connections are captured, but public locations need a local City database. Install the free dataset to place matching destinations on the map.",
                                 )}
                               </p>
-                              <button
-                                className="button button--secondary"
-                                onClick={() => app.setPrimaryView("health")}
-                                type="button"
-                              >
-                                {t("Open GeoIP settings")}
-                              </button>
+                              {app.geoStatus?.city.installed ? (
+                                <button
+                                  className="button button--secondary"
+                                  onClick={() => app.setPrimaryView("today")}
+                                  type="button"
+                                >
+                                  {t("Review unlocated targets")}
+                                </button>
+                              ) : (
+                                <button
+                                  className="button button--secondary"
+                                  disabled={app.geoUpdating}
+                                  onClick={() => void app.updateGeo()}
+                                  type="button"
+                                >
+                                  {t(
+                                    app.geoUpdating
+                                      ? "Installing City database..."
+                                      : "Install free City database",
+                                  )}
+                                </button>
+                              )}
                             </div>
                           )}
-                        <FocusBar
-                          bookmarks={app.focusRules.bookmarks}
-                          onFilter={showFilter}
-                          onRemove={(id) => void app.removeBookmark(id)}
-                        />
-                        <TopContext
-                          connections={app.snapshot.connections}
-                          onFilter={showFilter}
-                        />
+                        {app.settings.active_workspace !== "local" && (
+                          <FocusBar
+                            bookmarks={app.focusRules.bookmarks}
+                            onFilter={showFilter}
+                            onRemove={(id) => void app.removeBookmark(id)}
+                          />
+                        )}
+                        {app.settings.active_workspace !== "local" && (
+                          <TopContext
+                            connections={app.snapshot.connections}
+                            onFilter={showFilter}
+                          />
+                        )}
                         {app.timeMachine && (
                           <div className="time-machine-badge">
                             <span>{t("TIME MACHINE")}</span>
@@ -619,24 +704,33 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <div className="canvas-legend">
-                        <span>
-                          <i className="is-home" />
-                          {t("This device")}
-                        </span>
-                        <span>
-                          <i />
-                          {t("Active destination")}
-                        </span>
-                        <span>
-                          <i className="is-selected" />
-                          {t("Selected route")}
-                        </span>
-                        <small>{t("Drag to rotate / scroll to zoom")}</small>
-                      </div>
+                      {app.settings.active_workspace === "local" ? (
+                        <div className="canvas-legend">
+                          <small>
+                            {t("Select a device to inspect its connections")}
+                          </small>
+                        </div>
+                      ) : (
+                        <div className="canvas-legend">
+                          <span>
+                            <i className="is-home" />
+                            {t("This device")}
+                          </span>
+                          <span>
+                            <i />
+                            {t("Active destination")}
+                          </span>
+                          <span>
+                            <i className="is-selected" />
+                            {t("Selected route")}
+                          </span>
+                          <small>{t("Drag to rotate / scroll to zoom")}</small>
+                        </div>
+                      )}
                     </section>
                     <LiveFeed
                       connections={app.snapshot.connections}
+                      cityInstalled={app.geoStatus?.city.installed ?? false}
                       flowTrafficAvailable={
                         app.snapshot.diagnostics.flow_counters_available
                       }
@@ -653,9 +747,12 @@ export default function App() {
                       <Suspense fallback={null}>
                         <ConnectionInspector
                           connection={app.selected}
+                          cityInstalled={app.geoStatus?.city.installed ?? false}
+                          geoUpdating={app.geoUpdating}
                           flowTrafficAvailable={
                             app.snapshot.diagnostics.flow_counters_available
                           }
+                          onInstallGeo={() => void app.updateGeo()}
                           onBookmark={(kind, value) =>
                             void app.addBookmark(kind, value)
                           }
@@ -732,6 +829,7 @@ export default function App() {
                   <SettingsView
                     focusRules={app.focusRules}
                     geoStatus={app.geoStatus}
+                    geoUpdating={app.geoUpdating}
                     interfaces={app.interfaces}
                     onAddBookmark={(kind, value) =>
                       void app.addBookmark(kind, value)

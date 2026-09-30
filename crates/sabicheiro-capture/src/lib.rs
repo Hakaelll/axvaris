@@ -6,6 +6,7 @@ mod harness;
 mod helper_protocol;
 #[cfg(any(target_os = "linux", test))]
 mod inet_diag_wire;
+mod neighbors;
 mod pipeline;
 mod process;
 mod recording;
@@ -39,6 +40,7 @@ pub use helper_protocol::{
     HelperNonce, HelperOperation, HelperResponse, HelperSession, decode_helper_frame,
     decode_helper_response_frame, encode_helper_frame,
 };
+pub use neighbors::{LocalNeighbor, local_neighbors};
 pub use pipeline::{BoundedEvidenceQueue, PipelineQueueClass, PipelineQueueStats, PipelineStage};
 pub use recording::RecordingController;
 pub use route::lookup_network_path;

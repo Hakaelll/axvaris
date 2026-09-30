@@ -57,7 +57,7 @@
         "bundleMediaFramework": false
       },
       "deb": {
-        "depends": []
+        "depends": ["iproute2"]
       }
     },
     "icon": [

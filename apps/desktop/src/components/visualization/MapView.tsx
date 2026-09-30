@@ -96,7 +96,13 @@ export const MapView = memo(function MapView({
   } | null>(null);
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [feedCollapsed, setFeedCollapsed] = useState(false);
-  const borders = useMemo(() => detailedWorldBorders().map(borderPath), []);
+  const worldPaths = useMemo(() => {
+    const borders = detailedWorldBorders().map(borderPath);
+    return {
+      land: borders.map((path) => `${path} Z`).join(" "),
+      borders: borders.join(" "),
+    };
+  }, []);
   const routes = useMemo(
     () =>
       groupVisualRoutes(
@@ -289,14 +295,10 @@ export const MapView = memo(function MapView({
           })}
         </g>
         <g aria-hidden="true" className="world-map__land">
-          {borders.map((path, index) => (
-            <path d={`${path} Z`} key={index} />
-          ))}
+          <path d={worldPaths.land} />
         </g>
         <g aria-hidden="true" className="world-map__borders">
-          {borders.map((path, index) => (
-            <path d={path} key={index} />
-          ))}
+          <path d={worldPaths.borders} />
         </g>
         <g className="world-map__arcs">
           {routes.map((route) => {

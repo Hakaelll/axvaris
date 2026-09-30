@@ -25,6 +25,7 @@ import type {
   ListenerSnapshot,
   LocalDataCategory,
   LocalDataRemovalResult,
+  LocalNeighbor,
   NetworkInterface,
   NetworkProfile,
   NotificationState,
@@ -615,6 +616,32 @@ export const desktopApi = {
   },
   async listInterfaces(): Promise<NetworkInterface[]> {
     return isDesktop ? call("list_interfaces") : previewInterfaces;
+  },
+  async listLocalNeighbors(): Promise<LocalNeighbor[]> {
+    if (isDesktop) return call("list_local_neighbors");
+    return [
+      {
+        address: "192.168.1.1",
+        mac_address: "02:00:00:00:00:01",
+        interface_id: "wifi",
+        is_router: true,
+        state: "reachable",
+      },
+      {
+        address: "192.168.1.50",
+        mac_address: "02:00:00:00:00:50",
+        interface_id: "wifi",
+        is_router: false,
+        state: "reachable",
+      },
+      {
+        address: "fe80::50",
+        mac_address: "02:00:00:00:00:50",
+        interface_id: "wifi",
+        is_router: false,
+        state: "stale",
+      },
+    ];
   },
   async runCaptureSelfTest(): Promise<CaptureSelfTest> {
     if (isDesktop) return call("run_capture_self_test");

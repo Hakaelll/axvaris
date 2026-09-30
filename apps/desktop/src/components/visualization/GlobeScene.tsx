@@ -13,6 +13,7 @@ interface GlobeSceneProps {
   smartFocus?: boolean;
   onSelect: (id: string) => void;
   onFps?: (fps: number) => void;
+  onUnavailable?: () => void;
 }
 
 interface SceneState {
@@ -22,10 +23,11 @@ interface SceneState {
   controls: GlobeControls;
   traffic: THREE.Group;
   animation: number;
+  animationTimer: number;
+  requestRender: () => void;
   markerIds: Map<THREE.Object3D, string>;
   resizeObserver: ResizeObserver;
   pointer: THREE.Vector2;
-  lastFrame: number;
   frameCount: number;
   fpsStarted: number;
   movingDots: Array<{
@@ -53,10 +55,17 @@ interface GlobeControls {
 function createGlobeControls(
   camera: THREE.PerspectiveCamera,
   element: HTMLCanvasElement,
+  onChange: () => void,
 ): GlobeControls {
   const spherical = new THREE.Spherical().setFromVector3(camera.position);
   const target = new THREE.Vector3();
-  let drag: { pointerId: number; x: number; y: number; theta: number; phi: number } | null = null;
+  let drag: {
+    pointerId: number;
+    x: number;
+    y: number;
+    theta: number;
+    phi: number;
+  } | null = null;
   const controls: GlobeControls = {
     target,
     minDistance: 1.85,
@@ -69,6 +78,7 @@ function createGlobeControls(
       );
       camera.position.setFromSpherical(spherical).add(target);
       camera.lookAt(target);
+      onChange();
     },
     dispose: () => {
       element.removeEventListener("pointerdown", pointerDown);
@@ -111,6 +121,7 @@ function createGlobeControls(
     );
     camera.position.setFromSpherical(spherical).add(target);
     camera.lookAt(target);
+    onChange();
   };
   element.addEventListener("pointerdown", pointerDown);
   element.addEventListener("pointermove", pointerMove);
@@ -174,12 +185,14 @@ export const GlobeScene = memo(function GlobeScene({
   smartFocus = true,
   onSelect,
   onFps,
+  onUnavailable,
 }: GlobeSceneProps) {
   const t = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SceneState | null>(null);
   const onSelectRef = useRef(onSelect);
   const onFpsRef = useRef(onFps);
+  const onUnavailableRef = useRef(onUnavailable);
   const [tooltip, setTooltip] = useState<{
     x: number;
     y: number;
@@ -189,7 +202,8 @@ export const GlobeScene = memo(function GlobeScene({
   useEffect(() => {
     onSelectRef.current = onSelect;
     onFpsRef.current = onFps;
-  }, [onFps, onSelect]);
+    onUnavailableRef.current = onUnavailable;
+  }, [onFps, onSelect, onUnavailable]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -197,12 +211,22 @@ export const GlobeScene = memo(function GlobeScene({
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
     centerCameraOnSpain(camera);
-    const renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: true,
-      powerPreference: "high-performance",
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true,
+        powerPreference: "low-power",
+      });
+    } catch {
+      onUnavailableRef.current?.();
+      return;
+    }
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      onUnavailableRef.current?.();
+    };
+    renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.append(renderer.domElement);
 
@@ -233,7 +257,10 @@ export const GlobeScene = memo(function GlobeScene({
 
     const traffic = new THREE.Group();
     scene.add(traffic);
-    const controls = createGlobeControls(camera, renderer.domElement);
+    let requestRender = () => undefined;
+    const controls = createGlobeControls(camera, renderer.domElement, () =>
+      requestRender(),
+    );
     const markerIds = new Map<THREE.Object3D, string>();
     const pointer = new THREE.Vector2();
     const projectedMarker = new THREE.Vector3();
@@ -264,6 +291,7 @@ export const GlobeScene = memo(function GlobeScene({
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      requestRender();
     };
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(host);
@@ -309,7 +337,8 @@ export const GlobeScene = memo(function GlobeScene({
       resizeObserver,
       pointer,
       animation: 0,
-      lastFrame: performance.now(),
+      animationTimer: 0,
+      requestRender: () => requestRender(),
       frameCount: 0,
       fpsStarted: performance.now(),
       movingDots: [],
@@ -317,7 +346,9 @@ export const GlobeScene = memo(function GlobeScene({
       trafficSignature: "",
     };
     sceneRef.current = state;
-    const animate = (now: number) => {
+    const render = (now: number) => {
+      state.animation = 0;
+      if (document.visibilityState !== "visible") return;
       state.frameCount += 1;
       if (now - state.fpsStarted >= 1_000) {
         onFpsRef.current?.(
@@ -326,8 +357,6 @@ export const GlobeScene = memo(function GlobeScene({
         state.frameCount = 0;
         state.fpsStarted = now;
       }
-      state.lastFrame = now;
-      controls.update();
       if (!state.reduceMotion) {
         const seconds = now / 1_000;
         for (const dot of state.movingDots) {
@@ -336,26 +365,46 @@ export const GlobeScene = memo(function GlobeScene({
         }
       }
       renderer.render(scene, camera);
-      state.animation =
-        document.visibilityState === "visible"
-          ? requestAnimationFrame(animate)
-          : 0;
+      if (state.movingDots.length > 0 && !state.reduceMotion) {
+        state.animationTimer = window.setTimeout(() => {
+          state.animationTimer = 0;
+          requestRender();
+        }, 33);
+      } else {
+        state.frameCount = 0;
+        state.fpsStarted = now;
+        onFpsRef.current?.(0);
+      }
+    };
+    requestRender = () => {
+      if (document.visibilityState !== "visible" || state.animation !== 0)
+        return;
+      if (state.animationTimer !== 0) {
+        window.clearTimeout(state.animationTimer);
+        state.animationTimer = 0;
+      }
+      state.animation = requestAnimationFrame(render);
     };
     const handleVisibility = () => {
-      if (document.visibilityState === "visible" && state.animation === 0) {
-        state.lastFrame = performance.now();
-        state.animation = requestAnimationFrame(animate);
+      if (document.visibilityState === "visible") {
+        requestRender();
+      } else {
+        cancelAnimationFrame(state.animation);
+        window.clearTimeout(state.animationTimer);
+        state.animation = 0;
+        state.animationTimer = 0;
+        onFpsRef.current?.(0);
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
-    if (document.visibilityState === "visible") {
-      state.animation = requestAnimationFrame(animate);
-    }
+    requestRender();
 
     return () => {
       cancelAnimationFrame(state.animation);
+      window.clearTimeout(state.animationTimer);
       document.removeEventListener("visibilitychange", handleVisibility);
       renderer.domElement.removeEventListener("pointerup", handlePointer);
+      renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener(
         "pointerleave",
@@ -382,8 +431,14 @@ export const GlobeScene = memo(function GlobeScene({
     if (!state) return;
     state.reduceMotion = reduceMotion;
     state.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, reduceMotion ? 1.25 : 2),
+      Math.min(window.devicePixelRatio, reduceMotion ? 1 : 1.5),
     );
+    state.requestRender();
+  }, [reduceMotion]);
+
+  useEffect(() => {
+    const state = sceneRef.current;
+    if (!state) return;
     const [homeX, homeY, homeZ] = spherePoint(home[1], home[0], 1.012);
     const homePoint = new THREE.Vector3(homeX, homeY, homeZ);
     const located = connections.filter((connection) => connection.geo !== null);
@@ -391,7 +446,7 @@ export const GlobeScene = memo(function GlobeScene({
       located,
       routeLevel(state.camera.position.length(), located.length),
     ).slice(0, 120);
-    const signature = `${home.join(":")}|${selectedId ?? ""}|${routes
+    const signature = `${reduceMotion}|${home.join(":")}|${selectedId ?? ""}|${routes
       .map((route) => `${route.key}:${route.count}:${route.active}`)
       .join("|")}`;
     if (signature === state.trafficSignature) return;
@@ -512,8 +567,10 @@ export const GlobeScene = memo(function GlobeScene({
           ...spherePoint(selected.longitude, selected.latitude, 0.25),
         );
         state.controls.target.lerp(target, 0.72);
+        state.controls.update();
       }
     }
+    state.requestRender();
   }, [connections, home, reduceMotion, selectedId, smartFocus]);
 
   const resetCamera = () => {

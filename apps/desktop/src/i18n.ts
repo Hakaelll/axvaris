@@ -4,6 +4,50 @@ export type Language = "en" | "es";
 export type TranslationValues = Record<string, string | number>;
 
 const spanish: Record<string, string> = {
+  "City database not installed": "Base City no instalada",
+  "Installing City database...": "Instalando la base City...",
+  "No map coordinates for these destinations":
+    "Sin coordenadas para estos destinos",
+  "The local City database has no coordinates for the visible addresses. Inspect each connection for available country data.":
+    "La base City local no tiene coordenadas para las direcciones visibles. Inspecciona cada conexión para consultar los datos de país disponibles.",
+  "Connections are captured, but public locations need a local City database. Install the free dataset to place matching destinations on the map.":
+    "Las conexiones se capturan, pero las ubicaciones públicas necesitan una base City local. Instala la base gratuita para situar los destinos con coincidencia en el mapa.",
+  "Review unlocated targets": "Revisar destinos sin ubicación",
+  "Local address — no public location":
+    "Dirección local: sin ubicación pública",
+  "No match in City database": "Sin coincidencia en la base City",
+  "LOCAL DEVICES": "DISPOSITIVOS LOCALES",
+  "Local devices": "Dispositivos locales",
+  "{count} device groups": "{count} grupos de dispositivos",
+  "Devices are grouped only when the operating system has a link address for them. The list uses existing neighbor and connection records; it does not scan the network.":
+    "Solo se agrupan dispositivos cuando el sistema conoce su dirección física. La lista usa vecinos y conexiones ya observados; no escanea la red.",
+  "Devices with MAC evidence": "Dispositivos con dirección física",
+  "Addresses without device identity":
+    "Direcciones sin identidad de dispositivo",
+  "Grouped by MAC address": "Agrupado por dirección MAC",
+  "Address only — device unverified":
+    "Solo dirección: dispositivo sin verificar",
+  "No local devices are known yet. Start live capture or communicate with a device on this network.":
+    "Aún no se conocen dispositivos locales. Inicia la captura en vivo o comunícate con un equipo de esta red.",
+  "No connection from this computer observed":
+    "No se ha observado ninguna conexión desde este ordenador",
+  "Checking devices...": "Consultando dispositivos...",
+  "Refresh devices": "Actualizar dispositivos",
+  "Neighbor cache": "Caché de vecinos",
+  "Neighbor cache unavailable": "Caché de vecinos no disponible",
+  "Observed connections remain listed below.":
+    "Las conexiones observadas siguen mostrándose abajo.",
+  "Loading local devices...": "Cargando dispositivos locales...",
+  "Select a device to inspect its connections":
+    "Selecciona un dispositivo para inspeccionar sus conexiones",
+  Devices: "Dispositivos",
+  Device: "Dispositivo",
+  Router: "Router",
+  "Recently observed": "Observado recientemente",
+  Active: "Activo",
+  Ports: "Puertos",
+  "Showing the 100 most recent peers of {count}.":
+    "Se muestran los 100 equipos más recientes de {count}.",
   Today: "Hoy",
   Live: "En vivo",
   Investigate: "Investigar",
@@ -679,9 +723,6 @@ const spanish: Record<string, string> = {
   "Saved comparison to {path}": "Comparación guardada en {path}",
   Earlier: "Anterior",
   Later: "Posterior",
-  "Geography is not available yet": "La geografía todavía no está disponible",
-  "Connections are still captured. Install or import a free local City MMDB to place public destinations on the map.":
-    "Las conexiones se siguen capturando. Instala o importa una MMDB City local y gratuita para situar los destinos públicos en el mapa.",
   "Open GeoIP settings": "Abrir ajustes de GeoIP",
   "Original diagnostic detail": "Detalle de diagnóstico original",
   "New network-enabled process": "Nuevo proceso con acceso a red",

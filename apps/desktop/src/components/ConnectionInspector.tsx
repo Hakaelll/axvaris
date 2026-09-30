@@ -19,7 +19,10 @@ import { Icon } from "./Icon";
 
 interface InspectorProps {
   connection: Connection;
+  cityInstalled: boolean;
+  geoUpdating: boolean;
   flowTrafficAvailable: boolean;
+  onInstallGeo: () => void;
   onClose: () => void;
   onFilterProcess: (process: string) => void;
   onFilterDestination: (destination: string) => void;
@@ -47,7 +50,10 @@ function Field({
 
 export function ConnectionInspector({
   connection,
+  cityInstalled,
+  geoUpdating,
   flowTrafficAvailable,
+  onInstallGeo,
   onClose,
   onFilterProcess,
   onFilterDestination,
@@ -64,9 +70,12 @@ export function ConnectionInspector({
   const [identityTimeline, setIdentityTimeline] = useState<
     IdentityTimelineEvent[]
   >([]);
-  const [context, setContext] = useState<ConnectionContextResponse | null>(null);
+  const [context, setContext] = useState<ConnectionContextResponse | null>(
+    null,
+  );
   const [executableInspection, setExecutableInspection] =
     useState<ExecutableInspectionStatus | null>(null);
+  const [inspectionError, setInspectionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,20 +130,41 @@ export function ConnectionInspector({
     )
       return;
     let cancelled = false;
-    const timer = window.setInterval(() => {
-      void desktopApi
-        .getExecutableInspection(executableInspection.id)
-        .then((status) => {
-          if (!cancelled) setExecutableInspection(status);
-        });
-    }, 400);
+    let timer = 0;
+    const inspectionId = executableInspection.id;
+    const refresh = async () => {
+      let delay = 400;
+      let pending = true;
+      try {
+        const status = await desktopApi.getExecutableInspection(inspectionId);
+        pending = status.state === "queued" || status.state === "running";
+        if (!cancelled) {
+          setInspectionError(null);
+          setExecutableInspection(status);
+        }
+      } catch (cause) {
+        delay = 2_000;
+        if (!cancelled) {
+          setInspectionError(
+            cause instanceof Error ? cause.message : String(cause),
+          );
+        }
+      } finally {
+        if (!cancelled && pending)
+          timer = window.setTimeout(() => void refresh(), delay);
+      }
+    };
+    timer = window.setTimeout(() => void refresh(), 400);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [executableInspection?.id, executableInspection?.state]);
 
-  useEffect(() => setExecutableInspection(null), [connection.id]);
+  useEffect(() => {
+    setExecutableInspection(null);
+    setInspectionError(null);
+  }, [connection.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -253,13 +283,17 @@ export function ConnectionInspector({
                 : t("Unavailable"))}
           </Field>
           <Field label={t("User / session")} mono>
-            {connection.process.user_id ?? t("Unavailable")} / {connection.process.session_id ?? "—"}
+            {connection.process.user_id ?? t("Unavailable")} /{" "}
+            {connection.process.session_id ?? "—"}
           </Field>
           <Field label={t("Namespace / cgroup")} mono>
-            {connection.process.network_namespace ?? connection.process.cgroup ?? t("Unavailable")}
+            {connection.process.network_namespace ??
+              connection.process.cgroup ??
+              t("Unavailable")}
           </Field>
           <Field label={t("Executable revision")} mono>
-            {connection.process.executable_revision_id ?? t("Not inspected yet")}
+            {connection.process.executable_revision_id ??
+              t("Not inspected yet")}
           </Field>
         </dl>
         <div className="executable-inspection">
@@ -270,12 +304,18 @@ export function ConnectionInspector({
               executableInspection?.state === "queued" ||
               executableInspection?.state === "running"
             }
-            onClick={() =>
-              connection.key.process_instance &&
+            onClick={() => {
+              if (!connection.key.process_instance) return;
+              setInspectionError(null);
               void desktopApi
                 .startExecutableInspection(connection.key.process_instance, 256)
                 .then(setExecutableInspection)
-            }
+                .catch((cause: unknown) =>
+                  setInspectionError(
+                    cause instanceof Error ? cause.message : String(cause),
+                  ),
+                );
+            }}
             type="button"
           >
             {t("Inspect executable locally")}
@@ -285,9 +325,13 @@ export function ConnectionInspector({
             <button
               className="button button--secondary"
               onClick={() =>
-                void desktopApi.cancelExecutableInspection(
-                  executableInspection.id,
-                )
+                void desktopApi
+                  .cancelExecutableInspection(executableInspection.id)
+                  .catch((cause: unknown) =>
+                    setInspectionError(
+                      cause instanceof Error ? cause.message : String(cause),
+                    ),
+                  )
               }
               type="button"
             >
@@ -297,7 +341,10 @@ export function ConnectionInspector({
           {executableInspection && (
             <div role="status">
               <strong>{t(executableInspection.state)}</strong>
-              <p>{executableInspection.message && t(executableInspection.message)}</p>
+              <p>
+                {executableInspection.message &&
+                  t(executableInspection.message)}
+              </p>
               {executableInspection.identity && (
                 <dl>
                   <Field label="SHA-256" mono>
@@ -310,13 +357,23 @@ export function ConnectionInspector({
                     {executableInspection.identity.revision_id}
                   </Field>
                   <Field label={t("Format / package")}>
-                    {executableInspection.identity.format ?? t("Unknown")} / {executableInspection.identity.package ?? t("Unknown")}
+                    {executableInspection.identity.format ?? t("Unknown")} /{" "}
+                    {executableInspection.identity.package ?? t("Unknown")}
                   </Field>
                 </dl>
               )}
             </div>
           )}
-          <small>{t("Hash and signature are local identity evidence, never reputation or a safety verdict.")}</small>
+          {inspectionError && (
+            <p role="alert">
+              {t("Unavailable")}: {inspectionError}
+            </p>
+          )}
+          <small>
+            {t(
+              "Hash and signature are local identity evidence, never reputation or a safety verdict.",
+            )}
+          </small>
         </div>
       </section>
       <section className="inspector-section">
@@ -364,7 +421,9 @@ export function ConnectionInspector({
           </Field>
           <Field label={t("DNS limitation")}>
             {context?.dns?.limitation ??
-              t("DoH, DoT or a prior shared cache may hide the originating query.")}
+              t(
+                "DoH, DoT or a prior shared cache may hide the originating query.",
+              )}
           </Field>
           <Field label={t("Network path")} mono>
             {context
@@ -413,66 +472,100 @@ export function ConnectionInspector({
       </section>
       <section className="inspector-section">
         <h3>{t("Estimated network location")}</h3>
-        <dl>
-          <Field label={t("Country")}>
-            {connection.geo
-              ? (connection.geo.country_name ??
-                connection.geo.country_code ??
-                t("Unknown"))
-              : t("Unknown")}
-          </Field>
-          <Field label={t("Location")}>
-            {[connection.geo?.city, connection.geo?.region]
-              .filter(Boolean)
-              .join(", ") || t("Unknown")}
-          </Field>
-          <Field label={t("Coordinates")} mono>
-            {connection.geo?.latitude !== null &&
-            connection.geo?.latitude !== undefined &&
-            connection.geo.longitude !== null
-              ? `${connection.geo.latitude.toFixed(4)}, ${connection.geo.longitude.toFixed(4)}`
-              : t("Not plotted")}
-          </Field>
-          <Field label={t("Network owner")}>
-            {connection.asn
-              ? `AS${connection.asn.number}${connection.asn.organization ? ` / ${connection.asn.organization}` : ""}`
-              : t("Unknown")}
-          </Field>
-          <Field label={t("Precision")}>
-            {connection.geo ? t(connection.geo.precision) : t("Unknown")}
-          </Field>
-          <Field label={t("Placement")}>
-            {connection.geo ? t(connection.geo.placement) : t("Not plotted")}
-          </Field>
-          <Field label={t("Accuracy radius")}>
-            {connection.geo?.accuracy_radius_km !== null &&
-            connection.geo?.accuracy_radius_km !== undefined
-              ? `${connection.geo.accuracy_radius_km} km`
-              : t("Not provided")}
-          </Field>
-          <Field label={t("Source")} mono>
-            {connection.geo?.source ?? t("No local match")}
-          </Field>
-          <Field label={t("Dataset")} mono>
-            {connection.geo?.dataset_edition ?? t("Unavailable")}
-          </Field>
-          <Field label={t("Dataset date")}>
-            {connection.geo?.dataset_build_epoch_ms
-              ? formatDateTime(connection.geo.dataset_build_epoch_ms)
-              : t("Unavailable")}
-          </Field>
-          <Field label={t("Matched prefix")} mono>
-            {connection.geo?.matched_prefix !== null &&
-            connection.geo?.matched_prefix !== undefined
-              ? `/${connection.geo.matched_prefix}`
-              : t("Unavailable")}
-          </Field>
-          <Field label="SHA-256" mono>
-            {connection.geo?.dataset_sha256
-              ? `${connection.geo.dataset_sha256.slice(0, 16)}…`
-              : t("Unavailable")}
-          </Field>
-        </dl>
+        {!connection.geo && (
+          <div className="inspector-geo-guidance" role="status">
+            <p>
+              {t(
+                connection.key.remote.scope !== "global"
+                  ? "Local address — no public location"
+                  : cityInstalled
+                    ? "No match in City database"
+                    : "City database not installed",
+              )}
+            </p>
+            {connection.key.remote.scope === "global" && !cityInstalled && (
+              <button
+                className="button button--secondary"
+                disabled={geoUpdating}
+                onClick={onInstallGeo}
+                type="button"
+              >
+                {t(
+                  geoUpdating
+                    ? "Installing City database..."
+                    : "Install free City database",
+                )}
+              </button>
+            )}
+          </div>
+        )}
+        {(connection.geo || connection.asn) && (
+          <dl>
+            {connection.geo && (
+              <>
+                <Field label={t("Country")}>
+                  {connection.geo.country_name ??
+                    connection.geo.country_code ??
+                    t("Unknown")}
+                </Field>
+                <Field label={t("Location")}>
+                  {[connection.geo.city, connection.geo.region]
+                    .filter(Boolean)
+                    .join(", ") || t("Unknown")}
+                </Field>
+                <Field label={t("Coordinates")} mono>
+                  {connection.geo.latitude !== null &&
+                  connection.geo.longitude !== null
+                    ? `${connection.geo.latitude.toFixed(4)}, ${connection.geo.longitude.toFixed(4)}`
+                    : t("Not plotted")}
+                </Field>
+              </>
+            )}
+            <Field label={t("Network owner")}>
+              {connection.asn
+                ? `AS${connection.asn.number}${connection.asn.organization ? ` / ${connection.asn.organization}` : ""}`
+                : t("Unavailable")}
+            </Field>
+            {connection.geo && (
+              <>
+                <Field label={t("Precision")}>
+                  {t(connection.geo.precision)}
+                </Field>
+                <Field label={t("Placement")}>
+                  {t(connection.geo.placement)}
+                </Field>
+                <Field label={t("Accuracy radius")}>
+                  {connection.geo?.accuracy_radius_km !== null &&
+                  connection.geo?.accuracy_radius_km !== undefined
+                    ? `${connection.geo.accuracy_radius_km} km`
+                    : t("Not provided")}
+                </Field>
+                <Field label={t("Source")} mono>
+                  {connection.geo?.source ?? t("No local match")}
+                </Field>
+                <Field label={t("Dataset")} mono>
+                  {connection.geo?.dataset_edition ?? t("Unavailable")}
+                </Field>
+                <Field label={t("Dataset date")}>
+                  {connection.geo?.dataset_build_epoch_ms
+                    ? formatDateTime(connection.geo.dataset_build_epoch_ms)
+                    : t("Unavailable")}
+                </Field>
+                <Field label={t("Matched prefix")} mono>
+                  {connection.geo?.matched_prefix !== null &&
+                  connection.geo?.matched_prefix !== undefined
+                    ? `/${connection.geo.matched_prefix}`
+                    : t("Unavailable")}
+                </Field>
+                <Field label="SHA-256" mono>
+                  {connection.geo?.dataset_sha256
+                    ? `${connection.geo.dataset_sha256.slice(0, 16)}…`
+                    : t("Unavailable")}
+                </Field>
+              </>
+            )}
+          </dl>
+        )}
       </section>
       <section className="inspector-section">
         <h3>{t("Diagnostic")}</h3>

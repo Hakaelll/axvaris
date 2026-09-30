@@ -20,6 +20,9 @@ try {
   );
   const { I18nProvider } = await server.ssrLoadModule("/src/i18n.ts");
   const { TopBar } = await server.ssrLoadModule("/src/components/TopBar.tsx");
+  const { groupDevices } = await server.ssrLoadModule(
+    "/src/components/LocalPeers.tsx",
+  );
   const { classifyUnlocatedTargets } = await server.ssrLoadModule(
     "/src/lib/unlocated.ts",
   );
@@ -183,6 +186,24 @@ try {
   assert.equal(findSettingsSections("ubicación")[0]?.section, "geo");
   assert.equal(findSettingsSections("seudónimos")[0]?.section, "display");
 
+  const localNeighbors = [
+    { address: "192.168.1.10", mac_address: "02:11:22:33:44:55", interface_id: "wifi", is_router: false, state: "reachable" },
+    { address: "fe80::10", mac_address: "02:11:22:33:44:55", interface_id: "wifi", is_router: false, state: "stale" },
+    { address: "192.168.1.11", mac_address: "02:11:22:33:44:66", interface_id: "wifi", is_router: false, state: "reachable" },
+  ];
+  const localConnections = [
+    { id: "ipv4", key: { remote: { address: "192.168.1.10", port: 443, scope: "private", zone: null } }, active: true, hostname: null, interface: "Wi-Fi", process: { name: "Browser" }, last_seen_ms: 100 },
+    { id: "ipv6", key: { remote: { address: "fe80::10", port: 80, scope: "link_local", zone: null } }, active: false, hostname: null, interface: "Wi-Fi", process: { name: "Browser" }, last_seen_ms: 90 },
+    { id: "unknown", key: { remote: { address: "192.168.1.12", port: 22, scope: "private", zone: null } }, active: false, hostname: null, interface: "Wi-Fi", process: { name: "SSH" }, last_seen_ms: 80 },
+  ];
+  const deviceGroups = groupDevices(localConnections, localNeighbors, "ipv6");
+  assert.equal(deviceGroups.length, 3, "different MACs and unverified addresses remain separate");
+  const dualStack = deviceGroups.find((device) => device.mac === "02:11:22:33:44:55");
+  assert.deepEqual([...dualStack.addresses].sort(), ["192.168.1.10", "fe80::10"]);
+  assert.equal(dualStack.connectionCount, 2);
+  assert.equal(dualStack.selected, true);
+  assert.equal(deviceGroups.find((device) => device.addresses.has("192.168.1.12")).mac, null);
+
   const todayBootstrap = await previewApi.getTodayBootstrap();
   const quickComparison = todayBootstrap.previous_session?.comparison;
   assert.ok(quickComparison, "preview exposes a prior-session comparison");
@@ -197,7 +218,7 @@ try {
   );
 
   console.log(
-    "UI behavior passed: presentation DOM, compact capture navigation, unlocated classification, stale-response gate, bilingual settings search, quick comparison.",
+    "UI behavior passed: presentation DOM, compact capture navigation, unlocated classification, local device grouping, stale-response gate, bilingual settings search, quick comparison.",
   );
 } finally {
   await server.close();

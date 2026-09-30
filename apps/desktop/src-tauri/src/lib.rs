@@ -3,9 +3,10 @@ mod today;
 #[cfg(target_os = "windows")]
 use sabicheiro_capture::WindowsEventCapture;
 use sabicheiro_capture::{
-    BoundedEvidenceQueue, EvidenceFusion, EvidenceSequencer, FlowCorrelator,
+    BoundedEvidenceQueue, EvidenceFusion, EvidenceSequencer, FlowCorrelator, LocalNeighbor,
     NetworkCaptureProvider, PipelineQueueClass, PipelineStage, ProviderAction, ProviderSupervisor,
-    RecordingController, SnapshotDiffer, inspect_executable, lookup_network_path, system_provider,
+    RecordingController, SnapshotDiffer, inspect_executable, local_neighbors, lookup_network_path,
+    system_provider,
 };
 use sabicheiro_core::{
     AddressFamily, AppSettings, Bookmark, CapabilityAvailability, CaptureCapability,
@@ -389,12 +390,11 @@ impl DnsService {
     }
 
     fn enqueue(&self, job: DnsJob) -> bool {
+        self.pending.fetch_add(1, Ordering::Relaxed);
         match self.sender.try_send(job) {
-            Ok(()) => {
-                self.pending.fetch_add(1, Ordering::Relaxed);
-                true
-            }
+            Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.pending.fetch_sub(1, Ordering::Relaxed);
                 self.dropped.fetch_add(1, Ordering::Relaxed);
                 false
             }
@@ -413,11 +413,13 @@ impl DnsService {
 #[derive(Debug)]
 struct GeoJob {
     address: IpAddr,
+    revision: u64,
 }
 
 #[derive(Debug)]
 struct GeoResult {
     address: IpAddr,
+    revision: u64,
     result: Result<GeoLookup, String>,
 }
 
@@ -428,6 +430,7 @@ struct GeoService {
     waiters: Arc<Mutex<HashMap<IpAddr, Vec<ConnectionKey>>>>,
     pending: Arc<AtomicUsize>,
     dropped: Arc<AtomicU64>,
+    revision: AtomicU64,
 }
 
 impl GeoService {
@@ -454,6 +457,7 @@ impl GeoService {
                     if result_sender
                         .send(GeoResult {
                             address: job.address,
+                            revision: job.revision,
                             result,
                         })
                         .is_err()
@@ -469,6 +473,7 @@ impl GeoService {
             waiters: Arc::new(Mutex::new(HashMap::new())),
             pending,
             dropped: Arc::new(AtomicU64::new(0)),
+            revision: AtomicU64::new(0),
         }
     }
 
@@ -478,18 +483,21 @@ impl GeoService {
             return false;
         };
         let entry = waiters.entry(address).or_default();
+        let already_pending = !entry.is_empty();
         if !entry.contains(&key) {
             entry.push(key);
         }
-        if entry.len() > 1 {
+        if already_pending {
             return true;
         }
-        match self.sender.try_send(GeoJob { address }) {
-            Ok(()) => {
-                self.pending.fetch_add(1, Ordering::Relaxed);
-                true
-            }
+        self.pending.fetch_add(1, Ordering::Relaxed);
+        match self.sender.try_send(GeoJob {
+            address,
+            revision: self.revision.load(Ordering::Acquire),
+        }) {
+            Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.pending.fetch_sub(1, Ordering::Relaxed);
                 waiters.remove(&address);
                 self.dropped.fetch_add(1, Ordering::Relaxed);
                 false
@@ -536,7 +544,9 @@ impl GeoService {
             .lock()
             .map_err(|_| "GeoIP resolver state is unavailable".to_owned())?
             .reload(city_path, asn_path)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.invalidate_pending();
+        Ok(())
     }
 
     fn reload_kind(&self, kind: GeoDatabaseKind, path: impl AsRef<Path>) -> Result<(), String> {
@@ -544,7 +554,9 @@ impl GeoService {
             .lock()
             .map_err(|_| "GeoIP resolver state is unavailable".to_owned())?
             .reload_kind(kind, path)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.invalidate_pending();
+        Ok(())
     }
 
     fn replace(&self, resolver: LocalGeoResolver) -> Result<(), String> {
@@ -553,7 +565,16 @@ impl GeoService {
             .lock()
             .map_err(|_| "GeoIP resolver state is unavailable".to_owned())?;
         *current = resolver;
+        drop(current);
+        self.invalidate_pending();
         Ok(())
+    }
+
+    fn invalidate_pending(&self) {
+        self.revision.fetch_add(1, Ordering::AcqRel);
+        if let Ok(mut waiters) = self.waiters.lock() {
+            waiters.clear();
+        }
     }
 
     fn pending(&self) -> usize {
@@ -1383,6 +1404,9 @@ impl Engine {
 
     fn drain_geo_results(&mut self) {
         while let Ok(result) = self.geo.receiver.try_recv() {
+            if result.revision != self.geo.revision.load(Ordering::Acquire) {
+                continue;
+            }
             let waiters = self.geo.take_waiters(result.address);
             match result.result {
                 Ok(lookup) => {
@@ -1395,16 +1419,30 @@ impl Engine {
                         continue;
                     }
                     for key in waiters {
-                        self.aggregator.enrich(
+                        self.aggregator.replace_geo(
                             &key,
-                            None,
-                            None,
                             lookup.location.clone(),
                             lookup.asn.clone(),
                         );
                     }
                 }
                 Err(error) => self.diagnostics.last_error = Some(error),
+            }
+        }
+    }
+
+    fn refresh_visible_geo(&mut self) {
+        let connections = self
+            .aggregator
+            .connections()
+            .filter(|connection| connection.key.remote.scope == AddressScope::Global)
+            .map(|connection| (connection.key.clone(), connection.key.remote.address))
+            .collect::<Vec<_>>();
+        for (key, address) in connections {
+            self.aggregator.replace_geo(&key, None, None);
+            if !self.geo.enqueue(key, address) {
+                self.diagnostics.dropped_ui_events =
+                    self.diagnostics.dropped_ui_events.saturating_add(1);
             }
         }
     }
@@ -2749,6 +2787,14 @@ fn list_interfaces(
             .and_then(|mut provider| provider.interfaces())
             .map_err(|error| CommandError::recoverable("interface_unavailable", error))
     }
+}
+
+#[tauri::command]
+async fn list_local_neighbors() -> Result<Vec<LocalNeighbor>, CommandError> {
+    tauri::async_runtime::spawn_blocking(local_neighbors)
+        .await
+        .map_err(|error| CommandError::recoverable("neighbors_unavailable", error))?
+        .map_err(|error| CommandError::recoverable("neighbors_unavailable", error))
 }
 
 struct LocalSocketProof {
@@ -4966,6 +5012,7 @@ fn clear_local_data(
                 .geo
                 .replace(LocalGeoResolver::empty())
                 .map_err(|error| CommandError::recoverable("local_data_remove_failed", error))?;
+            engine.refresh_visible_geo();
         }
         LocalDataCategory::DnsCache => {
             removed_items += engine.dns_observations.len();
@@ -4998,6 +5045,10 @@ fn clear_local_data(
         }
     }
     engine.refresh_storage_health();
+    if category == LocalDataCategory::GeoIp {
+        drop(engine);
+        runtime.wake();
+    }
     Ok(LocalDataRemovalResult {
         category,
         removed_items,
@@ -5070,7 +5121,7 @@ async fn update_geo_database(
         .await
         .map_err(|error| CommandError::recoverable("geo_update_failed", error))?
         .map_err(|error| CommandError::recoverable("geo_update_failed", error))?;
-    let engine = runtime
+    let mut engine = runtime
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
@@ -5092,14 +5143,25 @@ async fn update_geo_database(
         bytes_received,
         "Fixed-origin DB-IP Lite update completed; no observed address was transmitted.",
     );
-    engine
-        .geo
-        .reload(&updated.city_path, &updated.asn_path)
-        .map_err(|error| CommandError::recoverable("geo_update_failed", error))?;
-    engine
+    if updated.asn_path.is_file() {
+        engine
+            .geo
+            .reload(&updated.city_path, &updated.asn_path)
+            .map_err(|error| CommandError::recoverable("geo_update_failed", error))?;
+    } else {
+        engine
+            .geo
+            .reload_kind(GeoDatabaseKind::City, &updated.city_path)
+            .map_err(|error| CommandError::recoverable("geo_update_failed", error))?;
+    }
+    engine.refresh_visible_geo();
+    let status = engine
         .geo
         .status()
-        .map_err(|error| CommandError::recoverable("geo_update_failed", error))
+        .map_err(|error| CommandError::recoverable("geo_update_failed", error))?;
+    drop(engine);
+    runtime.wake();
+    Ok(status)
 }
 
 #[tauri::command]
@@ -5119,7 +5181,7 @@ async fn import_geo_database(
     let asn_path = directory.join("dbip-asn-lite.mmdb");
     let resolver = LocalGeoResolver::open(Some(&city_path), Some(&asn_path))
         .map_err(|error| CommandError::recoverable("geo_import_failed", error))?;
-    let engine = runtime
+    let mut engine = runtime
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
@@ -5127,10 +5189,14 @@ async fn import_geo_database(
         .geo
         .replace(resolver)
         .map_err(|error| CommandError::recoverable("geo_import_failed", error))?;
-    engine
+    engine.refresh_visible_geo();
+    let status = engine
         .geo
         .status()
-        .map_err(|error| CommandError::recoverable("geo_import_failed", error))
+        .map_err(|error| CommandError::recoverable("geo_import_failed", error))?;
+    drop(engine);
+    runtime.wake();
+    Ok(status)
 }
 
 #[tauri::command]
@@ -5146,7 +5212,7 @@ async fn rollback_geo_database(
             .await
             .map_err(|error| CommandError::recoverable("geo_rollback_failed", error))?
             .map_err(|error| CommandError::recoverable("geo_rollback_failed", error))?;
-    let engine = runtime
+    let mut engine = runtime
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
@@ -5154,10 +5220,14 @@ async fn rollback_geo_database(
         .geo
         .reload_kind(kind, &restored.path)
         .map_err(|error| CommandError::recoverable("geo_rollback_failed", error))?;
-    engine
+    engine.refresh_visible_geo();
+    let status = engine
         .geo
         .status()
-        .map_err(|error| CommandError::recoverable("geo_rollback_failed", error))
+        .map_err(|error| CommandError::recoverable("geo_rollback_failed", error))?;
+    drop(engine);
+    runtime.wake();
+    Ok(status)
 }
 
 #[tauri::command]
@@ -5177,7 +5247,7 @@ async fn remove_geo_database(
     let asn_path = directory.join("dbip-asn-lite.mmdb");
     let resolver = LocalGeoResolver::open(Some(&city_path), Some(&asn_path))
         .map_err(|error| CommandError::recoverable("geo_remove_failed", error))?;
-    let engine = runtime
+    let mut engine = runtime
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
@@ -5185,10 +5255,14 @@ async fn remove_geo_database(
         .geo
         .replace(resolver)
         .map_err(|error| CommandError::recoverable("geo_remove_failed", error))?;
-    engine
+    engine.refresh_visible_geo();
+    let status = engine
         .geo
         .status()
-        .map_err(|error| CommandError::recoverable("geo_remove_failed", error))
+        .map_err(|error| CommandError::recoverable("geo_remove_failed", error))?;
+    drop(engine);
+    runtime.wake();
+    Ok(status)
 }
 
 #[tauri::command]
@@ -6189,6 +6263,7 @@ pub fn run() {
             get_dashboard_update,
             set_capture_state,
             list_interfaces,
+            list_local_neighbors,
             run_capture_self_test,
             set_view_paused,
             query_history,

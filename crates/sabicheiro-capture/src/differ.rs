@@ -4,6 +4,8 @@ use sabicheiro_core::{
 };
 use std::collections::HashMap;
 
+const SOCKET_HEARTBEAT_INTERVAL_MS: i64 = 10_000;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct SocketFingerprint {
     identity: SocketIdentity,
@@ -25,6 +27,7 @@ impl SocketFingerprint {
 struct TrackedSocket {
     socket: ObservedSocket,
     flow_generation: u64,
+    last_emitted_at_ms: i64,
 }
 
 pub struct SnapshotDiffer {
@@ -59,28 +62,51 @@ impl SnapshotDiffer {
         let mut events = Vec::with_capacity(current.len() + self.previous.len());
         for socket in current {
             let fingerprint = SocketFingerprint::from_socket(&socket);
-            let (kind, flow_generation) = self.previous.get(&fingerprint).map_or_else(
-                || {
+            let previous = self.previous.get(&fingerprint);
+            let (kind, flow_generation, emit, last_emitted_at_ms) = match previous {
+                Some(tracked) => {
+                    let emit = tracked.socket != socket
+                        || timestamp_ms.saturating_sub(tracked.last_emitted_at_ms)
+                            >= SOCKET_HEARTBEAT_INTERVAL_MS;
+                    (
+                        NetworkEventKind::Updated,
+                        tracked.flow_generation,
+                        emit,
+                        if emit {
+                            timestamp_ms
+                        } else {
+                            tracked.last_emitted_at_ms
+                        },
+                    )
+                }
+                None => {
                     let flow_generation = self.next_flow_generation;
                     self.next_flow_generation = self.next_flow_generation.saturating_add(1);
-                    (NetworkEventKind::Opened, flow_generation)
-                },
-                |tracked| (NetworkEventKind::Updated, tracked.flow_generation),
-            );
-            self.sequence = self.sequence.saturating_add(1);
-            events.push(to_event(
-                &socket,
-                kind,
-                timestamp_ms,
-                self.capture_generation,
-                flow_generation,
-                self.sequence,
-            ));
+                    (
+                        NetworkEventKind::Opened,
+                        flow_generation,
+                        true,
+                        timestamp_ms,
+                    )
+                }
+            };
+            if emit {
+                self.sequence = self.sequence.saturating_add(1);
+                events.push(to_event(
+                    &socket,
+                    kind,
+                    timestamp_ms,
+                    self.capture_generation,
+                    flow_generation,
+                    self.sequence,
+                ));
+            }
             current_tracked.insert(
                 fingerprint,
                 TrackedSocket {
                     socket,
                     flow_generation,
+                    last_emitted_at_ms,
                 },
             );
         }
@@ -198,14 +224,26 @@ mod tests {
     fn emits_open_update_and_close_with_stable_identity() {
         let mut differ = SnapshotDiffer::new(9);
         let opened = differ.diff(vec![socket(100)], 1).remove(0);
-        let updated = differ.diff(vec![socket(100)], 2).remove(0);
-        let closed = differ.diff(Vec::new(), 3).remove(0);
+        assert!(differ.diff(vec![socket(100)], 2).is_empty());
+        let mut changed = socket(100);
+        changed.state = ConnectionState::Closing;
+        let updated = differ.diff(vec![changed], 3).remove(0);
+        let closed = differ.diff(Vec::new(), 4).remove(0);
         assert_eq!(opened.kind, NetworkEventKind::Opened);
         assert_eq!(updated.kind, NetworkEventKind::Updated);
         assert_eq!(closed.kind, NetworkEventKind::Closed);
         assert_eq!(opened.key, updated.key);
         assert_eq!(updated.key, closed.key);
         assert_eq!(opened.key.capture_generation, 9);
+    }
+
+    #[test]
+    fn unchanged_sockets_emit_bounded_heartbeats() {
+        let mut differ = SnapshotDiffer::new(1);
+        assert_eq!(differ.diff(vec![socket(100)], 1_000).len(), 1);
+        assert!(differ.diff(vec![socket(100)], 10_999).is_empty());
+        assert_eq!(differ.diff(vec![socket(100)], 11_000).len(), 1);
+        assert!(differ.diff(vec![socket(100)], 11_001).is_empty());
     }
 
     #[test]

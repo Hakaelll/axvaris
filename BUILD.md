@@ -60,6 +60,9 @@ executable, `docs/SHA256SUMS-0.4.2.txt`, SPDX SBOM and release notes together.
 
 ## Debian/Ubuntu x86_64
 
+For the full copy-and-paste setup, package installation, GeoIP and troubleshooting
+instructions in Spanish, see [linux.md](linux.md).
+
 Install Tauri's system dependencies:
 
 ```text
@@ -87,10 +90,12 @@ the same commands remain runnable locally without CI.
 
 ## GeoIP data
 
-The binary runs without a dataset and displays `Unknown location`. For complete offline
-geo rendering, install the current DB-IP City Lite MMDB through Settings or place the
-licensed database in the platform data directory. Release bundles may include a reviewed
-snapshot provided its CC BY attribution/date is updated.
+The binary runs without a dataset and explains that the City database is missing.
+Install the current DB-IP City Lite MMDB from the map, connection inspector or Settings
+to show approximate public locations. ASN data is optional. Private and loopback
+addresses have no public geographic location; use the Devices view for those.
+Release bundles may include a reviewed snapshot provided its CC BY attribution/date is
+updated.
 
 ## License audit
 

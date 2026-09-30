@@ -429,6 +429,14 @@ export interface NetworkInterface {
   is_vpn: boolean;
 }
 
+export interface LocalNeighbor {
+  address: string;
+  mac_address: string | null;
+  interface_id: string;
+  is_router: boolean;
+  state: string;
+}
+
 export interface HistoryQuery {
   from_ms: number | null;
   to_ms: number | null;

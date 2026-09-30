@@ -23,7 +23,7 @@ use windows_sys::{
             },
             Ndis::IfOperStatusUp,
         },
-        Networking::WinSock::{SOCKADDR_IN, SOCKADDR_IN6},
+        Networking::WinSock::{SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_INET},
     },
     core::GUID,
 };
@@ -287,6 +287,22 @@ unsafe fn socket_address(
                 address.sin6_addr.u.Byte
             })))
         }
+        _ => None,
+    }
+}
+
+pub(crate) unsafe fn inet_address(value: &SOCKADDR_INET) -> Option<IpAddr> {
+    match unsafe { value.si_family } as u32 {
+        AF_INET => {
+            let address = unsafe { value.Ipv4 };
+            let bytes = unsafe { address.sin_addr.S_un.S_un_b };
+            Some(IpAddr::V4(Ipv4Addr::new(
+                bytes.s_b1, bytes.s_b2, bytes.s_b3, bytes.s_b4,
+            )))
+        }
+        AF_INET6 => Some(IpAddr::V6(Ipv6Addr::from(unsafe {
+            value.Ipv6.sin6_addr.u.Byte
+        }))),
         _ => None,
     }
 }

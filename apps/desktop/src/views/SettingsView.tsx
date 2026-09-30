@@ -30,6 +30,7 @@ interface SettingsViewProps {
   interfaces: NetworkInterface[];
   snapshot: DashboardSnapshot;
   geoStatus: GeoDatabaseStatus | null;
+  geoUpdating: boolean;
   focusRules: FocusRules;
   onUpdate: (settings: AppSettings) => void;
   onUpdateGeo: () => void;
@@ -103,6 +104,7 @@ export function SettingsView({
   interfaces,
   snapshot,
   geoStatus,
+  geoUpdating,
   focusRules,
   onUpdate,
   onUpdateGeo,
@@ -1039,12 +1041,15 @@ export function SettingsView({
             <div className="geo-actions">
               <button
                 className="button button--secondary"
+                disabled={geoUpdating}
                 onClick={onUpdateGeo}
                 type="button"
               >
-                {geoStatus?.city.installed
-                  ? t("Check free City update")
-                  : t("Install free City database")}
+                {geoUpdating
+                  ? t("Installing City database...")
+                  : geoStatus?.city.installed
+                    ? t("Check free City update")
+                    : t("Install free City database")}
               </button>
               <small>
                 {t(

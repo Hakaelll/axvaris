@@ -9,7 +9,7 @@ interface WorkspaceTabsProps {
 
 const tabs: { id: ConnectionWorkspace; label: string }[] = [
   { id: "remote", label: "Remote" },
-  { id: "local", label: "Local" },
+  { id: "local", label: "Devices" },
   { id: "listeners", label: "Listeners" },
 ];
 
@@ -34,7 +34,7 @@ export function WorkspaceTabs({
           role="tab"
           type="button"
         >
-          {t(tab.label)} <span>{counts[tab.id]}</span>
+          {t(tab.label)} {tab.id !== "local" && <span>{counts[tab.id]}</span>}
         </button>
       ))}
     </div>

@@ -223,7 +223,7 @@ export const GlobeScene = memo(function GlobeScene({
     const globe = new THREE.Mesh(
       new THREE.SphereGeometry(1, 64, 40),
       new THREE.MeshStandardMaterial({
-        color: 0x303330,
+        color: 0x383b38,
         roughness: 0.88,
         metalness: 0.08,
       }),
@@ -450,21 +450,24 @@ export const GlobeScene = memo(function GlobeScene({
         destination.clone().normalize(),
       );
       const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(radius, 12, 8),
-        new THREE.MeshBasicMaterial({ color: selected ? 0xee6018 : 0xb1b9bd }),
-      );
-      const halo = new THREE.Mesh(
-        new THREE.SphereGeometry(radius * 1.75, 12, 8),
+        new THREE.CircleGeometry(radius * 0.65, 24),
         new THREE.MeshBasicMaterial({
-          color: selected ? 0xee6018 : 0x9ca7ad,
+          color: selected ? 0xee6018 : 0xeeeeee,
+          side: THREE.DoubleSide,
+        }),
+      );
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(radius * 1.25, radius * 1.45, 32),
+        new THREE.MeshBasicMaterial({
+          color: selected ? 0xee6018 : 0xb8b3b0,
           transparent: true,
-          opacity: selected ? 0.16 : 0.075,
+          opacity: selected ? 1 : route.active ? 0.7 : 0.35,
+          side: THREE.DoubleSide,
           depthWrite: false,
         }),
       );
       if (connection.geo?.placement === "country_centroid") {
-        halo.scale.y = 0.62;
-        halo.rotation.z = Math.PI / 4;
+        ring.scale.setScalar(1.4);
       }
       const selectionTarget =
         selectedId && route.memberIds.includes(selectedId)
@@ -475,7 +478,7 @@ export const GlobeScene = memo(function GlobeScene({
       marker.userData.worldPosition = destination;
       marker.userData.tooltip = `${connection.geo?.country_name ?? connection.domain ?? connection.key.remote.address} / AS${connection.asn?.number ?? "?"} / ${route.count} / ${connection.geo?.precision ?? "unknown"}`;
       state.markerIds.set(marker, selectionTarget);
-      markerGroup.add(halo, marker);
+      markerGroup.add(ring, marker);
       state.traffic.add(markerGroup);
     }
     const homeGroup = new THREE.Group();

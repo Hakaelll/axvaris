@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type { Connection } from "../types";
+import { Icon } from "./Icon";
 import {
   endpointLabel,
   formatBytes,
@@ -236,12 +237,16 @@ export function LiveFeed({
                       <em>:{representative.key.remote.port}</em>
                       {observations > 1 && <b>× {observations}</b>}
                     </span>
-                    <span className="connection-row__endpoint">
-                      {representative.key.remote.address}
-                    </span>
+                    {destination !== representative.key.remote.address && (
+                      <span className="connection-row__endpoint">
+                        {representative.key.remote.address}
+                      </span>
+                    )}
                     <span className="connection-row__meta">
+                      <span className="connection-row__protocol">
+                        {representative.protocol.toUpperCase()}
+                      </span>
                       <span>{place}</span>
-                      <span>{representative.protocol.toUpperCase()}</span>
                       <span>
                         {formatDuration(group.lastSeenMs - group.firstSeenMs)}
                       </span>
@@ -249,8 +254,8 @@ export function LiveFeed({
                     <span className="connection-row__traffic">
                       {hasFlowTraffic ? (
                         <>
-                          ↓ {formatBytes(bytesDown)} <i /> ↑{" "}
-                          {formatBytes(bytesUp)}
+                          <Icon name="arrow-down" /> {formatBytes(bytesDown)}
+                          <i /> <Icon name="arrow-up" /> {formatBytes(bytesUp)}
                         </>
                       ) : (
                         t("Socket metadata only")
@@ -258,6 +263,10 @@ export function LiveFeed({
                     </span>
                   </span>
                   <span className="connection-row__rate">
+                    <span className="connection-row__status">
+                      <span aria-hidden="true" />
+                      {active ? t("Active") : t("closed")}
+                    </span>
                     <i
                       style={
                         {

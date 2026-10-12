@@ -45,8 +45,11 @@ typography:
     fontFamily: '"Geist Mono", ui-monospace, monospace'
 rounded:
   badge: "4px"
-  control: "8px"
+  control: "10px"
   panel: "16px"
+  capsule: "20px"
+  capsule-item: "16px"
+  protocol-tag: "6px"
   connection-row: "10px"
   globe-caption: "12px"
   query-chip: "14px"
@@ -75,9 +78,9 @@ components:
   search-field:
     backgroundColor: "{colors.carbon}"
     textColor: "{colors.mist}"
-    rounded: "{rounded.control}"
+    rounded: "{rounded.capsule}"
     height: "36px"
-    padding: "0 9px"
+    padding: "0 12px"
   sidebar-item-active:
     backgroundColor: "#292522"
     textColor: "{colors.paper}"
@@ -108,6 +111,16 @@ components:
   live-feed:
     backgroundColor: "{colors.obsidian}"
     rounded: "{rounded.panel}"
+  map-controls:
+    backgroundColor: "{colors.obsidian}"
+    rounded: "{rounded.capsule}"
+    padding: "4px"
+  protocol-tag:
+    backgroundColor: "{colors.selection-muted}"
+    textColor: "{colors.mist}"
+    typography: "{typography.mono}"
+    rounded: "{rounded.protocol-tag}"
+    padding: "2px 6px"
   globe-caption:
     backgroundColor: "{colors.obsidian}"
     rounded: "{rounded.globe-caption}"
@@ -126,7 +139,7 @@ components:
 
 **Creative North Star: "The Network Observatory"**
 
-Axvaris presents network evidence in a restrained desktop workspace. Factory and Gotham are the confirmed references for its serious observability character. Warm dark panels, quiet dividers and readable text separate controls from connection evidence. The globe shares the workspace with the feed; evidence remains available when a destination cannot be plotted.
+Axvaris presents network evidence in a restrained desktop workspace. Factory and Gotham are the confirmed references for its serious observability character. Warm dark panels, quiet dividers and readable text separate controls from connection evidence. An inset curved sidebar and borderless shell keep enclosure at the task level. Capsule search and map controls sit above the globe. The globe shares the workspace with the feed; evidence remains available when a destination cannot be plotted.
 
 The serif AXVARIS wordmark supplies the identity. Interface text uses Geist and technical values use Geist Mono. Motion responds to an action or a data change. Continuous decorative particles and pulsing chrome have no role in this design.
 
@@ -151,7 +164,7 @@ Warm near-black neutrals carry the interface. The frontmatter records effective 
 ### Neutral
 
 - Void is the application background and main canvas.
-- Carbon separates the sidebar, metric strip and continuous observation list from the canvas.
+- Carbon separates the sidebar and continuous observation list from the canvas. The metric strip uses the void background.
 - Obsidian is the raised panel tone. The CSS surface-raised token aliases this value.
 - Graphite draws stronger edges. The CSS border-subtle token aliases this value. Divider supplies quieter separators inside observation and feed lists.
 - Smoke provides stronger secondary edges.
@@ -172,7 +185,7 @@ The hierarchy uses page headings at 30px, observation titles at 18px, connection
 
 ## Layout
 
-The desktop shell has a 196px sidebar, 64px top bar and 44px metric strip. The sidebar spans the window height. Today, Live, Investigate, Exposure and Data & Health remain in that order. Search, capture state and actions sit in the top bar. Contextual inspection does not require another permanent navigation column.
+The desktop shell has a 196px sidebar, 64px top bar and 44px metric strip. The sidebar spans the shell with an 8px vertical inset and rounded right corners. Today, Live, Investigate, Exposure and Data & Health remain in that order. Search, capture state and actions sit in the top bar. The sidebar and top bar have no dividing border. The metric strip has a quiet top separator and no vertical cell rules. Contextual inspection does not require another permanent navigation column.
 
 The native window has a minimum size of 720 by 600. At 1180px and below, the sidebar becomes a 72px icon rail and the wordmark yields to the X. Names remain available through button labels and tooltips. The Today session strip uses three metric columns and hides its sparkline at this breakpoint. At 900px and below, the session strip stacks, observation actions move below their content, and the Live canvas stacks above the feed with a canvas row of at least 250px. Settings navigation wraps above its content. Narrow capture actions move into a compact menu.
 
@@ -188,7 +201,7 @@ The main workspaces use tone and quiet one-pixel internal separators for depth. 
 
 ## Shapes
 
-Controls, search fields, sidebar items and view switchers use the control radius. Continuous observation lists, session strips, Live feeds, comparison panels, inspectors and settings sections use the panel radius. Individual observation rows have square corners inside their group. Feed rows use their own modest corner radius and globe captions use the caption radius. Small badges and query chips keep their existing shapes.
+Buttons, ordinary fields and sidebar items use the control radius. Search and map control groups use the capsule radius; segmented map items use the capsule-item radius. Continuous observation lists, session strips, Live feeds, comparison panels, inspectors and settings sections use the panel radius. The sidebar rounds its right corners only. Individual observation rows have square corners inside their group. Feed rows use their own modest corner radius and globe captions use the caption radius. Protocol tags use small corners and query chips retain their existing pill shape.
 
 The monochrome X has the wordmark's serif terminals and stroke contrast. Use light assets against the dark shell and dark assets against light backgrounds. Preserve the supplied geometry and keep the mark free of glow or additional crossing strokes.
 
@@ -202,27 +215,29 @@ Keyboard focus uses the global 2px selection outline with a 2px offset. State tr
 
 ### Inputs / Fields
 
-The top-bar search is a compact dark field with a graphite border, search icon and shortcut hint. Its width can shrink without forcing the shell wider. Focus strengthens the border and a query error appears next to the field. External DNS fields use 14px input text and 38px height. Keep labels and invalid states visible.
+The top-bar search is a dark capsule with a quiet divider border, search icon and shortcut hint. It has 12px horizontal padding. Its width can shrink without forcing the shell wider. Focus strengthens the border and a query error appears next to the field. External DNS fields use 14px input text and 38px height. Keep labels and invalid states visible.
 
 ### Chips
 
-Compound query filters use compact rounded chips with values and a removal action. Evidence badges distinguish scope or change state with text and a border. Do not substitute unlabeled color dots for evidence categories.
+Compound query filters use compact rounded chips with values and a removal action. Evidence badges distinguish scope or change state with text. Live protocol tags have a muted fill, mono type and compact padding. Active or closed text accompanies the small state dot, so state does not depend on its color.
 
 ### Cards / Containers
 
 The continuous observation list uses the carbon background, panel radius and 24px horizontal inset. Each row has 22px vertical padding and a quiet bottom separator except the last. A title appears before its category and scope. Body copy stays readable at 14px with a 72-character maximum measure. Quiet actions sit beside the content and stack below it in the compact layout. Pinned observations show a small green dot beside the title.
 
-The session strip uses the raised panel tone and larger mono values without an extra visible category kicker. Its labels can wrap. The empty notification inbox is a brief message under its heading, not a large panel. Major settings sections use the panel radius.
+The session strip uses the raised panel tone and larger mono values without an extra visible category kicker. Its labels can wrap. The empty notification inbox is a brief message under its heading, not a large panel. Settings sections and evidence tables use rounded groups without enclosing borders. Settings rows and table toolbars use quiet internal separators; controls retain their rounded shape.
 
 ### Navigation
 
-The left sidebar uses 14px text, small outline icons and a warm muted fill for its active item. Its items have a 46px minimum height and no visible active border. aria-current identifies the current area. Compact navigation retains accessible names and titles when the visible text is hidden. The bottom sidebar copy identifies local processing.
+The inset curved left sidebar uses 14px text, small outline icons and a warm muted fill for its active item. Its items have a 46px minimum height and no visible active border. Brand and purpose blocks have no dividing rule. aria-current identifies the current area. Compact navigation retains accessible names and titles when the visible text is hidden. The bottom sidebar copy identifies local processing.
 
 ### Connection feed and globe
 
-Process names lead the row, followed by destination, protocol, timing and rates. The inset feed has a rounded obsidian background, an 8px list inset and quiet group separators. Selection gives a row a warmer fill without an edge stripe. Closed connections keep readable opacity. Metadata remains readable in fog. Keep unlocated evidence in the feed and expose its missing location in context. Scroll the selected group into view when selection changes; background group refreshes must not pull the reader away from their scroll position.
+Process names lead the row, followed by destination, a compact protocol tag, location, timing and rates. Active or closed text sits beside a small state dot. The inset feed has a rounded obsidian background, an 8px list inset and quiet group separators. Selection gives a row a warmer fill without an edge stripe. Closed connections keep readable opacity. Metadata remains readable in fog. Keep unlocated evidence in the feed and expose its missing location in context. Scroll the selected group into view when selection changes; background group refreshes must not pull the reader away from their scroll position.
 
-The globe uses local country geometry, brighter country boundaries and bounded route rendering. It schedules a frame on changes or interaction, stops rendering while hidden, and caps displayed routes at 120. The cap is a rendering constraint, not a throughput claim. The home marker has a green core and white ring above a coincident destination marker. Its readable caption contains only process, country and destination, with filter actions for each value. Hide the caption in the stacked compact layout.
+The globe uses local country geometry, brighter country boundaries and bounded route rendering. Destination markers have crisp rings rather than diffuse halos. Selected markers and routes use orange; ordinary destination rings use fog and their cores use mist. The home marker has a green core and white ring above a coincident destination marker. The legend matches these visible states with a green outlined home symbol, quiet destination dot and orange selected-route dot.
+
+The globe schedules a frame on changes or interaction, stops rendering while hidden, and caps displayed routes at 120. The cap is a rendering constraint, not a throughput claim. Its readable caption contains only process, country and destination, with filter actions for each value. Hide the caption in the stacked compact layout. Zoom, reset, view and workspace controls use borderless capsule groups.
 
 ## Do's and Don'ts
 
@@ -232,6 +247,7 @@ The globe uses local country geometry, brighter country boundaries and bounded r
 - Do keep process names, evidence text and metric values stronger than metadata.
 - Do place observation titles before category and scope, with quiet inline actions.
 - Do preserve the Live reader's scroll position during background group refreshes.
+- Do match legend symbols to the actual home, destination and selected-route colors.
 - Do preserve the five-area sidebar and stacked compact Live layout.
 - Do keep visible focus, text labels for states and reduced motion behavior.
 - Do distinguish local capture, imported DNS queries and demo data in the interface.

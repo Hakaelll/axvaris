@@ -4,9 +4,11 @@ use sabicheiro_core::{
     TrafficCounters,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 
 const DEFAULT_CORRELATION_WINDOW_NS: u64 = 2_500_000_000;
+const MAX_RECENT_RECORDS: usize = 65_536;
+const MAX_ACTIVE_TRACKS: usize = 65_536;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FusionStats {
@@ -16,6 +18,7 @@ pub struct FusionStats {
     pub ambiguous_events: u64,
     pub orphan_events: u64,
     pub provider_gaps: u64,
+    pub rejected_late_observations: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,7 +47,10 @@ struct FlowTrack {
 
 pub struct EvidenceFusion {
     seen_observations: HashSet<String>,
+    observation_order: VecDeque<(String, u64)>,
+    retired_before_ns: Option<u64>,
     counter_fingerprints: HashSet<String>,
+    counter_order: VecDeque<String>,
     tracks: Vec<FlowTrack>,
     correlation_window_ns: u64,
     next_flow_generation: u64,
@@ -55,7 +61,10 @@ impl EvidenceFusion {
     pub fn new(correlation_window_ns: u64) -> Self {
         Self {
             seen_observations: HashSet::new(),
+            observation_order: VecDeque::new(),
+            retired_before_ns: None,
             counter_fingerprints: HashSet::new(),
+            counter_order: VecDeque::new(),
             tracks: Vec::new(),
             correlation_window_ns: correlation_window_ns.max(1),
             next_flow_generation: 1,
@@ -85,11 +94,32 @@ impl EvidenceFusion {
                 ))
         });
         let mut batch = FusionBatch::default();
-        for observation in observations {
+        for mut observation in observations {
+            if self
+                .retired_before_ns
+                .is_some_and(|floor| observation.clock.monotonic_ns <= floor)
+            {
+                self.stats.rejected_late_observations =
+                    self.stats.rejected_late_observations.saturating_add(1);
+                self.record_capacity_gap(
+                    &observation,
+                    "record is older than the bounded live deduplication window",
+                    &mut batch,
+                );
+                continue;
+            }
             if !self.seen_observations.insert(observation.id.clone()) {
                 self.stats.duplicate_observations =
                     self.stats.duplicate_observations.saturating_add(1);
                 continue;
+            }
+            self.observation_order
+                .push_back((observation.id.clone(), observation.clock.monotonic_ns));
+            if self.observation_order.len() > MAX_RECENT_RECORDS {
+                if let Some((id, at)) = self.observation_order.pop_front() {
+                    self.seen_observations.remove(&id);
+                    self.retired_before_ns = Some(self.retired_before_ns.unwrap_or(0).max(at));
+                }
             }
             self.stats.ingested_observations = self.stats.ingested_observations.saturating_add(1);
             if observation.kind == ObservationKind::ProviderGap {
@@ -105,7 +135,7 @@ impl EvidenceFusion {
                 }
                 continue;
             }
-            let Some(mut event) = observation.network else {
+            let Some(mut event) = observation.network.take() else {
                 continue;
             };
             let matches = self.matching_tracks(&event.key, observation.clock.monotonic_ns);
@@ -146,6 +176,17 @@ impl EvidenceFusion {
                     });
                 }
                 TrackSelection::None => {
+                    if self.tracks.len() >= MAX_ACTIVE_TRACKS {
+                        self.tracks.retain(|track| track.active);
+                        if self.tracks.len() >= MAX_ACTIVE_TRACKS {
+                            self.record_capacity_gap(
+                                &observation,
+                                "active flow correlation capacity exceeded",
+                                &mut batch,
+                            );
+                            continue;
+                        }
+                    }
                     if event.kind != NetworkEventKind::Opened {
                         self.stats.orphan_events = self.stats.orphan_events.saturating_add(1);
                         event.evidence.correlation_quality = match event.evidence.observation_source
@@ -179,10 +220,19 @@ impl EvidenceFusion {
                     event.counter_source = CounterSource::Unavailable;
                     self.stats.deduplicated_counter_events =
                         self.stats.deduplicated_counter_events.saturating_add(1);
+                } else {
+                    self.counter_order
+                        .push_back(counter_fingerprint(&event, observation.clock.monotonic_ns));
+                    if self.counter_order.len() > MAX_RECENT_RECORDS {
+                        if let Some(expired) = self.counter_order.pop_front() {
+                            self.counter_fingerprints.remove(&expired);
+                        }
+                    }
                 }
             }
             batch.events.push(event);
         }
+        self.tracks.retain(|track| track.active);
         batch.stats = self.stats.clone();
         batch
     }
@@ -191,19 +241,60 @@ impl EvidenceFusion {
         &self.stats
     }
 
+    fn record_capacity_gap(
+        &mut self,
+        observation: &EvidenceObservation,
+        reason: &str,
+        batch: &mut FusionBatch,
+    ) {
+        self.stats.provider_gaps = self.stats.provider_gaps.saturating_add(1);
+        let cursor = &observation.cursor;
+        if let Some(gap) = batch.gaps.last_mut().filter(|gap| {
+            gap.provider_id == cursor.provider_id
+                && gap.generation == cursor.generation
+                && gap.reason == reason
+        }) {
+            gap.first_missing_sequence = gap.first_missing_sequence.min(cursor.sequence);
+            gap.last_missing_sequence = gap.last_missing_sequence.max(cursor.sequence);
+        } else {
+            batch.gaps.push(ProviderGap {
+                provider_id: cursor.provider_id.clone(),
+                generation: cursor.generation,
+                first_missing_sequence: cursor.sequence,
+                last_missing_sequence: cursor.sequence,
+                detected_at_ms: observation.clock.utc_ms,
+                affected_capabilities: BTreeSet::from([
+                    sabicheiro_core::CaptureCapabilityKind::LifecycleEvents,
+                ]),
+                reason: reason.into(),
+                reconciled_at_ms: None,
+            });
+        }
+    }
+
     fn matching_tracks(&self, key: &ConnectionKey, monotonic_ns: u64) -> Vec<usize> {
         self.tracks
             .iter()
             .enumerate()
             .filter(|(_, track)| {
                 track.active
-                    && monotonic_ns.saturating_sub(track.last_monotonic_ns)
-                        <= self.correlation_window_ns
+                    && (stable_track_identity(&track.key, key)
+                        || (monotonic_ns.saturating_sub(track.last_monotonic_ns)
+                            <= self.correlation_window_ns
+                            && monotonic_ns >= track.last_monotonic_ns))
                     && tuple_compatible(&track.key, key)
             })
             .map(|(index, _)| index)
             .collect()
     }
+}
+
+fn stable_track_identity(left: &ConnectionKey, right: &ConnectionKey) -> bool {
+    tuple_compatible(left, right)
+        && left.process_instance.is_some()
+        && left.process_instance == right.process_instance
+        && (right.capture_generation == 0 || left.capture_generation == right.capture_generation)
+        && (right.flow_generation == 0 || left.flow_generation == right.flow_generation)
 }
 
 impl Default for EvidenceFusion {
@@ -519,5 +610,60 @@ mod tests {
         let batch = replay_evidence([gap]);
         assert_eq!(batch.gaps.len(), 1);
         assert_eq!(batch.gaps[0].missing_count(), 3);
+    }
+
+    #[test]
+    fn stable_process_flow_survives_a_long_idle_interval() {
+        let mut fusion = EvidenceFusion::default();
+        let first = fusion.ingest([observation(
+            "snapshot",
+            ObservationSource::WindowsIpHelper,
+            1,
+            NetworkEventKind::Opened,
+            Some(7),
+            Some("pid:7:start:1"),
+            TrafficCounters::default(),
+        )]);
+        let later = fusion.ingest([observation(
+            "snapshot",
+            ObservationSource::WindowsIpHelper,
+            10_000_000_001,
+            NetworkEventKind::Updated,
+            Some(7),
+            Some("pid:7:start:1"),
+            TrafficCounters::default(),
+        )]);
+        assert_eq!(first.events[0].key, later.events[0].key);
+        assert_eq!(fusion.tracks.len(), 1);
+    }
+
+    #[test]
+    fn closed_flows_and_recent_record_caches_remain_bounded() {
+        let mut fusion = EvidenceFusion::default();
+        for at in 1..=(MAX_RECENT_RECORDS as u64 + 8) {
+            let batch = fusion.ingest([observation(
+                "events",
+                ObservationSource::WindowsEtw,
+                at,
+                NetworkEventKind::Closed,
+                Some(7),
+                Some("pid:7:start:1"),
+                TrafficCounters::default(),
+            )]);
+            assert_eq!(batch.events.len(), 1);
+            assert!(fusion.tracks.is_empty());
+        }
+        assert_eq!(fusion.seen_observations.len(), MAX_RECENT_RECORDS);
+        let late = fusion.ingest([observation(
+            "events",
+            ObservationSource::WindowsEtw,
+            1,
+            NetworkEventKind::Closed,
+            Some(7),
+            Some("pid:7:start:1"),
+            TrafficCounters::default(),
+        )]);
+        assert!(late.events.is_empty());
+        assert_eq!(late.gaps.len(), 1);
     }
 }

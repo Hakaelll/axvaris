@@ -40,6 +40,7 @@ enum RawEtwRecord {
 
 #[derive(Debug)]
 struct RawDnsEvent {
+    observed_at_ms: i64,
     hostname: String,
     canonical_name: Option<String>,
     addresses: Vec<IpAddr>,
@@ -50,6 +51,7 @@ struct RawDnsEvent {
 
 #[derive(Debug)]
 struct RawNetworkEvent {
+    observed_at_ms: i64,
     kind: NetworkEventKind,
     pid: Option<u32>,
     protocol: NetworkProtocol,
@@ -119,7 +121,7 @@ impl WindowsEventCapture {
 
     pub fn drain(
         &mut self,
-        timestamp_ms: i64,
+        _timestamp_ms: i64,
     ) -> (Vec<NormalizedNetworkEvent>, Vec<DnsObservation>) {
         let mut network = Vec::new();
         let mut raw_dns = Vec::new();
@@ -140,7 +142,11 @@ impl WindowsEventCapture {
         let dns = raw_dns
             .into_iter()
             .flat_map(|event| {
-                let process_instance = self.processes.resolve(event.pid).instance_id();
+                let timestamp_ms = event.observed_at_ms;
+                let process_instance = self
+                    .processes
+                    .resolve_at(event.pid, timestamp_ms)
+                    .instance_id();
                 let ttl_ms = i64::from(event.ttl_seconds).saturating_mul(1_000);
                 event
                     .addresses
@@ -160,7 +166,8 @@ impl WindowsEventCapture {
         let events = network
             .into_iter()
             .map(|event| {
-                let process = self.processes.resolve(event.pid);
+                let timestamp_ms = event.observed_at_ms;
+                let process = self.processes.resolve_at(event.pid, timestamp_ms);
                 let mut evidence = ConnectionEvidence::for_peer(
                     &event.remote,
                     event.state,
@@ -304,6 +311,7 @@ fn parse_network_event(record: &EventRecord, schema: &Schema) -> Option<RawNetwo
     let payload_pid = parser.try_parse::<u32>("PID").ok();
     let header_pid = (record.process_id() != 0).then_some(record.process_id());
     Some(RawNetworkEvent {
+        observed_at_ms: event_timestamp_ms(record),
         kind,
         pid: payload_pid.filter(|pid| *pid != 0).or(header_pid),
         protocol,
@@ -370,6 +378,7 @@ fn dns_callback(
     send_bounded(
         sender,
         RawEtwRecord::Dns(RawDnsEvent {
+            observed_at_ms: event_timestamp_ms(record),
             hostname,
             canonical_name,
             addresses,
@@ -380,6 +389,13 @@ fn dns_callback(
         dropped,
         pending,
     );
+}
+
+fn event_timestamp_ms(record: &EventRecord) -> i64 {
+    record
+        .raw_timestamp()
+        .saturating_div(10_000)
+        .saturating_sub(11_644_473_600_000)
 }
 
 fn extract_addresses(results: &str) -> Vec<IpAddr> {

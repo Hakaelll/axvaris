@@ -29,11 +29,33 @@ impl ProcessResolver {
         if unique.is_empty() {
             return;
         }
+        self.cache
+            .retain(|pid, _| unique.binary_search(pid).is_ok());
+        let starts = unique
+            .iter()
+            .map(|pid| (*pid, native_process_start_ms(*pid)))
+            .collect::<HashMap<_, _>>();
+        let new_pids = unique
+            .iter()
+            .copied()
+            .filter(|pid| {
+                !self.cache.get(pid).is_some_and(|cached| {
+                    starts
+                        .get(pid)
+                        .copied()
+                        .flatten()
+                        .is_some_and(|start| cached.started_at_ms == Some(start))
+                })
+            })
+            .collect::<Vec<_>>();
         if self
             .last_refresh
             .is_some_and(|last| last.elapsed() < Duration::from_millis(500))
         {
-            return;
+            if new_pids.is_empty() {
+                return;
+            }
+            unique = new_pids;
         }
         let sysinfo_pids = unique
             .iter()
@@ -86,9 +108,9 @@ impl ProcessResolver {
                         name: process.name().to_string_lossy().into_owned(),
                         executable,
                         executable_path: path,
-                        started_at_ms: Some(
+                        started_at_ms: starts.get(&pid).copied().flatten().or(Some(
                             process.start_time().min((i64::MAX / 1_000) as u64) as i64 * 1_000,
-                        ),
+                        )),
                         icon_data_url: None,
                         parent_pid,
                         parent_instance,
@@ -102,6 +124,9 @@ impl ProcessResolver {
             );
             self.cache.insert(pid, info);
         }
+        // Keep only instances still present in sysinfo; historical events own their copies.
+        self.cache
+            .retain(|pid, _| self.system.process(Pid::from_u32(*pid)).is_some());
         self.last_refresh = Some(Instant::now());
     }
 
@@ -112,6 +137,78 @@ impl ProcessResolver {
                 ..ProcessInfo::default()
             })
     }
+
+    pub(crate) fn resolve_at(&self, pid: Option<u32>, observed_at_ms: i64) -> ProcessInfo {
+        let process = self.resolve(pid);
+        if process
+            .started_at_ms
+            .is_some_and(|start| start > observed_at_ms)
+        {
+            ProcessInfo {
+                pid,
+                ..ProcessInfo::default()
+            }
+        } else {
+            process
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn native_process_start_ms(pid: u32) -> Option<i64> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, FILETIME},
+        System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+    // The query-only handle is closed on every path and never grants process mutation.
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let mut created: FILETIME = std::mem::zeroed();
+        let mut exited: FILETIME = std::mem::zeroed();
+        let mut kernel: FILETIME = std::mem::zeroed();
+        let mut user: FILETIME = std::mem::zeroed();
+        let ok = GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user);
+        CloseHandle(handle);
+        if ok == 0 {
+            return None;
+        }
+        let ticks = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+        i64::try_from(ticks / 10_000)
+            .ok()?
+            .checked_sub(11_644_473_600_000)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn native_process_start_ms(pid: u32) -> Option<i64> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let ticks: i64 = stat
+        .rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()?;
+    let boot: i64 = fs::read_to_string("/proc/stat")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("btime "))?
+        .parse()
+        .ok()?;
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    if hz <= 0 {
+        return None;
+    }
+    boot.checked_mul(1_000)?
+        .checked_add(ticks.checked_mul(1_000)? / hz)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn native_process_start_ms(_pid: u32) -> Option<i64> {
+    None
 }
 
 fn executable_revision_id(path: &Path) -> Option<String> {
@@ -127,8 +224,64 @@ fn executable_revision_id(path: &Path) -> Option<String> {
         "file:{}:{}:{}",
         metadata.len(),
         modified_ms,
-        path.to_string_lossy().to_ascii_lowercase()
+        executable_path_identity(path)
     ))
+}
+
+fn executable_path_identity(path: &Path) -> String {
+    let value = path.to_string_lossy().into_owned();
+    if cfg!(target_os = "windows") {
+        value.to_ascii_lowercase()
+    } else {
+        value
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    #[test]
+    fn newly_observed_pid_bypasses_the_refresh_throttle() {
+        let mut resolver = ProcessResolver::new();
+        resolver.last_refresh = Some(Instant::now());
+        let pid = std::process::id();
+        resolver.refresh([pid]);
+        let process = resolver.resolve(Some(pid));
+        assert_eq!(process.pid, Some(pid));
+        assert!(process.started_at_ms.is_some());
+        assert!(!process.name.is_empty());
+    }
+
+    #[test]
+    fn missing_pid_does_not_inherit_a_cached_process() {
+        let mut resolver = ProcessResolver::new();
+        resolver.cache.insert(
+            u32::MAX,
+            ProcessInfo {
+                name: "previous owner".into(),
+                ..ProcessInfo::default()
+            },
+        );
+        resolver.refresh([u32::MAX]);
+        assert_eq!(resolver.resolve(Some(u32::MAX)).name, "Unknown process");
+    }
+
+    #[test]
+    fn an_event_before_process_creation_cannot_belong_to_the_new_owner() {
+        let mut resolver = ProcessResolver::new();
+        resolver.cache.insert(
+            7,
+            ProcessInfo {
+                pid: Some(7),
+                name: "new owner".into(),
+                started_at_ms: Some(2_000),
+                ..ProcessInfo::default()
+            },
+        );
+        assert_eq!(resolver.resolve_at(Some(7), 1_999).name, "Unknown process");
+        assert_eq!(resolver.resolve_at(Some(7), 2_000).name, "new owner");
+    }
 }
 
 #[cfg(target_os = "linux")]

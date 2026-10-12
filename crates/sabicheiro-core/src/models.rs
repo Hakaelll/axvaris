@@ -417,12 +417,9 @@ impl Default for ProcessInfo {
 
 impl ProcessInfo {
     pub fn instance_id(&self) -> Option<String> {
-        self.pid.map(|pid| {
-            self.started_at_ms.map_or_else(
-                || format!("pid:{pid}:start:unknown"),
-                |started| format!("pid:{pid}:start:{started}"),
-            )
-        })
+        self.pid
+            .zip(self.started_at_ms)
+            .map(|(pid, started)| format!("pid:{pid}:start:{started}"))
     }
 }
 

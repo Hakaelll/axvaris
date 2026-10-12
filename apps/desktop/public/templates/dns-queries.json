@@ -1,0 +1,4 @@
+[
+  { "timestamp": "2026-10-12T10:00:00Z", "client_ip": "192.168.1.20", "query_name": "example.org", "query_type": "A", "result": "NOERROR" },
+  { "timestamp": "2026-10-12T12:00:01+02:00", "client_ip": "192.168.1.21", "query_name": "example.net", "query_type": "AAAA", "result": "NOERROR" }
+]

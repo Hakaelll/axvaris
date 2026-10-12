@@ -462,7 +462,16 @@ export function TodayView({
                 >
                   <header>
                     <span>{card.category}</span>
-                    <small>{t(`scope_${card.scope}`)}</small>
+                    <small>
+                      {t(
+                        {
+                          device: "This device",
+                          application: "Application",
+                          profile: "Network profile",
+                          health: "Capture health",
+                        }[card.scope],
+                      )}
+                    </small>
                   </header>
                   <h3>
                     {card.sensitiveKind

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Sabicheiro",
+  "productName": "Axvaris",
   "version": "0.4.2",
   "identifier": "io.sabicheiro.desktop",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Sabicheiro",
+        "title": "Axvaris",
         "width": 1440,
         "height": 900,
         "minWidth": 720,
@@ -21,7 +21,7 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "backgroundColor": "#08090a"
+        "backgroundColor": "#101010"
       }
     ],
     "security": {
@@ -33,9 +33,9 @@
     "targets": ["nsis", "appimage", "deb"],
     "category": "Utility",
     "shortDescription": "Private local network observability",
-    "longDescription": "Sabicheiro visualizes the network connections made by this computer using local processing and storage.",
-    "copyright": "Copyright © 2026 Sabicheiro contributors",
-    "publisher": "Sabicheiro contributors",
+    "longDescription": "Axvaris visualizes the network connections made by this computer using local processing and storage.",
+    "copyright": "Copyright © 2026 Axvaris contributors",
+    "publisher": "Axvaris contributors",
     "license": "MIT",
     "licenseFile": "../../../LICENSE",
     "resources": {
@@ -48,7 +48,7 @@
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installMode": "currentUser",
-        "startMenuFolder": "Sabicheiro"
+        "startMenuFolder": "Axvaris"
       },
       "wix": null
     },

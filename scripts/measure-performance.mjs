@@ -74,7 +74,7 @@ if (fs.existsSync(indexHtml)) {
   }
 }
 const initialAssets = assets.filter((item) => initialPaths.has(item.path));
-const executable = path.join(repository, "target", "release", "Sabicheiro.exe");
+const executable = path.join(repository, "target", "release", "Axvaris.exe");
 const installers = walk(path.join(repository, "target", "release", "bundle", "nsis"))
   .filter((filename) => filename.endsWith(".exe"))
   .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);

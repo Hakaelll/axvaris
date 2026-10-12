@@ -1,3 +1,4 @@
+mod external_dns;
 use rusqlite::{Connection as SqliteConnection, OpenFlags, OptionalExtension, Transaction, params};
 use sabicheiro_core::{
     AppSettings, BaselineBook, Bookmark, ComparisonRow, Connection, ConnectionAnnotation,
@@ -20,7 +21,7 @@ use std::{
 };
 use thiserror::Error;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 const MAX_QUERY_LIMIT: usize = 100_000;
 const V7_TODAY_INDEXES_SQL: &str = "
 CREATE INDEX IF NOT EXISTS idx_connections_process_remote
@@ -353,6 +354,9 @@ impl Storage {
         if (1..6).contains(&current) {
             self.back_up_before_version(current, 6)?;
         }
+        if (1..7).contains(&current) {
+            self.back_up_before_version(current, 7)?;
+        }
         if (1..SCHEMA_VERSION).contains(&current) {
             self.back_up_before_version(current, SCHEMA_VERSION)?;
         }
@@ -415,7 +419,16 @@ impl Storage {
             migration_v7(&transaction)?;
             transaction.execute(
                 "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
-                params![SCHEMA_VERSION, chrono::Utc::now().timestamp_millis()],
+                params![7, chrono::Utc::now().timestamp_millis()],
+            )?;
+            transaction.commit()?;
+        }
+        if current < 8 {
+            let transaction = self.connection.transaction()?;
+            transaction.execute_batch(external_dns::EXTERNAL_DNS_SQL)?;
+            transaction.execute(
+                "INSERT INTO schema_migrations(version, applied_at_ms) VALUES (?1, ?2)",
+                params![8, chrono::Utc::now().timestamp_millis()],
             )?;
             transaction.commit()?;
         }
@@ -1997,6 +2010,8 @@ impl Storage {
         };
         if days == 0 {
             let removed = self.connection.execute("DELETE FROM connections", [])?;
+            self.connection
+                .execute("DELETE FROM external_dns_queries", [])?;
             self.connection.execute("DELETE FROM traffic_samples", [])?;
             self.connection.execute("DELETE FROM traffic_rollups", [])?;
             self.connection.execute("DELETE FROM recordings", [])?;
@@ -2004,6 +2019,10 @@ impl Storage {
             return Ok(removed);
         }
         let cutoff = now_ms.saturating_sub(days.saturating_mul(86_400_000));
+        self.connection.execute(
+            "DELETE FROM external_dns_queries WHERE timestamp_ms < ?1",
+            params![cutoff],
+        )?;
         let removed = self.connection.execute(
             "DELETE FROM connections WHERE last_seen_ms < ?1",
             params![cutoff],
@@ -2877,8 +2896,13 @@ impl Storage {
     }
 
     pub fn clear_sessions(&self) -> Result<usize, StorageError> {
+        let dns = self
+            .connection
+            .execute("DELETE FROM external_dns_queries", [])?;
         let rollups = self.connection.execute("DELETE FROM traffic_rollups", [])?;
-        Ok(rollups.saturating_add(self.connection.execute("DELETE FROM sessions", [])?))
+        Ok(dns
+            .saturating_add(rollups)
+            .saturating_add(self.connection.execute("DELETE FROM sessions", [])?))
     }
 
     pub fn clear_all_user_data(&self) -> Result<usize, StorageError> {
@@ -2899,6 +2923,7 @@ impl Storage {
             "listener_snapshots",
             "handshake_mode_audit",
             "traffic_rollups",
+            "external_dns_queries",
         ] {
             removed += self
                 .connection

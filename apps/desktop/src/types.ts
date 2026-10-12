@@ -1080,3 +1080,43 @@ export interface ImportedSabiBundle {
   connections: HistoryEntry[];
   timeline: TrafficSample[];
 }
+
+export interface ExternalDnsQuery {
+  timestamp_ms: number;
+  client_ip: string;
+  query_name: string;
+  query_type: string | null;
+  result: string | null;
+}
+export interface DnsImportRequest {
+  format: "csv" | "json";
+  content: string;
+  source: string;
+}
+export interface DnsImportPreview {
+  total_rows: number;
+  source: string;
+  sample: ExternalDnsQuery[];
+}
+export interface DnsImportReport {
+  inserted: number;
+  duplicates: number;
+}
+export interface ExternalDnsFilter {
+  from_ms: number | null;
+  to_ms: number | null;
+  client_ip: string | null;
+  domain: string | null;
+  before_id: number | null;
+  limit: number;
+}
+export interface ExternalDnsRow {
+  id: number;
+  source: string;
+  imported_at_ms: number;
+  query: ExternalDnsQuery;
+}
+export interface ExternalDnsPage {
+  rows: ExternalDnsRow[];
+  next_id: number | null;
+}

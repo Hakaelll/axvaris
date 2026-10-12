@@ -348,6 +348,12 @@ fn tuple_compatible(left: &ConnectionKey, right: &ConnectionKey) -> bool {
     if left.pid.is_some() && right.pid.is_some() && left.pid != right.pid {
         return false;
     }
+    if left.interface_id.is_some()
+        && right.interface_id.is_some()
+        && left.interface_id != right.interface_id
+    {
+        return false;
+    }
     if left.process_instance.is_some()
         && right.process_instance.is_some()
         && left.process_instance != right.process_instance

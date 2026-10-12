@@ -7,13 +7,15 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "#backend": decodeURIComponent(
         new URL(
-          mode === "preview" ? "./src/lib/backend.ts" : "./src/lib/backend-tauri.ts",
+          mode === "preview"
+            ? "./src/lib/backend.ts"
+            : "./src/lib/backend-tauri.ts",
           import.meta.url,
         ).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
       ),
     },
   },
-  publicDir: false,
+  publicDir: "public",
   clearScreen: false,
   server: {
     strictPort: true,

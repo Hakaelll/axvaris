@@ -29,11 +29,11 @@ jobs:
       - run: pnpm tauri build --bundles nsis
       - name: Normalize public package name
         shell: pwsh
-        run: Copy-Item (Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1) target/release/bundle/nsis/Sabicheiro-Setup.exe
+        run: Copy-Item (Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1) target/release/bundle/nsis/Axvaris-Setup.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: Sabicheiro-Windows-x64
-          path: target/release/bundle/nsis/Sabicheiro-Setup.exe
+          name: Axvaris-Windows-x64
+          path: target/release/bundle/nsis/Axvaris-Setup.exe
           if-no-files-found: error
 
   linux:
@@ -61,12 +61,12 @@ jobs:
       - run: pnpm tauri build --bundles appimage,deb
       - name: Normalize public package names
         run: |
-          cp "$(find target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' | head -n 1)" target/release/bundle/appimage/Sabicheiro.AppImage
-          cp "$(find target/release/bundle/deb -maxdepth 1 -name '*.deb' | head -n 1)" target/release/bundle/deb/Sabicheiro.deb
+          cp "$(find target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' | head -n 1)" target/release/bundle/appimage/Axvaris.AppImage
+          cp "$(find target/release/bundle/deb -maxdepth 1 -name '*.deb' | head -n 1)" target/release/bundle/deb/Axvaris.deb
       - uses: actions/upload-artifact@v4
         with:
-          name: Sabicheiro-Linux-x64
+          name: Axvaris-Linux-x64
           path: |
-            target/release/bundle/appimage/Sabicheiro.AppImage
-            target/release/bundle/deb/Sabicheiro.deb
+            target/release/bundle/appimage/Axvaris.AppImage
+            target/release/bundle/deb/Axvaris.deb
           if-no-files-found: error

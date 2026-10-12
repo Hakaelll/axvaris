@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 if (process.platform !== "win32") throw new Error("Windows launch measurement requires Windows");
 
 const repository = fs.realpathSync(path.resolve(import.meta.dirname, ".."));
-const executable = insideRepository(argument("--executable") ?? "target/release/Sabicheiro.exe");
+const executable = insideRepository(argument("--executable") ?? "target/release/Axvaris.exe");
 const output = insideRepository(argument("--output") ?? "docs/performance-0.4.2-launch.json");
 const iterations = Number(argument("--iterations") ?? 10);
 const timeoutMs = Number(argument("--timeout-ms") ?? 20_000);
@@ -55,9 +55,9 @@ async function launchOnce(executablePath, dataDirectory, readyFile) {
   });
   try {
     while (!fs.existsSync(readyFile)) {
-      if (exit) throw new Error(`Sabicheiro exited before ready: ${JSON.stringify(exit)}`);
+      if (exit) throw new Error(`Axvaris exited before ready: ${JSON.stringify(exit)}`);
       const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000;
-      if (elapsedMs > timeoutMs) throw new Error(`Sabicheiro was not ready after ${timeoutMs} ms`);
+      if (elapsedMs > timeoutMs) throw new Error(`Axvaris was not ready after ${timeoutMs} ms`);
       await delay(5);
     }
     return Number(process.hrtime.bigint() - started) / 1_000_000;
@@ -90,7 +90,7 @@ try {
   for (let index = 0; index < iterations; index += 1) {
     const directory = path.join(probeRoot, `cold-${index}`);
     fs.mkdirSync(directory, { recursive: true });
-    const copiedExecutable = path.join(directory, "Sabicheiro.exe");
+    const copiedExecutable = path.join(directory, "Axvaris.exe");
     fs.copyFileSync(executable, copiedExecutable);
     coldProxy.push(
       await launchOnce(copiedExecutable, path.join(directory, "data"), path.join(directory, "ready.json")),

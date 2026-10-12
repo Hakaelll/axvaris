@@ -1,5 +1,7 @@
 # Dependency and Cost Review
 
+Axvaris packages Geist and Geist Mono variable fonts from Vercel under SIL OFL 1.1. They load locally and require no font service; the license ships in `apps/desktop/public/fonts/OFL.txt`.
+
 Review date: 2026-08-14. Every required runtime feature has zero service/API cost.
 Permissive-license notices are retained in release materials; DB-IP attribution is
 shown in Settings/About and release notices.

@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DesktopApi } from "./backend-contract";
 import type {
+  DnsImportRequest,
+  DnsImportPreview,
+  DnsImportReport,
+  ExternalDnsFilter,
+  ExternalDnsPage,
   AppSettings,
   CaptureSelfTest,
   CaptureMode,
@@ -285,12 +290,12 @@ function previewConnections(now: number): Connection[] {
         city,
         latitude,
         longitude,
-        source: "Sabicheiro deterministic development preview",
+        source: "Axvaris deterministic development preview",
         precision: "coordinates",
         placement: "database_coordinate",
         accuracy_radius_km: 24,
         dataset_kind: "city",
-        dataset_edition: "Sabicheiro-City-Preview",
+        dataset_edition: "Axvaris-City-Preview",
         dataset_build_epoch_ms: 1_776_000_000_000,
         dataset_sha256: "preview-only",
         matched_prefix: 24,
@@ -300,7 +305,7 @@ function previewConnections(now: number): Connection[] {
       asn: {
         number: asn,
         organization,
-        dataset_edition: "Sabicheiro-ASN-Preview",
+        dataset_edition: "Axvaris-ASN-Preview",
         dataset_build_epoch_ms: 1_776_000_000_000,
         dataset_sha256: "preview-only",
         matched_prefix: 24,
@@ -576,6 +581,26 @@ async function call<T>(
 }
 
 export const desktopApi = {
+  async previewDnsImport(request: DnsImportRequest): Promise<DnsImportPreview> {
+    if (isDesktop) return call("preview_dns_import", { request });
+    throw new Error(
+      "DNS imports require the desktop application. The browser preview does not persist network evidence.",
+    );
+  },
+  async importDnsQueries(
+    request: DnsImportRequest,
+    jobId: string,
+  ): Promise<DnsImportReport> {
+    return call("import_dns_queries", { request, jobId });
+  },
+  async cancelDnsImport(jobId: string): Promise<boolean> {
+    return isDesktop ? call("cancel_dns_import", { jobId }) : false;
+  },
+  async queryExternalDns(filter: ExternalDnsFilter): Promise<ExternalDnsPage> {
+    return isDesktop
+      ? call("query_external_dns", { filter })
+      : { rows: [], next_id: null };
+  },
   async getDashboardUpdate(
     afterSequence: number | null,
   ): Promise<DashboardUpdate> {
@@ -1428,13 +1453,13 @@ export const desktopApi = {
       city: {
         kind: "city",
         installed: true,
-        dataset: "Sabicheiro-City-Preview",
+        dataset: "Axvaris-City-Preview",
         version: "2026-08",
         build_epoch_ms: 1_776_000_000_000,
         last_update_ms: Date.now() - 7 * 86_400_000,
         next_recommended_update_ms: Date.now() + 23 * 86_400_000,
         path: "Development preview only",
-        edition: "Sabicheiro-City-Preview",
+        edition: "Axvaris-City-Preview",
         sha256: "preview-only",
         generation: 1,
         backup_available: true,
@@ -1443,13 +1468,13 @@ export const desktopApi = {
       asn: {
         kind: "asn",
         installed: true,
-        dataset: "Sabicheiro-ASN-Preview",
+        dataset: "Axvaris-ASN-Preview",
         version: "2026-08",
         build_epoch_ms: 1_776_000_000_000,
         last_update_ms: Date.now() - 7 * 86_400_000,
         next_recommended_update_ms: Date.now() + 23 * 86_400_000,
         path: "Development preview only",
-        edition: "Sabicheiro-ASN-Preview",
+        edition: "Axvaris-ASN-Preview",
         sha256: "preview-only",
         generation: 1,
         backup_available: true,

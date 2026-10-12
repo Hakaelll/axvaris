@@ -558,7 +558,7 @@ export function useSabicheiro() {
                 typeof Notification !== "undefined" &&
                 Notification.permission === "granted"
               ) {
-                new Notification(`Sabicheiro / ${title}`, { body: detail });
+                new Notification(`Axvaris / ${title}`, { body: detail });
               }
             }
             seenConnectionIds.current.add(connection.id);
@@ -712,6 +712,7 @@ export function useSabicheiro() {
     async (mode: CaptureMode, selectedInterface: string | null) => {
       try {
         await desktopApi.setCaptureState(mode, selectedInterface);
+        ipcSequence.current = null;
         setTimeMachine(null);
         setError(null);
         dashboardWakeRef.current();

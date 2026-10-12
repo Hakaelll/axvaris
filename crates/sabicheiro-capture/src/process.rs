@@ -27,6 +27,8 @@ impl ProcessResolver {
         unique.sort_unstable();
         unique.dedup();
         if unique.is_empty() {
+            self.cache.clear();
+            self.system = System::new();
             return;
         }
         self.cache
@@ -48,14 +50,16 @@ impl ProcessResolver {
                 })
             })
             .collect::<Vec<_>>();
-        if self
+        let throttled = self
             .last_refresh
-            .is_some_and(|last| last.elapsed() < Duration::from_millis(500))
-        {
+            .is_some_and(|last| last.elapsed() < Duration::from_millis(500));
+        if throttled {
             if new_pids.is_empty() {
                 return;
             }
             unique = new_pids;
+        } else {
+            self.system = System::new();
         }
         let sysinfo_pids = unique
             .iter()
@@ -64,17 +68,6 @@ impl ProcessResolver {
             .collect::<Vec<_>>();
         self.system
             .refresh_processes(ProcessesToUpdate::Some(&sysinfo_pids), true);
-        let mut parent_pids = unique
-            .iter()
-            .filter_map(|pid| self.system.process(Pid::from_u32(*pid)))
-            .filter_map(|process| process.parent())
-            .collect::<Vec<_>>();
-        parent_pids.sort_unstable();
-        parent_pids.dedup();
-        if !parent_pids.is_empty() {
-            self.system
-                .refresh_processes(ProcessesToUpdate::Some(&parent_pids), false);
-        }
         for pid in unique {
             let process = self.system.process(Pid::from_u32(pid));
             let info = process.map_or_else(
@@ -91,14 +84,11 @@ impl ProcessResolver {
                         .and_then(|value| value.file_name())
                         .map(|value| value.to_string_lossy().into_owned());
                     let parent_pid = process.parent().map(Pid::as_u32);
-                    let parent_instance = process.parent().and_then(|parent| {
-                        self.system.process(parent).map(|parent_process| {
-                            format!(
-                                "pid:{}:start:{}",
-                                parent.as_u32(),
-                                parent_process.start_time().saturating_mul(1_000)
-                            )
-                        })
+                    let parent_instance = parent_pid.and_then(|parent| {
+                        let parent_start = native_process_start_ms(parent)?;
+                        let child_start = starts.get(&pid).copied().flatten()?;
+                        (parent_start <= child_start)
+                            .then(|| format!("pid:{parent}:start:{parent_start}"))
                     });
                     let executable_revision_id = path
                         .as_deref()
@@ -281,6 +271,16 @@ mod identity_tests {
         );
         assert_eq!(resolver.resolve_at(Some(7), 1_999).name, "Unknown process");
         assert_eq!(resolver.resolve_at(Some(7), 2_000).name, "new owner");
+    }
+
+    #[test]
+    fn empty_snapshot_releases_process_metadata() {
+        let mut resolver = ProcessResolver::new();
+        resolver.refresh([std::process::id()]);
+        assert!(!resolver.cache.is_empty());
+        resolver.refresh([]);
+        assert!(resolver.cache.is_empty());
+        assert!(resolver.system.processes().is_empty());
     }
 }
 

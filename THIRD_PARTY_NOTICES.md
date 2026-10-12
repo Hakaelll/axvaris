@@ -1,11 +1,13 @@
 # Third-party notices
 
-Sabicheiro is MIT-licensed and is assembled exclusively from dependencies that can be
+Axvaris is MIT-licensed and is assembled exclusively from dependencies that can be
 used without a commercial license or paid service. Exact resolved versions are pinned
 in `Cargo.lock` and `pnpm-lock.yaml`; the purpose, SPDX expression, cost and
 redistribution decision for primary components are in `DEPENDENCIES.md`.
 
 ## Application libraries and data
+
+- Geist and Geist Mono: SIL Open Font License 1.1. Local variable WOFF2 files from [Vercel's Geist repository](https://github.com/vercel/geist-font); the license is packaged in `apps/desktop/public/fonts/OFL.txt`.
 
 - Tauri and most Rust ecosystem crates: MIT and/or Apache-2.0.
 - React, Three.js and their runtime dependencies: MIT.

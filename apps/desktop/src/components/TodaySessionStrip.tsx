@@ -94,7 +94,7 @@ export function TodaySessionStrip({
       aria-labelledby="session-strip-title"
     >
       <div className="today-session-strip__heading">
-        <span className="eyebrow" id="session-strip-title">
+        <span className="sr-only" id="session-strip-title">
           {t("CURRENT SESSION")}
         </span>
         <strong>

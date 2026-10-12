@@ -1,5 +1,7 @@
 use chrono::Timelike;
+mod external_dns;
 mod today;
+use external_dns::{cancel_dns_import, import_dns_queries, preview_dns_import, query_external_dns};
 #[cfg(target_os = "windows")]
 use sabicheiro_capture::WindowsEventCapture;
 use sabicheiro_capture::{
@@ -99,7 +101,7 @@ fn evidence_provider_descriptor(source: ObservationSource, generation: u64) -> P
         ),
         ObservationSource::WindowsHelper => (
             "windows.helper",
-            "Sabicheiro capture helper",
+            "Axvaris capture helper",
             ProviderMode::EventStream,
             &[
                 CaptureCapabilityKind::LifecycleEvents,
@@ -222,6 +224,7 @@ struct TrayUi {
 }
 
 struct Runtime {
+    dns_import_job: Mutex<Option<(String, Arc<AtomicBool>)>>,
     engine: Mutex<Engine>,
     reenrichment_jobs: Mutex<HashMap<String, ReenrichmentJobControl>>,
     executable_jobs: Mutex<HashMap<String, ExecutableInspectionJobControl>>,
@@ -789,6 +792,7 @@ impl Runtime {
                 notification_center,
             }),
             reenrichment_jobs: Mutex::new(HashMap::new()),
+            dns_import_job: Mutex::new(None),
             executable_jobs: Mutex::new(HashMap::new()),
             shutdown: AtomicBool::new(false),
             worker: Mutex::new(None),
@@ -827,7 +831,7 @@ impl Runtime {
 
     fn shutdown(&self) {
         if let Some(logging) = &self.logging {
-            logging.info("Sabicheiro desktop runtime stopping");
+            logging.info("Axvaris desktop runtime stopping");
         }
         self.shutdown.store(true, Ordering::Relaxed);
         self.wake();
@@ -2980,7 +2984,7 @@ fn run_capture_self_test(state: State<'_, AppState>) -> Result<CaptureSelfTest, 
             "The proof socket could not be attributed".into()
         },
         detail: if attributed {
-            "The current Sabicheiro process was resolved from controlled loopback sockets.".into()
+            "The current Axvaris process was resolved from controlled loopback sockets.".into()
         } else {
             "Socket visibility works, but the operating system did not expose the proof PID in time."
                 .into()
@@ -4967,6 +4971,20 @@ fn clear_local_data(
     state: State<'_, AppState>,
 ) -> Result<LocalDataRemovalResult, CommandError> {
     let runtime = state.0.clone();
+    let dns_job = runtime
+        .dns_import_job
+        .lock()
+        .map_err(|_| CommandError::fatal("state_poisoned", "Import state is unavailable"))?;
+    if matches!(
+        category,
+        LocalDataCategory::Sessions | LocalDataCategory::All
+    ) && dns_job.is_some()
+    {
+        return Err(CommandError::recoverable(
+            "storage_busy",
+            "Cancel the DNS import before deleting saved history or all data",
+        ));
+    }
     let requires_capture_restart = matches!(
         category,
         LocalDataCategory::Sessions | LocalDataCategory::All
@@ -6022,7 +6040,7 @@ fn tray_status(engine: &Engine) -> (String, String, String, String) {
         } else {
             "Pause view (capture continues)".into()
         },
-        format!("Sabicheiro — {mode} / {state} / {persistence}{metadata}"),
+        format!("Axvaris — {mode} / {state} / {persistence}{metadata}"),
     )
 }
 
@@ -6035,7 +6053,7 @@ fn setup_tray(app: &mut tauri::App, runtime: Arc<Runtime>) -> tauri::Result<()> 
         None::<&str>,
     )?;
     let health = MenuItem::with_id(app, "tray_health", "Health: starting", false, None::<&str>)?;
-    let open = MenuItem::with_id(app, "tray_open", "Open Sabicheiro", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "tray_open", "Open Axvaris", true, None::<&str>)?;
     let pause = MenuItem::with_id(
         app,
         "tray_pause",
@@ -6055,7 +6073,7 @@ fn setup_tray(app: &mut tauri::App, runtime: Arc<Runtime>) -> tauri::Result<()> 
     let mut builder = TrayIconBuilder::with_id("sabicheiro-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("Sabicheiro — capture starting")
+        .tooltip("Axvaris — capture starting")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "tray_open" => show_main_window(app),
             "tray_pause" => {
@@ -6143,11 +6161,11 @@ fn quote_desktop_exec(path: &Path) -> Result<String, String> {
 fn configure_autostart(enabled: bool) -> Result<(), String> {
     const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
     let executable = std::env::current_exe()
-        .map_err(|error| format!("could not resolve the Sabicheiro executable: {error}"))?;
+        .map_err(|error| format!("could not resolve the Axvaris executable: {error}"))?;
     let executable = executable
         .to_str()
         .filter(|value| !value.contains(['\r', '\n', '\0']))
-        .ok_or_else(|| "the Sabicheiro executable path is invalid".to_owned())?;
+        .ok_or_else(|| "the Axvaris executable path is invalid".to_owned())?;
     if enabled {
         let value = format!("\"{executable}\"");
         let output = std::process::Command::new("reg.exe")
@@ -6203,10 +6221,10 @@ fn configure_autostart(enabled: bool) -> Result<(), String> {
     fs::create_dir_all(&directory)
         .map_err(|error| format!("could not create {}: {error}", directory.display()))?;
     let executable = std::env::current_exe()
-        .map_err(|error| format!("could not resolve the Sabicheiro executable: {error}"))?;
+        .map_err(|error| format!("could not resolve the Axvaris executable: {error}"))?;
     let executable = quote_desktop_exec(&executable)?;
     let contents = format!(
-        "[Desktop Entry]\nType=Application\nName=Sabicheiro\nComment=Private local network observability\nExec={executable}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+        "[Desktop Entry]\nType=Application\nName=Axvaris\nComment=Private local network observability\nExec={executable}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
     );
     let temporary = directory.join(format!(
         ".io.sabicheiro.desktop.desktop.tmp-{}",
@@ -6249,17 +6267,21 @@ pub fn run() {
             let runtime = Arc::new(Runtime::new(data_directory, logging));
             runtime.spawn();
             if let Some(logging) = &runtime.logging {
-                logging.info("Sabicheiro desktop runtime started");
+                logging.info("Axvaris desktop runtime started");
             }
             app.manage(AppState(runtime.clone()));
             if setup_tray(app, runtime.clone()).is_err() {
                 if let Some(logging) = &runtime.logging {
-                    logging.info("Sabicheiro tray was unavailable; the main window remains usable");
+                    logging.info("Axvaris tray was unavailable; the main window remains usable");
                 }
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            preview_dns_import,
+            import_dns_queries,
+            cancel_dns_import,
+            query_external_dns,
             get_dashboard_update,
             set_capture_state,
             list_interfaces,
@@ -6321,7 +6343,7 @@ pub fn run() {
             report_ui_diagnostics,
         ])
         .build(tauri::generate_context!())
-        .expect("failed to build Sabicheiro");
+        .expect("failed to build Axvaris");
 
     application.run(|app_handle, event| {
         if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
@@ -6911,7 +6933,7 @@ mod command_tests {
             sabicheiro_core::now_ms()
         ));
         let logging = setup_logging(&directory).expect("local logger");
-        logging.info("Sabicheiro logging test event");
+        logging.info("Axvaris logging test event");
         drop(logging);
 
         let logs = directory.join("logs");
@@ -6926,7 +6948,7 @@ mod command_tests {
             })
             .expect("daily log");
         let contents = fs::read_to_string(path).expect("read local log");
-        assert!(contents.contains("Sabicheiro logging test event"));
+        assert!(contents.contains("Axvaris logging test event"));
         fs::remove_dir_all(directory).expect("remove isolated log fixture");
     }
 }

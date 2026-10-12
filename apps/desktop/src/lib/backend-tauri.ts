@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  DnsImportRequest,
+  DnsImportPreview,
+  DnsImportReport,
+  ExternalDnsFilter,
+  ExternalDnsPage,
   AppSettings,
   CaptureMode,
   CaptureSelfTest,
@@ -51,6 +56,14 @@ function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
 }
 
 export const desktopApi = {
+  previewDnsImport: (request: DnsImportRequest) =>
+    call<DnsImportPreview>("preview_dns_import", { request }),
+  importDnsQueries: (request: DnsImportRequest, jobId: string) =>
+    call<DnsImportReport>("import_dns_queries", { request, jobId }),
+  cancelDnsImport: (jobId: string) =>
+    call<boolean>("cancel_dns_import", { jobId }),
+  queryExternalDns: (filter: ExternalDnsFilter) =>
+    call<ExternalDnsPage>("query_external_dns", { filter }),
   getDashboardUpdate: (afterSequence: number | null) =>
     call<DashboardUpdate>("get_dashboard_update", { afterSequence }),
   setCaptureState: (mode: CaptureMode, selectedInterface: string | null) =>

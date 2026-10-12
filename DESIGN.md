@@ -1,110 +1,218 @@
-# Sabicheiro Design System
+---
+name: Axvaris
+description: A desktop instrument for inspecting local network evidence.
+colors:
+  void: "#101010"
+  carbon: "#151413"
+  obsidian: "#1d1a18"
+  graphite: "#3d3a39"
+  smoke: "#4d4947"
+  ash: "#a39b97"
+  fog: "#b8b3b0"
+  mist: "#eeeeee"
+  paper: "#fff"
+  selection-muted: "rgba(238, 238, 238, 0.08)"
+  surface-interactive: "#24211f"
+  signal-orange: "#ee6018"
+  state-positive: "#a0ca92"
+  connection-selected: "#292522"
+typography:
+  headline:
+    fontFamily: 'Geist, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif'
+    fontSize: "28px"
+    fontWeight: 400
+    letterSpacing: "-0.025em"
+  title:
+    fontFamily: 'Geist, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif'
+    fontSize: "17px"
+    fontWeight: 500
+  body:
+    fontFamily: 'Geist, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif'
+    fontSize: "14px"
+    lineHeight: 1.55
+  row-name:
+    fontFamily: 'Geist, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif'
+    fontSize: "15px"
+  label:
+    fontFamily: 'Geist, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif'
+    fontSize: "12px"
+  metric:
+    fontFamily: '"Geist Mono", ui-monospace, "Cascadia Code", monospace'
+    fontSize: "18px"
+  mono:
+    fontFamily: '"Geist Mono", ui-monospace, monospace'
+rounded:
+  badge: "4px"
+  control: "6px"
+  panel: "12px"
+  query-chip: "14px"
+spacing:
+  compact: "6px"
+  control: "12px"
+  row: "16px"
+  card: "18px"
+  section: "20px"
+  workspace: "24px"
+components:
+  button-primary:
+    backgroundColor: "{colors.mist}"
+    textColor: "{colors.void}"
+    typography: "{typography.label}"
+    rounded: "{rounded.control}"
+    padding: "0 12px"
+  button-primary-hover:
+    backgroundColor: "#d8d5d2"
+  button-secondary:
+    backgroundColor: "#181a1b"
+    textColor: "{colors.mist}"
+    typography: "{typography.label}"
+    rounded: "{rounded.control}"
+    padding: "0 12px"
+  search-field:
+    backgroundColor: "{colors.carbon}"
+    textColor: "{colors.mist}"
+    rounded: "{rounded.control}"
+    height: "36px"
+    padding: "0 9px"
+  sidebar-item-active:
+    backgroundColor: "{colors.selection-muted}"
+    textColor: "{colors.paper}"
+    rounded: "{rounded.control}"
+    padding: "10px"
+  evidence-card:
+    backgroundColor: "{colors.carbon}"
+    textColor: "{colors.fog}"
+    rounded: "{rounded.panel}"
+    padding: "18px"
+  session-panel:
+    backgroundColor: "{colors.obsidian}"
+    textColor: "{colors.mist}"
+    rounded: "{rounded.panel}"
+    padding: "20px"
+  connection-row-selected:
+    backgroundColor: "{colors.connection-selected}"
+    textColor: "{colors.mist}"
+    padding: "14px 16px"
+  query-chip:
+    backgroundColor: "#191b1c"
+    textColor: "{colors.fog}"
+    typography: "{typography.label}"
+    rounded: "{rounded.query-chip}"
+    padding: "5px 7px"
+---
 
-## Direction: Midnight Precision Instrument
+# Design System: Axvaris
 
-Sabicheiro is quiet, dense and exact. It is not a game HUD, cyberpunk scene or generic
-SaaS dashboard. The globe is the primary canvas; controls support the evidence instead
-of competing with it.
+## Overview
 
-## Tokens
+**Creative North Star: "The Network Observatory"**
 
-| Token | Value | Use |
-| --- | --- | --- |
-| `--void` | `#08090a` | canvas/ocean |
-| `--carbon` | `#0f1011` | shell surfaces |
-| `--obsidian` | `#161718` | raised panels/land |
-| `--graphite` | `#23252a` | primary hairlines |
-| `--smoke` | `#383b3f` | secondary borders |
-| `--ash` | `#62666d` | subdued labels |
-| `--fog` | `#8a8f98` | secondary metadata |
-| `--mist` | `#d0d6e0` | primary copy |
-| `--paper` | `#ffffff` | exceptional maximum contrast |
-| `--acid-lime` | `#e4f222` | selected/active/primary action only |
+Axvaris presents network evidence in a restrained desktop workspace. Factory and Gotham are the confirmed references for its serious observability character. Warm dark panels, quiet dividers and readable text separate controls from connection evidence. The globe shares the workspace with the feed; evidence remains available when a destination cannot be plotted.
 
-Spacing uses a 4 px base (`4, 8, 12, 16, 20, 24, 32, 40`). Panel radii are 12 px,
-buttons/inputs 6 px, badges 4 px and status pills fully rounded. Borders are 0.5–1 px;
-surface value, not shadow, expresses depth.
+The serif AXVARIS wordmark supplies the identity. Interface text uses Geist and technical values use Geist Mono. Motion responds to an action or a data change. Continuous decorative particles and pulsing chrome have no role in this design.
 
-The brand raster keeps the supplied logo's original geometry and changes only its
-colour treatment to `--void`/graphite/fog/mist/acid-lime. The central figure remains
-dark and deliberately has no added outline. `public/sabicheiro-logo.png` is the source
-for the top bar and the declared Windows/Linux Tauri icon sizes.
+**Key Characteristics:**
+
+- Five persistent investigation areas in a left sidebar.
+- Monochrome controls with limited color for evidence states.
+- Larger values and row names above quieter metadata.
+- Local brand and font assets, with no remote font dependency.
+
+## Colors
+
+Warm near-black neutrals carry the interface. The frontmatter records effective CSS tokens, including later stylesheet overrides.
+
+### Primary
+
+- Mist supplies primary text, selected controls and primary action fills.
+- Signal orange identifies selected connection evidence, recording and warning or error states. It is not a general brand accent.
+- Positive green marks live capture, positive evidence states and the home marker.
+
+### Neutral
+
+- Void is the application background and main canvas.
+- Carbon separates the sidebar, metric strip and evidence cards from the canvas.
+- Obsidian is the raised panel tone. The CSS surface-raised token aliases this value.
+- Graphite draws panel boundaries and row dividers. The CSS border-subtle token aliases this value.
+- Smoke provides stronger secondary edges.
+- Fog is secondary copy. Ash is quieter supplementary text.
+- Paper provides maximum contrast for short headings and active navigation.
+- Selection muted fills the active sidebar item. Connection selected fills the selected feed row.
+
+**The Evidence Color Rule.** Use color to identify a capture or evidence state. Keep general navigation and actions monochrome.
 
 ## Typography
 
-The UI requests Inter Variable and falls back to Inter/system UI. Weight 400 is normal;
-510 and 590 carry hierarchy. Weight 700+ is avoided. IPs, ports, PIDs, protocols,
-timestamps and rates use `ui-monospace`, with JetBrains Mono/IBM Plex Mono as optional
-free local choices. Type remains readable at compact 11–14 px metadata sizes.
+Geist and Geist Mono load from packaged variable WOFF2 files. Preserve the system fallbacks in the frontmatter. Technical values use tabular numerals. The serif wordmark and X are supplied SVG paths, not a third interface font.
+
+The hierarchy uses page headings at 28px, card titles at 17px, row names at 15px and supporting body copy at 14px. Session names use 16px. Session metrics use 18px Geist Mono. Labels and compact controls use 12px. Keep addresses, timestamps, ports and rates in mono without shrinking the primary process name.
+
+**The Identity Rule.** Use the supplied serif wordmark and its matching X. Do not add a crossing line or reconstruct the logo with a system font.
 
 ## Layout
 
-- Top bar: 52 px, brand/navigation left, search/status/actions right.
-- Main globe/map canvas: 65–75% of usable width.
-- Live feed: 25–35%, minimum 300 px, a semantic list rather than a table.
-- Inspector: contextual overlay/drawer that does not permanently shrink the globe.
-- Bottom metrics: 44 px single strip; never giant KPI cards.
-- Supported minimum: 1280×720; tuned at 1920×1080 and 2560×1440.
+The desktop shell has a 196px sidebar, 64px top bar and 44px metric strip. The sidebar spans the window height. Today, Live, Investigate, Exposure and Data & Health remain in that order. Search, capture state and actions sit in the top bar. Contextual inspection does not require another permanent navigation column.
 
-Below 1180 px the feed narrows and metadata wraps; it does not disappear. Below 900 px
-the inspector becomes a full-height overlay. This is responsive desktop UI, not mobile.
+The native window has a minimum size of 720 by 600. At 1180px and below, the sidebar becomes a 72px icon rail and the wordmark yields to the X. Names remain available through button labels and tooltips. At 1100px and below, the Today session strip stacks and its metrics use three columns. At 900px and below, the Live canvas stacks above the feed, with a canvas row of at least 250px. Settings navigation wraps above its content. Narrow capture actions move into a compact menu.
 
-## Globe and map
+Use the frontmatter spacing for related controls, rows, cards and sections. Connection rows have a 112px minimum height and 14px by 16px padding. Evidence card grids use a 14px gap. Keep primary values visible before reducing spacing or wrapping metadata. Allow long evidence tables and the bottom metric strip to scroll within their bounds.
 
-Ocean uses `--void`, land `--obsidian`, borders `--smoke`. Unselected traffic uses one
-or two desaturated semantic shades. Only the selected arc and focused endpoint use
-acid lime. Closed routes fade through lower opacity during the core's eight-second
-visual TTL. Route grouping becomes more aggressive with connection count and globe
-distance; grouped marker size communicates relative count without labels covering the
-map. Decorative route particles remain a post-0.1 refinement.
+## Elevation & Depth
 
-The same filtered model drives the 2D equirectangular map. Unknown coordinates are not
-drawn; their connections remain visible in the feed. The map uses local 50m country
-geometry and is loaded only when selected; the globe keeps a lighter local geometry.
-Both views share compound markers: bounded core, state ring, subtle halo, count badge
-and larger invisible hit target. A dashed ring denotes a country centroid; coordinate
-precision uses a continuous ring and unknown locations are never plotted.
+The main workspaces use tone and one-pixel borders for depth. Today cards, session strips and settings sections have no shadow. The inspector and notification center also have no shadow. Transient menus retain a dark shadow for separation from the underlying workspace; that exception is recorded in the sidecar.
 
-The map supports bounded wheel/button/keyboard zoom, drag/arrow-key pan, reset, frame
-selection and an expanded workspace with collapsible feed. Expansion preserves the
-viewport and selection and restores with its button or Escape. Routes crossing the
-antimeridian are split onto the shortest wrapped path.
+**The Panel Rule.** Separate persistent panels with their background and edge. Reserve shadows for transient overlays that already use them.
+
+## Shapes
+
+Controls, search fields, sidebar items and view switchers use the control radius. Main evidence cards, session strips, comparison panels and settings sections use the panel radius. Small evidence badges use the badge radius; compound query chips retain the larger pill radius. These shapes come from the effective stylesheet, not a universal rounding rule.
+
+The monochrome X has the wordmark's serif terminals and stroke contrast. Use light assets against the dark shell and dark assets against light backgrounds. Preserve the supplied geometry and keep the mark free of glow or additional crossing strokes.
 
 ## Components
 
-- `TopBar`: product mark, primary views, compact search, capture/record/settings.
-- `LiveFeed`: accessible buttons grouped by process + remote endpoint + protocol
-  within a configurable time window; `content-visibility` bounds off-screen layout.
-- `Inspector`: Evidence, Identity, Endpoint, Location, Traffic, History and Diagnostics
-  sections, with source/correlation/generation details and a semantic feed alternative.
-- `MetricStrip`: active/down/up/countries/processes/packets.
-- `CommandPalette`: searchable actions opened with Ctrl+K.
-- `QueryBar`: search plus typed filter tokens and concise error text.
-- `ProcessList` / `DestinationList`: compact ranked rows, not card grids.
-- `Timeline`: traffic/new-connection density with draggable time selection.
-- `Settings`: a professional section list, no dashboard grid.
+### Buttons
 
-## Interaction rules
+Primary actions have a light fill and dark text. Hover uses a quieter warm light fill. Secondary actions have a dark fill and visible border. Base controls use a 32px minimum height, 12px labels, medium weight and the control radius. Card footer actions may use the existing 28px compact height. Icon buttons have text alternatives and a 32px square area. Disabled buttons reduce opacity and use the unavailable cursor.
 
-Feed selection highlights and focuses the arc, opens the inspector and preserves
-keyboard focus. Arc/marker selection scrolls the matching feed item into view. Country
-selection filters context without forcing navigation. Smart focus lasts at most
-220 ms and can be disabled.
+Keyboard focus uses the global 2px selection outline with a 2px offset. State transitions last 120ms with cubic-bezier(0.2, 0.8, 0.2, 1). The inspector opacity transition lasts 160ms. Reduced motion removes decorative transitions; do not reintroduce continuous pulses.
 
-Shortcuts: Ctrl+K palette, Ctrl+F search, Space pause view, G globe, M map, R recording,
-Esc inspector. Visible focus outlines use acid lime with sufficient offset. Lists carry
-screen-reader labels and all icon-only buttons have text alternatives/tooltips.
+### Inputs / Fields
 
-English and Castellano share the same layout and component hierarchy. The welcome
-screen and Display settings expose the language selector, and the saved setting also
-updates the document language for assistive technology.
+The top-bar search is a compact dark field with a graphite border, search icon and shortcut hint. Its width can shrink without forcing the shell wider. Focus strengthens the border and a query error appears next to the field. External DNS fields use 14px input text and 38px height. Keep labels and invalid states visible.
 
-## Motion and states
+### Chips
 
-Default transitions are 150–220 ms, eased without bounce/overshoot. Reduced-motion
-disables arc drawing, camera tweening and decorative transitions. Pause View freezes
-visual changes only; capture/history continue and the UI reports queued event count.
+Compound query filters use compact rounded chips with values and a removal action. Evidence badges distinguish scope or change state with text and a border. Do not substitute unlabeled color dots for evidence categories.
 
-Errors are explicit: title, reason and recovery actions. Empty capture keeps the globe
-visible with “Waiting for network activity”. Neutral anomaly language explains observed
-deviation and never claims malware or produces an opaque risk score.
+### Cards / Containers
+
+Evidence cards use the carbon background, graphite border and panel radius with 18px padding. Their title is stronger than their category label; body copy stays readable at 14px. Primary evidence actions remain near the description. The session strip uses the raised panel tone and larger mono values without an extra visible category kicker. Major settings sections use the same panel radius.
+
+### Navigation
+
+The left sidebar uses 14px text, small outline icons and a bordered muted fill for its active item. aria-current identifies the current area. Compact navigation retains accessible names and titles when the visible text is hidden. The bottom sidebar copy identifies local processing.
+
+### Connection feed and globe
+
+Process names lead the row, followed by destination, protocol, timing and rates. Selection gives a row a darker warm fill and an orange edge. Metadata remains readable in fog. Keep unlocated evidence in the feed and expose its missing location in context.
+
+The globe uses local country geometry and bounded route rendering. It schedules a frame on changes or interaction, stops rendering while hidden, and caps displayed routes at 120. The cap is a rendering constraint, not a throughput claim. The home marker has a green core and white ring above a coincident destination marker.
+
+## Do's and Don'ts
+
+### Do:
+
+- Do use the supplied serif AXVARIS wordmark and matching X.
+- Do keep process names, evidence text and metric values stronger than metadata.
+- Do preserve the five-area sidebar and stacked compact Live layout.
+- Do keep visible focus, text labels for states and reduced motion behavior.
+- Do distinguish local capture, imported DNS queries and demo data in the interface.
+
+### Don't:
+
+- Don't add a crossing line, glow or neon accent to the brand assets.
+- Don't use continuous decorative particles or pulsing chrome.
+- Don't draw destinations without known coordinates.
+- Don't turn imported DNS queries into confirmed connections or remote process identities.
+- Don't describe the UI as certified accessible or resource-efficient without corresponding validation evidence.

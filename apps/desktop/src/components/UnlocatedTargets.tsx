@@ -48,7 +48,7 @@ export function UnlocatedTargets({
           <h2 id="unlocated-title">{t("Unlocated targets")}</h2>
           <p>
             {t(
-              "Missing coordinates stay unplotted; Sabicheiro never invents a location.",
+              "Missing coordinates stay unplotted; Axvaris never invents a location.",
             )}
           </p>
         </div>

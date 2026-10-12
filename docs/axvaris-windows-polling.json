@@ -1,0 +1,51 @@
+{
+  "report": {
+    "fixture_id": "local-1791825979098",
+    "provider_id": "windows.ip_helper",
+    "expected_remote_flows": 18,
+    "observed_remote_flows": 10,
+    "true_positive_flows": 10,
+    "false_positive_flows": 0,
+    "unknown_process_attributions": 0,
+    "incorrect_process_attributions": 0,
+    "precision": 1.0,
+    "process_attribution_precision": 1.0,
+    "recall_5_to_50_ms": 0.3333333333333333,
+    "recall_50_ms_or_longer": 0.6666666666666666,
+    "close_latency_p95_ms": 23.8024,
+    "detected_provider_gaps": 0,
+    "unknown_fields": {
+      "interface": 10
+    },
+    "duration_buckets": {
+      "100-999ms": {
+        "expected": 3,
+        "observed": 2,
+        "recall": 0.6666666666666666
+      },
+      "1s+": {
+        "expected": 3,
+        "observed": 2,
+        "recall": 0.6666666666666666
+      },
+      "20-49ms": {
+        "expected": 3,
+        "observed": 2,
+        "recall": 0.6666666666666666
+      },
+      "5-19ms": {
+        "expected": 3,
+        "observed": 0,
+        "recall": 0.0
+      },
+      "50-99ms": {
+        "expected": 6,
+        "observed": 4,
+        "recall": 0.6666666666666666
+      }
+    },
+    "meets_release_targets": false
+  },
+  "method": "Native IP Helper fixture, 10 ms requested polling; controlled TCP/UDP IPv4/IPv6 loopback flows. Polling cannot confirm remote UDP peers.",
+  "measured_at": "2026-10-12T17:27:45.7112993Z"
+}

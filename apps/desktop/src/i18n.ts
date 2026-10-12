@@ -4,6 +4,42 @@ export type Language = "en" | "es";
 export type TranslationValues = Record<string, string | number>;
 
 const spanish: Record<string, string> = {
+  "Capture health": "Salud de captura",
+  Application: "Aplicación",
+  "Network profile": "Perfil de red",
+  "Local processing": "Procesamiento local",
+  "External DNS evidence": "Evidencia DNS externa",
+  "Import resolver logs to follow clients and queried domains. DNS queries do not prove a connection or identify a remote process.":
+    "Importa registros DNS para seguir clientes y dominios. Las consultas no confirman conexiones ni identifican procesos remotos.",
+  "Source name": "Nombre de la fuente",
+  "Home resolver": "Servidor DNS doméstico",
+  "CSV or JSON file": "Archivo CSV o JSON",
+  "CSV template": "Plantilla CSV",
+  "JSON template": "Plantilla JSON",
+  "The import exceeds the 16 MiB limit.":
+    "La importación supera el límite de 16 MiB.",
+  "Timestamps must include a timezone. Imports stay local and are deduplicated per source. Limit: 16 MiB / 100,000 queries.":
+    "Las fechas deben incluir zona horaria. Los datos permanecen locales y se deduplican por fuente. Límite: 16 MiB / 100.000 consultas.",
+  "Validating DNS queries...": "Validando consultas DNS...",
+  "Importing DNS queries...": "Importando consultas DNS...",
+  "Cancel import": "Cancelar importación",
+  "Imported {inserted} queries; skipped {duplicates} duplicates.":
+    "Se importaron {inserted} consultas y se omitieron {duplicates} duplicados.",
+  "{count} valid queries. Review the sample before importing.":
+    "{count} consultas válidas. Revisa la muestra antes de importar.",
+  "Import queries": "Importar consultas",
+  "Discard preview": "Descartar vista previa",
+  "Client IP": "IP del cliente",
+  "Domain contains": "El dominio contiene",
+  From: "Desde",
+  To: "Hasta",
+  "Apply filters": "Aplicar filtros",
+  "DNS query evidence": "Evidencia de consultas DNS",
+  "Import preview": "Vista previa de importación",
+  "Imported DNS history": "Historial DNS importado",
+  "No imported queries match. Import a file or adjust your filters.":
+    "No hay consultas importadas que coincidan. Importa un archivo o ajusta los filtros.",
+  "Next page": "Página siguiente",
   "City database not installed": "Base City no instalada",
   "Installing City database...": "Instalando la base City...",
   "No map coordinates for these destinations":
@@ -252,8 +288,7 @@ const spanish: Record<string, string> = {
     "Se ignoraron algunos registros de listeners no válidos para mantener disponible Exposición.",
   "Start capture or use Demo; provider limitations remain visible in Data & Health.":
     "Inicia la captura o usa Demo; las limitaciones del proveedor siguen visibles en Datos y estado.",
-  "Start Sabicheiro when I sign in":
-    "Iniciar Sabicheiro al acceder a mi sesión",
+  "Start Axvaris when I sign in": "Iniciar Axvaris al acceder a mi sesión",
   Tag: "Etiqueta",
   "Tags separated by commas": "Etiquetas separadas por comas",
   text: "texto",
@@ -504,8 +539,8 @@ const spanish: Record<string, string> = {
     "Al limpiar se elimina la vista activa en memoria; la retención sigue controlando el historial guardado.",
   "Clear session": "Limpiar sesión",
   "Local by default": "Local de forma predeterminada",
-  "Sabicheiro has no analytics SDK, account, subscription, remote logging or paid API. Reverse DNS is opt-in; GeoIP lookup uses an optional local free database.":
-    "Sabicheiro no tiene analítica, cuenta, suscripción, registro remoto ni API de pago. El DNS inverso es opcional y GeoIP usa una base de datos local gratuita.",
+  "Axvaris has no analytics SDK, account, subscription, remote logging or paid API. Reverse DNS is opt-in; GeoIP lookup uses an optional local free database.":
+    "Axvaris no tiene analítica, cuenta, suscripción, registro remoto ni API de pago. El DNS inverso es opcional y GeoIP usa una base de datos local gratuita.",
   "Optional local DB-IP Lite data. Location is approximate and never authoritative.":
     "Datos locales opcionales de DB-IP Lite. La ubicación es aproximada y nunca autoritativa.",
   "GeoIP database": "Base de datos GeoIP",
@@ -749,8 +784,8 @@ const spanish: Record<string, string> = {
     "No se pudo leer el historial local. Consulta Diagnóstico para ver el detalle original del almacenamiento.",
   "Stored traffic samples could not be read for this time range.":
     "No se pudieron leer las muestras de tráfico guardadas para este intervalo.",
-  "Local storage is unavailable. Sabicheiro has kept the original diagnostic below.":
-    "El almacenamiento local no está disponible. Sabicheiro conserva debajo el diagnóstico original.",
+  "Local storage is unavailable. Axvaris has kept the original diagnostic below.":
+    "El almacenamiento local no está disponible. Axvaris conserva debajo el diagnóstico original.",
   "The free GeoIP update could not be installed. You can retry or import an MMDB offline.":
     "No se pudo instalar la actualización GeoIP gratuita. Puedes reintentarlo o importar una MMDB sin conexión.",
   "The MMDB import failed edition, checksum or filesystem validation.":
@@ -868,8 +903,8 @@ const spanish: Record<string, string> = {
   "Open exact view": "Abrir vista exacta",
   ORPHANED: "HUÉRFANOS",
   "OS source": "Fuente del SO",
-  "Permanently delete the selected local data? This cannot be undone inside Sabicheiro.":
-    "¿Eliminar permanentemente los datos locales seleccionados? No se puede deshacer dentro de Sabicheiro.",
+  "Permanently delete the selected local data? This cannot be undone inside Axvaris.":
+    "¿Eliminar permanentemente los datos locales seleccionados? No se puede deshacer dentro de Axvaris.",
   "Pin visible evidence": "Fijar evidencia visible",
   pins: "fijaciones",
   Placement: "Colocación",
@@ -1096,8 +1131,8 @@ const spanish: Record<string, string> = {
     "Prueba de capacidades TCP/UDP e IPv4/IPv6",
   "Review the capability rows; retry with the documented permissions or enable the missing local IP stack.":
     "Revisa las filas de capacidades; reintenta con los permisos documentados o habilita la pila IP local ausente.",
-  "The current Sabicheiro process was resolved from controlled loopback sockets.":
-    "El proceso actual de Sabicheiro se identificó mediante sockets de bucle local controlados.",
+  "The current Axvaris process was resolved from controlled loopback sockets.":
+    "El proceso actual de Axvaris se identificó mediante sockets de bucle local controlados.",
   "The native provider did not expose the controlled local endpoint":
     "El proveedor nativo no expuso el extremo local controlado",
   "The operating system did not expose the proof process identity":
@@ -1209,8 +1244,8 @@ const spanish: Record<string, string> = {
   "LOCATION COVERAGE": "COBERTURA DE UBICACIÓN",
   "Location precision is too low":
     "La precisión de ubicación es demasiado baja",
-  "Missing coordinates stay unplotted; Sabicheiro never invents a location.":
-    "Los destinos sin coordenadas no se representan; Sabicheiro nunca inventa una ubicación.",
+  "Missing coordinates stay unplotted; Axvaris never invents a location.":
+    "Los destinos sin coordenadas no se representan; Axvaris nunca inventa una ubicación.",
   "Network interface in compact menu": "Interfaz de red en el menú compacto",
   "Network profile change": "Cambio de perfil de red",
   "New country": "País nuevo",

@@ -10,7 +10,7 @@ name = "sabicheiro_desktop_lib"
 crate-type = ["rlib"]
 
 [[bin]]
-name = "Sabicheiro"
+name = "Axvaris"
 path = "src/main.rs"
 
 [build-dependencies]

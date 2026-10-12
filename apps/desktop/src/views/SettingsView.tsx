@@ -18,6 +18,7 @@ import type {
 } from "../types";
 import { formatBytes, formatDateTime } from "../lib/format";
 import { Icon } from "../components/Icon";
+import { ExternalDns } from "../components/ExternalDns";
 import {
   usePresentation,
   type SensitiveKind,
@@ -302,8 +303,10 @@ export function SettingsView({
           <a href="#geo">{t("GeoIP data")}</a>
           <a href="#display">{t("Display")}</a>
           <a href="#diagnostics">{t("Diagnostics")}</a>
+          <a href="#external-dns">{t("External DNS evidence")}</a>
         </nav>
         <div className="settings-content">
+          <ExternalDns />
           <section id="capture">
             <header>
               <Icon name="activity" />
@@ -369,7 +372,7 @@ export function SettingsView({
               detail={t(
                 "Disabled by default. Enabling records explicit intent; platform startup registration is reported separately in diagnostics.",
               )}
-              label={t("Start Sabicheiro when I sign in")}
+              label={t("Start Axvaris when I sign in")}
               onChange={(value) =>
                 onUpdate({ ...settings, autostart_enabled: value })
               }
@@ -909,7 +912,7 @@ export function SettingsView({
                   onClick={() => {
                     const confirmed = window.confirm(
                       t(
-                        "Permanently delete the selected local data? This cannot be undone inside Sabicheiro.",
+                        "Permanently delete the selected local data? This cannot be undone inside Axvaris.",
                       ),
                     );
                     if (!confirmed) return;
@@ -1021,7 +1024,7 @@ export function SettingsView({
               <strong>{t("Local by default")}</strong>
               <p>
                 {t(
-                  "Sabicheiro has no analytics SDK, account, subscription, remote logging or paid API. Reverse DNS is opt-in; GeoIP lookup uses an optional local free database.",
+                  "Axvaris has no analytics SDK, account, subscription, remote logging or paid API. Reverse DNS is opt-in; GeoIP lookup uses an optional local free database.",
                 )}
               </p>
             </div>

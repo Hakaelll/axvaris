@@ -1,0 +1,372 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-12T17:25:53.811Z",
+  "title": "Design System: Axvaris",
+  "extensions": {
+    "colorMeta": {
+      "void": {
+        "role": "neutral",
+        "displayName": "Void",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.9)",
+          "oklch(26% 0.0000 89.9)",
+          "oklch(38% 0.0000 89.9)",
+          "oklch(49% 0.0000 89.9)",
+          "oklch(61% 0.0000 89.9)",
+          "oklch(72% 0.0000 89.9)",
+          "oklch(84% 0.0000 89.9)",
+          "oklch(95% 0.0000 89.9)"
+        ]
+      },
+      "carbon": {
+        "role": "neutral",
+        "displayName": "Carbon",
+        "tonalRamp": [
+          "oklch(15% 0.0026 67.7)",
+          "oklch(26% 0.0026 67.7)",
+          "oklch(38% 0.0026 67.7)",
+          "oklch(49% 0.0026 67.7)",
+          "oklch(61% 0.0026 67.7)",
+          "oklch(72% 0.0026 67.7)",
+          "oklch(84% 0.0026 67.7)",
+          "oklch(95% 0.0026 67.7)"
+        ]
+      },
+      "obsidian": {
+        "role": "neutral",
+        "displayName": "Obsidian",
+        "tonalRamp": [
+          "oklch(15% 0.0061 56.1)",
+          "oklch(26% 0.0061 56.1)",
+          "oklch(38% 0.0061 56.1)",
+          "oklch(49% 0.0061 56.1)",
+          "oklch(61% 0.0061 56.1)",
+          "oklch(72% 0.0061 56.1)",
+          "oklch(84% 0.0061 56.1)",
+          "oklch(95% 0.0061 56.1)"
+        ]
+      },
+      "graphite": {
+        "role": "neutral",
+        "displayName": "Graphite",
+        "tonalRamp": [
+          "oklch(15% 0.0045 39.4)",
+          "oklch(26% 0.0045 39.4)",
+          "oklch(38% 0.0045 39.4)",
+          "oklch(49% 0.0045 39.4)",
+          "oklch(61% 0.0045 39.4)",
+          "oklch(72% 0.0045 39.4)",
+          "oklch(84% 0.0045 39.4)",
+          "oklch(95% 0.0045 39.4)"
+        ]
+      },
+      "smoke": {
+        "role": "neutral",
+        "displayName": "Smoke",
+        "tonalRamp": [
+          "oklch(15% 0.0063 48.6)",
+          "oklch(26% 0.0063 48.6)",
+          "oklch(38% 0.0063 48.6)",
+          "oklch(49% 0.0063 48.6)",
+          "oklch(61% 0.0063 48.6)",
+          "oklch(72% 0.0063 48.6)",
+          "oklch(84% 0.0063 48.6)",
+          "oklch(95% 0.0063 48.6)"
+        ]
+      },
+      "ash": {
+        "role": "neutral",
+        "displayName": "Ash",
+        "tonalRamp": [
+          "oklch(15% 0.0111 48.6)",
+          "oklch(26% 0.0111 48.6)",
+          "oklch(38% 0.0111 48.6)",
+          "oklch(49% 0.0111 48.6)",
+          "oklch(61% 0.0111 48.6)",
+          "oklch(72% 0.0111 48.6)",
+          "oklch(84% 0.0111 48.6)",
+          "oklch(95% 0.0111 48.6)"
+        ]
+      },
+      "fog": {
+        "role": "neutral",
+        "displayName": "Fog",
+        "tonalRamp": [
+          "oklch(15% 0.0071 53.4)",
+          "oklch(26% 0.0071 53.4)",
+          "oklch(38% 0.0071 53.4)",
+          "oklch(49% 0.0071 53.4)",
+          "oklch(61% 0.0071 53.4)",
+          "oklch(72% 0.0071 53.4)",
+          "oklch(84% 0.0071 53.4)",
+          "oklch(95% 0.0071 53.4)"
+        ]
+      },
+      "mist": {
+        "role": "primary",
+        "displayName": "Mist",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.9)",
+          "oklch(26% 0.0000 89.9)",
+          "oklch(38% 0.0000 89.9)",
+          "oklch(49% 0.0000 89.9)",
+          "oklch(61% 0.0000 89.9)",
+          "oklch(72% 0.0000 89.9)",
+          "oklch(84% 0.0000 89.9)",
+          "oklch(95% 0.0000 89.9)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.9)",
+          "oklch(26% 0.0000 89.9)",
+          "oklch(38% 0.0000 89.9)",
+          "oklch(49% 0.0000 89.9)",
+          "oklch(61% 0.0000 89.9)",
+          "oklch(72% 0.0000 89.9)",
+          "oklch(84% 0.0000 89.9)",
+          "oklch(95% 0.0000 89.9)"
+        ]
+      },
+      "selection-muted": {
+        "role": "neutral",
+        "displayName": "Selection Muted",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.9)",
+          "oklch(26% 0.0000 89.9)",
+          "oklch(38% 0.0000 89.9)",
+          "oklch(49% 0.0000 89.9)",
+          "oklch(61% 0.0000 89.9)",
+          "oklch(72% 0.0000 89.9)",
+          "oklch(84% 0.0000 89.9)",
+          "oklch(95% 0.0000 89.9)"
+        ]
+      },
+      "surface-interactive": {
+        "role": "neutral",
+        "displayName": "Surface Interactive",
+        "tonalRamp": [
+          "oklch(15% 0.0059 56.1)",
+          "oklch(26% 0.0059 56.1)",
+          "oklch(38% 0.0059 56.1)",
+          "oklch(49% 0.0059 56.1)",
+          "oklch(61% 0.0059 56.1)",
+          "oklch(72% 0.0059 56.1)",
+          "oklch(84% 0.0059 56.1)",
+          "oklch(95% 0.0059 56.1)"
+        ]
+      },
+      "signal-orange": {
+        "role": "primary",
+        "displayName": "Signal Orange",
+        "tonalRamp": [
+          "oklch(15% 0.1904 42.1)",
+          "oklch(26% 0.1904 42.1)",
+          "oklch(38% 0.1904 42.1)",
+          "oklch(49% 0.1904 42.1)",
+          "oklch(61% 0.1904 42.1)",
+          "oklch(72% 0.1904 42.1)",
+          "oklch(84% 0.1904 42.1)",
+          "oklch(95% 0.1904 42.1)"
+        ]
+      },
+      "state-positive": {
+        "role": "primary",
+        "displayName": "State Positive",
+        "tonalRamp": [
+          "oklch(15% 0.0891 138.0)",
+          "oklch(26% 0.0891 138.0)",
+          "oklch(38% 0.0891 138.0)",
+          "oklch(49% 0.0891 138.0)",
+          "oklch(61% 0.0891 138.0)",
+          "oklch(72% 0.0891 138.0)",
+          "oklch(84% 0.0891 138.0)",
+          "oklch(95% 0.0891 138.0)"
+        ]
+      },
+      "connection-selected": {
+        "role": "neutral",
+        "displayName": "Connection Selected",
+        "tonalRamp": [
+          "oklch(15% 0.0081 59.3)",
+          "oklch(26% 0.0081 59.3)",
+          "oklch(38% 0.0081 59.3)",
+          "oklch(49% 0.0081 59.3)",
+          "oklch(61% 0.0081 59.3)",
+          "oklch(72% 0.0081 59.3)",
+          "oklch(84% 0.0081 59.3)",
+          "oklch(95% 0.0081 59.3)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Page heading",
+        "purpose": "Workspace headings."
+      },
+      "title": {
+        "displayName": "Card title",
+        "purpose": "Evidence card names."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Evidence descriptions."
+      },
+      "row-name": {
+        "displayName": "Process name",
+        "purpose": "Primary connection row identity."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Compact controls and supplementary labels."
+      },
+      "metric": {
+        "displayName": "Session metric",
+        "purpose": "Larger tabular session values."
+      },
+      "mono": {
+        "displayName": "Technical text",
+        "purpose": "Addresses, timestamps, ports and rates."
+      }
+    },
+    "shadows": [
+      {
+        "name": "compact-menu",
+        "value": "0 12px 30px rgba(0, 0, 0, 0.45)",
+        "purpose": "Transient capture and actions menu only. Persistent workspaces are flat."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-duration",
+        "value": "120ms",
+        "purpose": "Button and navigation background/border changes."
+      },
+      {
+        "name": "inspector-duration",
+        "value": "160ms",
+        "purpose": "Inspector opacity."
+      },
+      {
+        "name": "state-easing",
+        "value": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+        "purpose": "State transitions when reduced motion is not requested."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-sidebar",
+        "value": "1180px"
+      },
+      {
+        "name": "session-stack",
+        "value": "1100px"
+      },
+      {
+        "name": "live-stack",
+        "value": "900px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Open the evidence behind a change.",
+      "html": "<button class=\"ds-primary\">Open evidence</button>",
+      "css": ".ds-primary{min-height:32px;padding:0 12px;border-radius:6px;font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:var(--mist,#eeeeee);color:var(--void,#101010);border:1px solid var(--selection,#eeeeee)}.ds-primary:hover{background:#d8d5d2}.ds-primary:disabled{opacity:.45;cursor:not-allowed}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A supporting action beside the primary evidence action.",
+      "html": "<button class=\"ds-secondary\">Pin</button>",
+      "css": ".ds-secondary{min-height:32px;padding:0 12px;border-radius:6px;font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:#181a1b;color:var(--mist,#eeeeee);border:1px solid #35383b}.ds-secondary:hover{background:#1e2022;border-color:#53575b}.ds-secondary:disabled{opacity:.45;cursor:not-allowed}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+    },
+    {
+      "name": "Search field",
+      "kind": "input",
+      "refersTo": "search-field",
+      "description": "Search local connection evidence.",
+      "html": "<input class=\"ds-search\" aria-label=\"Search connections\" placeholder=\"Search or process:firefox country:US\">",
+      "css": ".ds-search{height:36px;width:100%;max-width:420px;min-width:100px;padding:0 9px;border:1px solid var(--graphite,#3d3a39);border-radius:6px;background:var(--carbon,#151413);color:var(--mist,#eeeeee);font:12px Geist,\"Segoe UI\",sans-serif}.ds-search::placeholder{color:var(--fog,#b8b3b0)}.ds-search:hover{border-color:var(--smoke,#4d4947)}.ds-search:focus{border-color:#60656a}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
+    },
+    {
+      "name": "Sidebar navigation",
+      "kind": "nav",
+      "refersTo": "sidebar-item-active",
+      "description": "Persistent investigation areas with an explicit current page.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Primary\"><button>Today</button><button aria-current=\"page\">Live</button><button>Investigate</button><button>Exposure</button><button>Data &amp; Health</button></nav>",
+      "css": ".ds-nav{width:172px;display:grid;gap:6px;background:var(--carbon,#151413);padding:12px}.ds-nav button{min-height:42px;width:100%;padding:10px;text-align:left;font:14px Geist,\"Segoe UI\",sans-serif;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--fog,#b8b3b0);cursor:pointer}.ds-nav button:hover{background:#151617;color:var(--mist,#eeeeee)}.ds-nav button[aria-current]{background:var(--selection-muted,rgba(238,238,238,.08));border-color:var(--graphite,#3d3a39);color:var(--paper,#fff)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+    },
+    {
+      "name": "Query chip",
+      "kind": "chip",
+      "refersTo": "query-chip",
+      "description": "A removable compound query filter.",
+      "html": "<button class=\"ds-chip\" aria-label=\"Remove process filter\">process:firefox <svg aria-hidden=\"true\" viewBox=\"0 0 16 16\" width=\"11\" height=\"11\"><path d=\"m4 4 8 8m0-8-8 8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid #4a4f53;border-radius:14px;background:#191b1c;color:var(--fog,#b8b3b0);font:12px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
+    },
+    {
+      "name": "Evidence card",
+      "kind": "card",
+      "refersTo": "evidence-card",
+      "description": "A change observation with an action that opens its evidence.",
+      "html": "<article class=\"ds-card\"><span>New network process</span><h3>Demo Browser</h3><p>First observed opening a network connection on this device.</p><button class=\"ds-primary\">Open evidence</button></article>",
+      "css": ".ds-card{max-width:360px;padding:18px;border:1px solid var(--graphite,#3d3a39);border-radius:12px;background:var(--carbon,#151413);color:var(--fog,#b8b3b0);font:14px/1.55 Geist,\"Segoe UI\",sans-serif;box-shadow:none}.ds-card>span{font-size:12px;letter-spacing:.03em}.ds-card h3{font-size:17px;font-weight:500;margin:10px 0;color:var(--mist,#eeeeee)}.ds-card p{margin:0 0 14px}.ds-card .ds-primary{min-height:32px;padding:0 12px;border-radius:6px;font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:var(--mist,#eeeeee);color:var(--void,#101010);border:1px solid var(--selection,#eeeeee)}.ds-card .ds-primary:hover{background:#d8d5d2}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+    },
+    {
+      "name": "Selected connection",
+      "kind": "custom",
+      "refersTo": "connection-row-selected",
+      "description": "A process and destination row whose selection is tied to the map.",
+      "html": "<button class=\"ds-row\"><strong>Demo Browser</strong><code>portal.invalid:443</code><span>Madrid, Spain · TCP</span></button>",
+      "css": ".ds-row{position:relative;display:grid;gap:7px;min-height:112px;width:100%;padding:14px 16px;text-align:left;background:#292522;color:var(--mist,#eeeeee);border:0;border-bottom:1px solid var(--graphite,#3d3a39);font:14px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-row:before{content:\"\";position:absolute;left:0;top:0;bottom:0;width:3px;background:#ee6018}.ds-row strong{font-size:15px}.ds-row code{font:12px \"Geist Mono\",ui-monospace,monospace}.ds-row span{font-size:12px;color:var(--fog,#b8b3b0)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Network Observatory",
+    "overview": "Axvaris presents network evidence in a restrained desktop workspace. Factory and Gotham are the confirmed references for its serious observability character. Warm dark panels, quiet dividers and readable text separate controls from connection evidence. The globe shares the workspace with the feed; evidence remains available when a destination cannot be plotted.\n\nThe serif AXVARIS wordmark supplies the identity. Interface text uses Geist and technical values use Geist Mono. Motion responds to an action or a data change. Continuous decorative particles and pulsing chrome have no role in this design.",
+    "keyCharacteristics": [
+      "Five persistent investigation areas in a left sidebar.",
+      "Monochrome controls with limited color for evidence states.",
+      "Larger values and row names above quieter metadata.",
+      "Local brand and font assets, with no remote font dependency."
+    ],
+    "rules": [
+      {
+        "name": "The Evidence Color Rule",
+        "body": "Use color to identify a capture or evidence state. Keep general navigation and actions monochrome.",
+        "section": "colors"
+      },
+      {
+        "name": "The Identity Rule",
+        "body": "Use the supplied serif wordmark and its matching X. Do not add a crossing line or reconstruct the logo with a system font.",
+        "section": "typography"
+      },
+      {
+        "name": "The Panel Rule",
+        "body": "Separate persistent panels with their background and edge. Reserve shadows for transient overlays that already use them.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the supplied serif AXVARIS wordmark and matching X.",
+      "Do keep process names, evidence text and metric values stronger than metadata.",
+      "Do preserve the five-area sidebar and stacked compact Live layout.",
+      "Do keep visible focus, text labels for states and reduced motion behavior.",
+      "Do distinguish local capture, imported DNS queries and demo data in the interface."
+    ],
+    "donts": [
+      "Don't add a crossing line, glow or neon accent to the brand assets.",
+      "Don't use continuous decorative particles or pulsing chrome.",
+      "Don't draw destinations without known coordinates.",
+      "Don't turn imported DNS queries into confirmed connections or remote process identities.",
+      "Don't describe the UI as certified accessible or resource-efficient without corresponding validation evidence."
+    ]
+  }
+}

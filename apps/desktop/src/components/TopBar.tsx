@@ -6,7 +6,8 @@ import type {
 } from "../types";
 import { useI18n } from "../i18n";
 import { Icon, type IconName } from "./Icon";
-import logoUrl from "../../src-tauri/icons/32x32.png";
+import logoUrl from "../../public/brand/axvaris-mark-light.svg";
+import wordmarkUrl from "../../public/brand/axvaris-wordmark-light.svg";
 import { usePresentation } from "../privacy/PresentationMode";
 
 const navigation: { id: PrimaryView; label: string; icon: IconName }[] = [
@@ -105,137 +106,166 @@ export function TopBar({
       </select>
     ) : null;
   return (
-    <header className="topbar">
-      <button className="brand" onClick={() => onView("today")} type="button">
-        <img
-          alt=""
-          aria-hidden="true"
-          className="brand__mark"
-          height="32"
-          src={logoUrl}
-          width="32"
-        />
-        <span>SABICHEIRO</span>
-      </button>
-      <nav aria-label={t("Primary")} className="primary-nav">
-        {navigation.map((item) => (
+    <>
+      <aside className="primary-sidebar">
+        <button
+          aria-label="Axvaris"
+          className="brand"
+          onClick={() => onView("today")}
+          type="button"
+        >
+          <img
+            alt=""
+            aria-hidden="true"
+            className="brand__mark"
+            height="32"
+            src={logoUrl}
+            width="32"
+          />
+          <img
+            className="brand__wordmark"
+            alt="AXVARIS"
+            src={wordmarkUrl}
+            width="126"
+            height="32"
+          />
+        </button>
+        <nav aria-label={t("Primary")} className="primary-nav">
+          {navigation.map((item) => (
+            <button
+              aria-label={t(item.label)}
+              title={t(item.label)}
+              aria-current={primaryView === item.id ? "page" : undefined}
+              className={primaryView === item.id ? "is-active" : undefined}
+              key={item.id}
+              onClick={() => onView(item.id)}
+              type="button"
+            >
+              <Icon name={item.icon} />
+              <span>{t(item.label)}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-purpose">
+          <span>Network observability</span>
+          <span>{t("Local processing")}</span>
+        </div>
+      </aside>
+      <header className="topbar">
+        <span className="workspace-title">
+          {t(
+            navigation.find((item) => item.id === primaryView)?.label ??
+              "Today",
+          )}
+        </span>
+        <div className={`query-box${queryError ? " has-error" : ""}`}>
+          <Icon name="search" />
+          <input
+            aria-label={t("Search connections")}
+            aria-invalid={queryError ? "true" : undefined}
+            onChange={(event) => onQuery(restoreText(event.target.value))}
+            placeholder={t("Search or process:firefox country:US")}
+            value={active ? displayText(query) : query}
+          />
+          <kbd>Ctrl F</kbd>
+          {queryError && (
+            <span className="query-box__error">{t(queryError)}</span>
+          )}
+        </div>
+        <div className="topbar__actions">
+          <span
+            className="capture-status-summary"
+            aria-label={t("Capture status: {status}", { status: captureLabel })}
+          >
+            <span
+              aria-hidden="true"
+              className={`status-dot${captureActive ? " is-live" : ""}`}
+            />
+            <span>{captureLabel}</span>
+          </span>
+          {presentationMode && (
+            <span
+              className="presentation-topbar-badge"
+              title={t("Visual pseudonyms are active")}
+            >
+              <Icon name="shield" />
+              <span>{t("Presentation")}</span>
+            </span>
+          )}
+          <div className="capture-control">{captureSelect(false)}</div>
+          {interfaceSelect(false)}
           <button
-            aria-current={primaryView === item.id ? "page" : undefined}
-            className={primaryView === item.id ? "is-active" : undefined}
-            key={item.id}
-            onClick={() => onView(item.id)}
+            aria-label={
+              recording
+                ? t("Recording in progress")
+                : t("Start packet recording")
+            }
+            className={`icon-button${recording ? " is-recording" : ""}`}
+            onClick={onRecord}
+            title={recording ? t("Recording in progress") : t("Record packets")}
             type="button"
           >
-            <Icon name={item.icon} />
-            <span>{t(item.label)}</span>
+            <Icon name="record" />
           </button>
-        ))}
-      </nav>
-      <div className={`query-box${queryError ? " has-error" : ""}`}>
-        <Icon name="search" />
-        <input
-          aria-label={t("Search connections")}
-          aria-invalid={queryError ? "true" : undefined}
-          onChange={(event) => onQuery(restoreText(event.target.value))}
-          placeholder={t("Search or process:firefox country:US")}
-          value={active ? displayText(query) : query}
-        />
-        <kbd>Ctrl F</kbd>
-        {queryError && (
-          <span className="query-box__error">{t(queryError)}</span>
-        )}
-      </div>
-      <div className="topbar__actions">
-        <span
-          className="capture-status-summary"
-          aria-label={t("Capture status: {status}", { status: captureLabel })}
-        >
-          <span
-            aria-hidden="true"
-            className={`status-dot${captureActive ? " is-live" : ""}`}
-          />
-          <span>{captureLabel}</span>
-        </span>
-        {presentationMode && (
-          <span
-            className="presentation-topbar-badge"
-            title={t("Visual pseudonyms are active")}
+          <button
+            aria-label={t("Open command palette")}
+            className="icon-button"
+            onClick={onPalette}
+            title={t("Command palette (Ctrl+K)")}
+            type="button"
           >
-            <Icon name="shield" />
-            <span>{t("Presentation")}</span>
-          </span>
-        )}
-        <div className="capture-control">{captureSelect(false)}</div>
-        {interfaceSelect(false)}
-        <button
-          aria-label={
-            recording ? t("Recording in progress") : t("Start packet recording")
-          }
-          className={`icon-button${recording ? " is-recording" : ""}`}
-          onClick={onRecord}
-          title={recording ? t("Recording in progress") : t("Record packets")}
-          type="button"
-        >
-          <Icon name="record" />
-        </button>
-        <button
-          aria-label={t("Open command palette")}
-          className="icon-button"
-          onClick={onPalette}
-          title={t("Command palette (Ctrl+K)")}
-          type="button"
-        >
-          <Icon name="command" />
-        </button>
-        <button
-          aria-label={t("Open settings")}
-          className="icon-button"
-          onClick={() => onView("health")}
-          title={t("Settings")}
-          type="button"
-        >
-          <Icon name="settings" />
-        </button>
-        <details className="topbar-compact-menu">
-          <summary aria-label={t("Open capture and actions menu")}>
             <Icon name="command" />
-          </summary>
-          <div>
-            <nav aria-label={t("Primary navigation in compact menu")}>
-              {navigation.map((item) => (
-                <button
-                  aria-current={primaryView === item.id ? "page" : undefined}
-                  key={item.id}
-                  onClick={() => onView(item.id)}
-                  type="button"
-                >
-                  <Icon name={item.icon} />
-                  {t(item.label)}
-                </button>
-              ))}
-            </nav>
-            <label>
-              <span>{t("Capture mode")}</span>
-              {captureSelect(true)}
-            </label>
-            {interfaceSelect(true)}
-            <button onClick={onRecord} type="button">
-              <Icon name="record" />
-              {recording
-                ? t("Recording in progress")
-                : t("Start packet recording")}
-            </button>
-            <button onClick={onPalette} type="button">
+          </button>
+          <button
+            aria-label={t("Open settings")}
+            className="icon-button"
+            onClick={() => onView("health")}
+            title={t("Settings")}
+            type="button"
+          >
+            <Icon name="settings" />
+          </button>
+          <details className="topbar-compact-menu">
+            <summary aria-label={t("Open capture and actions menu")}>
               <Icon name="command" />
-              {t("Command palette")}
-            </button>
-            <button onClick={() => onView("health")} type="button">
-              <Icon name="settings" />
-              {t("Settings")}
-            </button>
-          </div>
-        </details>
-      </div>
-    </header>
+            </summary>
+            <div>
+              <nav aria-label={t("Primary navigation in compact menu")}>
+                {navigation.map((item) => (
+                  <button
+                    aria-current={primaryView === item.id ? "page" : undefined}
+                    key={item.id}
+                    onClick={() => onView(item.id)}
+                    type="button"
+                  >
+                    <Icon name={item.icon} />
+                    {t(item.label)}
+                  </button>
+                ))}
+              </nav>
+              <label>
+                <span>{t("Capture mode")}</span>
+                {captureSelect(true)}
+              </label>
+              {interfaceSelect(true)}
+              <button onClick={onRecord} type="button">
+                <Icon name="record" />
+                {recording
+                  ? t("Recording in progress")
+                  : t("Start packet recording")}
+              </button>
+              <button onClick={onPalette} type="button">
+                <Icon name="command" />
+                {t("Command palette")}
+              </button>
+              <button onClick={() => onView("health")} type="button">
+                <Icon name="settings" />
+                {t("Settings")}
+              </button>
+            </div>
+          </details>
+        </div>
+      </header>
+    </>
   );
 }

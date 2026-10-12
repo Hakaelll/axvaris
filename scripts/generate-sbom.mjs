@@ -111,17 +111,17 @@ for (const item of [...cargoPackages(), ...nodePackages()]) {
 const components = [...componentMap.values()].sort((left, right) =>
   left.SPDXID.localeCompare(right.SPDXID),
 );
-const rootId = "SPDXRef-Package-Sabicheiro";
+const rootId = "SPDXRef-Package-Axvaris";
 const packages = [
   {
     SPDXID: rootId,
-    name: "Sabicheiro",
+    name: "Axvaris",
     versionInfo: version,
     downloadLocation: "NOASSERTION",
     filesAnalyzed: false,
     licenseConcluded: "MIT",
     licenseDeclared: "MIT",
-    supplier: "Organization: Sabicheiro contributors",
+    supplier: "Organization: Axvaris contributors",
   },
   ...components,
 ];
@@ -132,11 +132,11 @@ const document = {
   spdxVersion: "SPDX-2.3",
   dataLicense: "CC0-1.0",
   SPDXID: "SPDXRef-DOCUMENT",
-  name: `Sabicheiro-${version}-SBOM`,
+  name: `Axvaris-${version}-SBOM`,
   documentNamespace: `https://sabicheiro.invalid/spdx/${version}`,
   creationInfo: {
     created,
-    creators: ["Tool: scripts/generate-sbom.mjs", "Organization: Sabicheiro contributors"],
+    creators: ["Tool: scripts/generate-sbom.mjs", "Organization: Axvaris contributors"],
     licenseListVersion: "3.27",
   },
   documentDescribes: [rootId],

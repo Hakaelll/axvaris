@@ -23,26 +23,16 @@ interface SceneState {
   controls: GlobeControls;
   traffic: THREE.Group;
   animation: number;
-  animationTimer: number;
   requestRender: () => void;
   markerIds: Map<THREE.Object3D, string>;
   resizeObserver: ResizeObserver;
   pointer: THREE.Vector2;
-  frameCount: number;
-  fpsStarted: number;
-  movingDots: Array<{
-    mesh: THREE.Mesh;
-    curve: THREE.QuadraticBezierCurve3;
-    phase: number;
-    speed: number;
-  }>;
-  reduceMotion: boolean;
   trafficSignature: string;
 }
 
 const SPAIN_LATITUDE = 40.4168;
 const SPAIN_LONGITUDE = -3.7038;
-const DEFAULT_CAMERA_DISTANCE = 3.05;
+const DEFAULT_CAMERA_DISTANCE = 3.5;
 
 interface GlobeControls {
   target: THREE.Vector3;
@@ -233,7 +223,7 @@ export const GlobeScene = memo(function GlobeScene({
     const globe = new THREE.Mesh(
       new THREE.SphereGeometry(1, 64, 40),
       new THREE.MeshStandardMaterial({
-        color: 0x141618,
+        color: 0x303330,
         roughness: 0.88,
         metalness: 0.08,
       }),
@@ -241,7 +231,7 @@ export const GlobeScene = memo(function GlobeScene({
     scene.add(globe);
     scene.add(makeBorderLines());
     scene.add(new THREE.HemisphereLight(0x8e969f, 0x060708, 1.8));
-    const side = new THREE.DirectionalLight(0xe4f222, 0.42);
+    const side = new THREE.DirectionalLight(0xeeeeee, 0.8);
     side.position.set(-2.4, 1.8, 2.2);
     scene.add(side);
     const rim = new THREE.Mesh(
@@ -337,52 +327,20 @@ export const GlobeScene = memo(function GlobeScene({
       resizeObserver,
       pointer,
       animation: 0,
-      animationTimer: 0,
       requestRender: () => requestRender(),
-      frameCount: 0,
-      fpsStarted: performance.now(),
-      movingDots: [],
-      reduceMotion,
       trafficSignature: "",
     };
     sceneRef.current = state;
-    const render = (now: number) => {
+    const render = () => {
       state.animation = 0;
       if (document.visibilityState !== "visible") return;
-      state.frameCount += 1;
-      if (now - state.fpsStarted >= 1_000) {
-        onFpsRef.current?.(
-          (state.frameCount * 1_000) / (now - state.fpsStarted),
-        );
-        state.frameCount = 0;
-        state.fpsStarted = now;
-      }
-      if (!state.reduceMotion) {
-        const seconds = now / 1_000;
-        for (const dot of state.movingDots) {
-          const progress = (seconds * dot.speed + dot.phase) % 1;
-          dot.mesh.position.copy(dot.curve.getPoint(progress));
-        }
-      }
       renderer.render(scene, camera);
-      if (state.movingDots.length > 0 && !state.reduceMotion) {
-        state.animationTimer = window.setTimeout(() => {
-          state.animationTimer = 0;
-          requestRender();
-        }, 33);
-      } else {
-        state.frameCount = 0;
-        state.fpsStarted = now;
-        onFpsRef.current?.(0);
-      }
+      onFpsRef.current?.(0);
     };
     requestRender = () => {
       if (document.visibilityState !== "visible" || state.animation !== 0)
         return;
-      if (state.animationTimer !== 0) {
-        window.clearTimeout(state.animationTimer);
-        state.animationTimer = 0;
-      }
+
       state.animation = requestAnimationFrame(render);
     };
     const handleVisibility = () => {
@@ -390,9 +348,7 @@ export const GlobeScene = memo(function GlobeScene({
         requestRender();
       } else {
         cancelAnimationFrame(state.animation);
-        window.clearTimeout(state.animationTimer);
         state.animation = 0;
-        state.animationTimer = 0;
         onFpsRef.current?.(0);
       }
     };
@@ -401,10 +357,12 @@ export const GlobeScene = memo(function GlobeScene({
 
     return () => {
       cancelAnimationFrame(state.animation);
-      window.clearTimeout(state.animationTimer);
       document.removeEventListener("visibilitychange", handleVisibility);
       renderer.domElement.removeEventListener("pointerup", handlePointer);
-      renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
+      renderer.domElement.removeEventListener(
+        "webglcontextlost",
+        handleContextLost,
+      );
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener(
         "pointerleave",
@@ -429,7 +387,6 @@ export const GlobeScene = memo(function GlobeScene({
   useEffect(() => {
     const state = sceneRef.current;
     if (!state) return;
-    state.reduceMotion = reduceMotion;
     state.renderer.setPixelRatio(
       Math.min(window.devicePixelRatio, reduceMotion ? 1 : 1.5),
     );
@@ -453,7 +410,6 @@ export const GlobeScene = memo(function GlobeScene({
     state.trafficSignature = signature;
     disposeGroup(state.traffic);
     state.markerIds.clear();
-    state.movingDots = [];
     for (const route of routes) {
       const connection = route.representative;
       const selected =
@@ -477,7 +433,7 @@ export const GlobeScene = memo(function GlobeScene({
         curve.getPoints(selected ? 44 : 28),
       );
       const material = new THREE.LineBasicMaterial({
-        color: selected ? 0xe4f222 : route.active ? 0x8f989c : 0x555b5e,
+        color: selected ? 0xee6018 : route.active ? 0x8f989c : 0x555b5e,
         transparent: true,
         opacity: selected ? 1 : route.active ? 0.55 : 0.2,
         depthTest: true,
@@ -495,12 +451,12 @@ export const GlobeScene = memo(function GlobeScene({
       );
       const marker = new THREE.Mesh(
         new THREE.SphereGeometry(radius, 12, 8),
-        new THREE.MeshBasicMaterial({ color: selected ? 0xe4f222 : 0xb1b9bd }),
+        new THREE.MeshBasicMaterial({ color: selected ? 0xee6018 : 0xb1b9bd }),
       );
       const halo = new THREE.Mesh(
         new THREE.SphereGeometry(radius * 1.75, 12, 8),
         new THREE.MeshBasicMaterial({
-          color: selected ? 0xe4f222 : 0x9ca7ad,
+          color: selected ? 0xee6018 : 0x9ca7ad,
           transparent: true,
           opacity: selected ? 0.16 : 0.075,
           depthWrite: false,
@@ -521,39 +477,24 @@ export const GlobeScene = memo(function GlobeScene({
       state.markerIds.set(marker, selectionTarget);
       markerGroup.add(halo, marker);
       state.traffic.add(markerGroup);
-      if (route.active && !reduceMotion) {
-        const dot = new THREE.Mesh(
-          new THREE.SphereGeometry(selected ? 0.009 : 0.006, 8, 6),
-          new THREE.MeshBasicMaterial({
-            color: selected ? 0xe4f222 : 0xd8dfe2,
-            depthTest: true,
-          }),
-        );
-        dot.position.copy(curve.getPoint((route.count % 10) / 10));
-        state.traffic.add(dot);
-        state.movingDots.push({
-          mesh: dot,
-          curve,
-          phase: (route.count % 17) / 17,
-          speed: 0.045 + (route.count % 7) * 0.004,
-        });
-      }
     }
     const homeGroup = new THREE.Group();
-    homeGroup.position.copy(homePoint);
+    homeGroup.position.copy(homePoint).normalize().multiplyScalar(1.065);
+    homeGroup.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      homePoint.clone().normalize(),
+    );
     homeGroup.add(
       new THREE.Mesh(
-        new THREE.SphereGeometry(0.036, 12, 8),
+        new THREE.RingGeometry(0.04, 0.047, 32),
         new THREE.MeshBasicMaterial({
-          color: 0xe4f222,
-          transparent: true,
-          opacity: 0.1,
-          depthWrite: false,
+          color: 0xeeeeee,
+          side: THREE.DoubleSide,
         }),
       ),
       new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.022, 0),
-        new THREE.MeshBasicMaterial({ color: 0xe4f222 }),
+        new THREE.SphereGeometry(0.018, 16, 10),
+        new THREE.MeshBasicMaterial({ color: 0xa0ca92 }),
       ),
     );
     state.traffic.add(homeGroup);

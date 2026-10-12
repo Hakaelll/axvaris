@@ -76,8 +76,8 @@ export function groupDevices(
       remote.scope === "loopback"
         ? "self"
         : candidates?.size === 1
-        ? [...candidates][0]!
-        : `observed:${remote.address}%${remote.zone ?? ""}`;
+          ? [...candidates][0]!
+          : `observed:${remote.address}%${remote.zone ?? ""}`;
     let device = devices.get(key);
     if (!device) {
       device = createDevice(key, null);

@@ -145,7 +145,7 @@ const localizedFailureMessages: Record<string, string> = {
   timeline_unavailable:
     "Stored traffic samples could not be read for this time range.",
   storage_unavailable:
-    "Local storage is unavailable. Sabicheiro has kept the original diagnostic below.",
+    "Local storage is unavailable. Axvaris has kept the original diagnostic below.",
   geo_update_failed:
     "The free GeoIP update could not be installed. You can retry or import an MMDB offline.",
   geo_import_failed:

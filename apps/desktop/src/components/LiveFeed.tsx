@@ -105,7 +105,7 @@ export function LiveFeed({
     listRef.current
       ?.querySelector<HTMLElement>(".feed-group.is-selected")
       ?.scrollIntoView({ block: "nearest" });
-  }, [groups, selectedId]);
+  }, [selectedId]);
 
   const toggleExpanded = (id: string) => {
     setExpanded((current) => {

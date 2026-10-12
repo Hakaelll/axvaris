@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-12T17:25:53.811Z",
+  "generatedAt": "2026-10-12T18:13:35.803Z",
   "title": "Design System: Axvaris",
   "extensions": {
     "colorMeta": {
@@ -190,14 +190,42 @@
         "role": "neutral",
         "displayName": "Connection Selected",
         "tonalRamp": [
-          "oklch(15% 0.0081 59.3)",
-          "oklch(26% 0.0081 59.3)",
-          "oklch(38% 0.0081 59.3)",
-          "oklch(49% 0.0081 59.3)",
-          "oklch(61% 0.0081 59.3)",
-          "oklch(72% 0.0081 59.3)",
-          "oklch(84% 0.0081 59.3)",
-          "oklch(95% 0.0081 59.3)"
+          "oklch(15% 0.0091 67.5)",
+          "oklch(26% 0.0091 67.5)",
+          "oklch(38% 0.0091 67.5)",
+          "oklch(49% 0.0091 67.5)",
+          "oklch(61% 0.0091 67.5)",
+          "oklch(72% 0.0091 67.5)",
+          "oklch(84% 0.0091 67.5)",
+          "oklch(95% 0.0091 67.5)"
+        ]
+      },
+      "divider": {
+        "role": "neutral",
+        "displayName": "Quiet divider",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.9)",
+          "oklch(26% 0.0000 89.9)",
+          "oklch(38% 0.0000 89.9)",
+          "oklch(49% 0.0000 89.9)",
+          "oklch(61% 0.0000 89.9)",
+          "oklch(72% 0.0000 89.9)",
+          "oklch(84% 0.0000 89.9)",
+          "oklch(95% 0.0000 89.9)"
+        ]
+      },
+      "globe-boundary": {
+        "role": "neutral",
+        "displayName": "Globe boundary",
+        "tonalRamp": [
+          "oklch(15% 0.0102 179.3)",
+          "oklch(26% 0.0102 179.3)",
+          "oklch(38% 0.0102 179.3)",
+          "oklch(49% 0.0102 179.3)",
+          "oklch(61% 0.0102 179.3)",
+          "oklch(72% 0.0102 179.3)",
+          "oklch(84% 0.0102 179.3)",
+          "oklch(95% 0.0102 179.3)"
         ]
       }
     },
@@ -208,7 +236,7 @@
       },
       "title": {
         "displayName": "Card title",
-        "purpose": "Evidence card names."
+        "purpose": "Titles lead full-width observation rows before category and scope."
       },
       "body": {
         "displayName": "Body",
@@ -257,12 +285,8 @@
     ],
     "breakpoints": [
       {
-        "name": "compact-sidebar",
+        "name": "compact-sidebar-and-session",
         "value": "1180px"
-      },
-      {
-        "name": "session-stack",
-        "value": "1100px"
       },
       {
         "name": "live-stack",
@@ -277,7 +301,7 @@
       "refersTo": "button-primary",
       "description": "Open the evidence behind a change.",
       "html": "<button class=\"ds-primary\">Open evidence</button>",
-      "css": ".ds-primary{min-height:32px;padding:0 12px;border-radius:6px;font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:var(--mist,#eeeeee);color:var(--void,#101010);border:1px solid var(--selection,#eeeeee)}.ds-primary:hover{background:#d8d5d2}.ds-primary:disabled{opacity:.45;cursor:not-allowed}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+      "css": ".ds-primary{min-height:32px;padding:0 12px;border-radius:var(--control-radius,8px);font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:var(--mist,#eeeeee);color:var(--void,#101010);border:1px solid var(--selection,#eeeeee)}.ds-primary:hover{background:#d8d5d2}.ds-primary:disabled{opacity:.45;cursor:not-allowed}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
     },
     {
       "name": "Secondary action",
@@ -285,7 +309,7 @@
       "refersTo": "button-secondary",
       "description": "A supporting action beside the primary evidence action.",
       "html": "<button class=\"ds-secondary\">Pin</button>",
-      "css": ".ds-secondary{min-height:32px;padding:0 12px;border-radius:6px;font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:#181a1b;color:var(--mist,#eeeeee);border:1px solid #35383b}.ds-secondary:hover{background:#1e2022;border-color:#53575b}.ds-secondary:disabled{opacity:.45;cursor:not-allowed}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+      "css": ".ds-secondary{min-height:32px;padding:0 12px;border-radius:var(--control-radius,8px);font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:#181a1b;color:var(--mist,#eeeeee);border:1px solid #35383b}.ds-secondary:hover{background:#1e2022;border-color:#53575b}.ds-secondary:disabled{opacity:.45;cursor:not-allowed}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
     },
     {
       "name": "Search field",
@@ -293,7 +317,7 @@
       "refersTo": "search-field",
       "description": "Search local connection evidence.",
       "html": "<input class=\"ds-search\" aria-label=\"Search connections\" placeholder=\"Search or process:firefox country:US\">",
-      "css": ".ds-search{height:36px;width:100%;max-width:420px;min-width:100px;padding:0 9px;border:1px solid var(--graphite,#3d3a39);border-radius:6px;background:var(--carbon,#151413);color:var(--mist,#eeeeee);font:12px Geist,\"Segoe UI\",sans-serif}.ds-search::placeholder{color:var(--fog,#b8b3b0)}.ds-search:hover{border-color:var(--smoke,#4d4947)}.ds-search:focus{border-color:#60656a}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
+      "css": ".ds-search{height:36px;width:100%;max-width:420px;min-width:100px;padding:0 9px;border:1px solid var(--graphite,#3d3a39);border-radius:var(--control-radius,8px);background:var(--carbon,#151413);color:var(--mist,#eeeeee);font:12px Geist,\"Segoe UI\",sans-serif}.ds-search::placeholder{color:var(--fog,#b8b3b0)}.ds-search:hover{border-color:var(--smoke,#4d4947)}.ds-search:focus{border-color:#60656a}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
     },
     {
       "name": "Sidebar navigation",
@@ -301,7 +325,7 @@
       "refersTo": "sidebar-item-active",
       "description": "Persistent investigation areas with an explicit current page.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Primary\"><button>Today</button><button aria-current=\"page\">Live</button><button>Investigate</button><button>Exposure</button><button>Data &amp; Health</button></nav>",
-      "css": ".ds-nav{width:172px;display:grid;gap:6px;background:var(--carbon,#151413);padding:12px}.ds-nav button{min-height:42px;width:100%;padding:10px;text-align:left;font:14px Geist,\"Segoe UI\",sans-serif;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--fog,#b8b3b0);cursor:pointer}.ds-nav button:hover{background:#151617;color:var(--mist,#eeeeee)}.ds-nav button[aria-current]{background:var(--selection-muted,rgba(238,238,238,.08));border-color:var(--graphite,#3d3a39);color:var(--paper,#fff)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+      "css": ".ds-nav{width:172px;display:grid;gap:6px;background:var(--carbon,#151413);padding:12px}.ds-nav button{min-height:46px;width:100%;padding:10px;text-align:left;font:14px Geist,\"Segoe UI\",sans-serif;border:1px solid transparent;border-radius:var(--control-radius,8px);background:transparent;color:var(--fog,#b8b3b0);cursor:pointer}.ds-nav button:hover{background:#151617;color:var(--mist,#eeeeee)}.ds-nav button[aria-current]{background:#292522;border-color:transparent;color:var(--paper,#fff)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
     },
     {
       "name": "Query chip",
@@ -312,20 +336,28 @@
       "css": ".ds-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid #4a4f53;border-radius:14px;background:#191b1c;color:var(--fog,#b8b3b0);font:12px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
     },
     {
-      "name": "Evidence card",
-      "kind": "card",
-      "refersTo": "evidence-card",
-      "description": "A change observation with an action that opens its evidence.",
-      "html": "<article class=\"ds-card\"><span>New network process</span><h3>Demo Browser</h3><p>First observed opening a network connection on this device.</p><button class=\"ds-primary\">Open evidence</button></article>",
-      "css": ".ds-card{max-width:360px;padding:18px;border:1px solid var(--graphite,#3d3a39);border-radius:12px;background:var(--carbon,#151413);color:var(--fog,#b8b3b0);font:14px/1.55 Geist,\"Segoe UI\",sans-serif;box-shadow:none}.ds-card>span{font-size:12px;letter-spacing:.03em}.ds-card h3{font-size:17px;font-weight:500;margin:10px 0;color:var(--mist,#eeeeee)}.ds-card p{margin:0 0 14px}.ds-card .ds-primary{min-height:32px;padding:0 12px;border-radius:6px;font:510 12px Geist,\"Segoe UI\",sans-serif;cursor:pointer;background:var(--mist,#eeeeee);color:var(--void,#101010);border:1px solid var(--selection,#eeeeee)}.ds-card .ds-primary:hover{background:#d8d5d2}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+      "name": "Observation list",
+      "kind": "custom",
+      "refersTo": "observation-list",
+      "description": "One continuous list with titles before category and scope, and quiet inline evidence actions.",
+      "html": "<section class=\"ds-observations\"><article class=\"ds-observation\"><div><h3>Demo Browser</h3><header><span>New network process</span><small>This device</small></header><p>First observed opening a network connection on this device.</p></div><footer><button class=\"ds-evidence\">Open evidence <svg aria-hidden=\"true\" viewBox=\"0 0 16 16\" width=\"14\" height=\"14\"><path d=\"m6 3 5 5-5 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button><button>Pin</button><button>Dismiss</button></footer></article><article class=\"ds-observation\"><div><h3>portal.invalid</h3><header><span>New destination for application</span><small>Application</small></header><p>Open the retained evidence to inspect its source and quality.</p></div><footer><button class=\"ds-evidence\">Open evidence</button><button>Pin</button><button>Dismiss</button></footer></article></section>",
+      "css": ".ds-observations{padding:0 24px;border-radius:var(--surface-radius,16px);background:var(--carbon,#151413);font:14px/1.6 Geist,\"Segoe UI\",sans-serif;color:var(--fog,#b8b3b0)}.ds-observation{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:center;padding:22px 0;border-bottom:1px solid var(--divider,rgba(238,238,238,.12))}.ds-observation:last-child{border-bottom:0}.ds-observation h3{margin:0 0 6px;font-size:18px;font-weight:500;color:var(--mist,#eeeeee)}.ds-observation header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-bottom:8px;font-size:12px}.ds-observation small{padding:3px 8px;border-radius:6px;background:var(--surface-interactive,#24211f);font-size:12px}.ds-observation p{max-width:72ch;margin:0}.ds-observation footer{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.ds-observation button{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid transparent;border-radius:var(--control-radius,8px);background:transparent;color:var(--fog,#b8b3b0);font:12px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-observation .ds-evidence{color:var(--paper,#fff);border-color:var(--divider,rgba(238,238,238,.12))}.ds-observation button:hover{background:var(--surface-interactive,#24211f)}@media(max-width:900px){.ds-observations{padding:0 18px}.ds-observation{grid-template-columns:minmax(0,1fr);gap:14px;padding:20px 0}.ds-observation footer{justify-content:flex-start}}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
     },
     {
-      "name": "Selected connection",
+      "name": "Inset Live feed",
       "kind": "custom",
-      "refersTo": "connection-row-selected",
-      "description": "A process and destination row whose selection is tied to the map.",
-      "html": "<button class=\"ds-row\"><strong>Demo Browser</strong><code>portal.invalid:443</code><span>Madrid, Spain · TCP</span></button>",
-      "css": ".ds-row{position:relative;display:grid;gap:7px;min-height:112px;width:100%;padding:14px 16px;text-align:left;background:#292522;color:var(--mist,#eeeeee);border:0;border-bottom:1px solid var(--graphite,#3d3a39);font:14px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-row:before{content:\"\";position:absolute;left:0;top:0;bottom:0;width:3px;background:#ee6018}.ds-row strong{font-size:15px}.ds-row code{font:12px \"Geist Mono\",ui-monospace,monospace}.ds-row span{font-size:12px;color:var(--fog,#b8b3b0)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
+      "refersTo": "live-feed",
+      "description": "Rounded feed with quiet separators and readable selected connection rows.",
+      "html": "<section class=\"ds-feed\"><header>Live connections <strong>2</strong></header><div class=\"ds-feed-list\"><button class=\"ds-feed-row\" aria-pressed=\"true\"><strong>Demo Browser</strong><code>portal.invalid:443</code><span>Madrid, Spain · TCP</span></button><button class=\"ds-feed-row\"><strong>Demo Updater</strong><code>updates.invalid:443</code><span>Tokyo, Japan · TCP</span></button></div></section>",
+      "css": ".ds-feed{overflow:hidden;border-radius:var(--surface-radius,16px);background:var(--obsidian,#1d1a18);font:14px Geist,\"Segoe UI\",sans-serif;color:var(--fog,#b8b3b0)}.ds-feed>header{display:flex;gap:8px;align-items:center;height:60px;padding:0 18px;border-bottom:1px solid var(--divider,rgba(238,238,238,.12))}.ds-feed strong{color:var(--mist,#eeeeee)}.ds-feed-list{padding:8px}.ds-feed-row{display:grid;gap:6px;min-height:112px;width:100%;padding:12px 10px;border:0;border-radius:10px;background:transparent;text-align:left;color:var(--mist,#eeeeee);font:14px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-feed-row+button{margin-top:8px}.ds-feed-row:hover{background:#292522}.ds-feed-row[aria-pressed=true]{background:#34302c}.ds-feed-row strong{font-size:16px}.ds-feed-row code{font:14px \"Geist Mono\",ui-monospace,monospace}.ds-feed-row span{font-size:12px;color:var(--fog,#b8b3b0)}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
+    },
+    {
+      "name": "Globe context caption",
+      "kind": "custom",
+      "refersTo": "globe-caption",
+      "description": "Readable filter caption restricted to process, country and destination.",
+      "html": "<div class=\"ds-caption\" aria-label=\"Top context\"><button><span>PROCESS</span><strong>Demo Browser</strong></button><button><span>COUNTRY</span><strong>ES</strong></button><button><span>DESTINATION</span><strong>portal.invalid</strong></button></div>",
+      "css": ".ds-caption{display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,1.3fr);width:min(520px,calc(100% - 24px));gap:8px 20px;padding:12px 16px;border-radius:12px;background:var(--obsidian,#1d1a18)}.ds-caption button{display:grid;gap:5px;min-width:0;padding:0;border:0;background:transparent;text-align:left;font-family:\"Geist Mono\",ui-monospace,monospace;cursor:pointer}.ds-caption span{font-size:12px;color:var(--fog,#b8b3b0);letter-spacing:0}.ds-caption strong{max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:13px;color:var(--mist,#eeeeee)}.ds-caption button:hover{background:transparent}@media(max-width:900px){.ds-caption{display:none}}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
     }
   ],
   "narrative": {
@@ -334,6 +366,7 @@
     "keyCharacteristics": [
       "Five persistent investigation areas in a left sidebar.",
       "Monochrome controls with limited color for evidence states.",
+      "Full-width observations with titles before category and scope.",
       "Larger values and row names above quieter metadata.",
       "Local brand and font assets, with no remote font dependency."
     ],
@@ -357,6 +390,8 @@
     "dos": [
       "Do use the supplied serif AXVARIS wordmark and matching X.",
       "Do keep process names, evidence text and metric values stronger than metadata.",
+      "Do place observation titles before category and scope, with quiet inline actions.",
+      "Do preserve the Live reader's scroll position during background group refreshes.",
       "Do preserve the five-area sidebar and stacked compact Live layout.",
       "Do keep visible focus, text labels for states and reduced motion behavior.",
       "Do distinguish local capture, imported DNS queries and demo data in the interface."

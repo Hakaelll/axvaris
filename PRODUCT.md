@@ -8,8 +8,8 @@ The product is for people who need to understand which applications communicate,
 
 ## Investigation areas
 
-- Today summarizes activity and changes, with actions that open the underlying evidence.
-- Live pairs connections, local peers and listeners with a globe or map and a contextual inspector.
+- Today summarizes activity and changes in full-width observation rows, with titles before their category and scope and quiet actions that open the underlying evidence.
+- Live pairs connections, local peers and listeners with a globe or map and a contextual inspector. Its inset feed preserves the reader's scroll position during background refreshes; a selection change can reveal the selected group.
 - Investigate provides paginated history, process instances, timelines and read-only .sabi investigation bundles.
 - Exposure shows listening sockets, interfaces and explainable local rules.
 - Data & Health provides capture capabilities, diagnostics, retention, privacy and imported external DNS evidence.

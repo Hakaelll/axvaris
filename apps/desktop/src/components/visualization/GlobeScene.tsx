@@ -147,9 +147,9 @@ function makeBorderLines(): THREE.LineSegments {
   return new THREE.LineSegments(
     geometry,
     new THREE.LineBasicMaterial({
-      color: 0x3a3d40,
+      color: 0x68706e,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.78,
     }),
   );
 }

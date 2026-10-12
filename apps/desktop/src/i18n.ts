@@ -224,7 +224,7 @@ const spanish: Record<string, string> = {
   "Observed port / protocol": "Puerto/protocolo observado",
   "Observed value": "Valor observado",
   Open: "Abrir",
-  "Open any card to reach its concrete connection evidence in one step.":
+  "Open a change to inspect its retained connection evidence.":
     "Abre cualquier tarjeta para llegar a su evidencia concreta de conexión en un paso.",
   "Open Data & Health": "Abrir Datos y estado",
   "Open evidence": "Abrir evidencia",
@@ -366,7 +366,6 @@ const spanish: Record<string, string> = {
   PROCESS: "PROCESO",
   COUNTRY: "PAÍS",
   DESTINATION: "DESTINO",
-  DOMAIN: "DOMINIO",
   PORT: "PUERTO",
   Process: "Proceso",
   Connections: "Conexiones",

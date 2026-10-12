@@ -439,7 +439,7 @@ export function TodayView({
               <h2 id="today-changes-title">{t("Changes worth reviewing")}</h2>
               <p>
                 {t(
-                  "Open any card to reach its concrete connection evidence in one step.",
+                  "Open a change to inspect its retained connection evidence.",
                 )}
               </p>
             </div>
@@ -460,28 +460,30 @@ export function TodayView({
                   className={`today-card${state.pinned ? " is-pinned" : ""}`}
                   key={card.id}
                 >
-                  <header>
-                    <span>{card.category}</span>
-                    <small>
-                      {t(
-                        {
-                          device: "This device",
-                          application: "Application",
-                          profile: "Network profile",
-                          health: "Capture health",
-                        }[card.scope],
-                      )}
-                    </small>
-                  </header>
-                  <h3>
-                    {card.sensitiveKind
-                      ? display(card.sensitiveKind, card.title)
-                      : card.title}
-                  </h3>
-                  <p>{displayText(card.detail)}</p>
+                  <div className="today-card__content">
+                    <h3>
+                      {card.sensitiveKind
+                        ? display(card.sensitiveKind, card.title)
+                        : card.title}
+                    </h3>
+                    <header>
+                      <span>{card.category}</span>
+                      <small>
+                        {t(
+                          {
+                            device: "This device",
+                            application: "Application",
+                            profile: "Network profile",
+                            health: "Capture health",
+                          }[card.scope],
+                        )}
+                      </small>
+                    </header>
+                    <p>{displayText(card.detail)}</p>
+                  </div>
                   <footer>
                     <button
-                      className="button button--primary"
+                      className="button button--evidence"
                       onClick={() =>
                         onOpenEvidence(
                           card.target,
@@ -492,6 +494,7 @@ export function TodayView({
                       type="button"
                     >
                       {t("Open evidence")}
+                      <Icon name="chevron" />
                     </button>
                     <button
                       aria-pressed={state.pinned}

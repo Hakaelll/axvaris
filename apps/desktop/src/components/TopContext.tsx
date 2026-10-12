@@ -71,30 +71,6 @@ export function TopContext({
             (value) => JSON.stringify(value),
           ),
         ],
-        [
-          "DOMAIN",
-          rank(
-            connections,
-            (item) => item.domain ?? item.hostname,
-            (value) => `domain:${JSON.stringify(value)}`,
-          ),
-        ],
-        [
-          "PORT",
-          rank(
-            connections,
-            (item) => String(item.key.remote.port),
-            (value) => `port:${value}`,
-          ),
-        ],
-        [
-          "ASN",
-          rank(
-            connections,
-            (item) => (item.asn ? String(item.asn.number) : null),
-            (value) => `asn:${value}`,
-          ),
-        ],
       ] as const,
     [connections],
   );
@@ -110,9 +86,7 @@ export function TopContext({
               type="button"
             >
               <span>{t(label)}</span>
-              <strong>
-                {label === "ASN" ? `AS${entry.value}` : entry.value}
-              </strong>
+              <strong>{entry.value}</strong>
             </button>
           ),
       )}

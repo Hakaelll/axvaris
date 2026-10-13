@@ -19,14 +19,35 @@ pub(crate) struct LinuxCaptureProvider {
     processes: ProcessResolver,
     sequence: u32,
     response_buffer: Vec<u8>,
+    #[cfg(feature = "linux-ebpf")]
+    events: Option<crate::LinuxEventCapture>,
+    #[cfg(feature = "linux-ebpf")]
+    event_error: Option<String>,
+    #[cfg(feature = "linux-ebpf")]
+    last_event_attempt: std::time::Instant,
+    #[cfg(feature = "linux-ebpf")]
+    retired_drops: u64,
 }
 
 impl LinuxCaptureProvider {
     pub(crate) fn new() -> Self {
+        #[cfg(feature = "linux-ebpf")]
+        let (events, event_error) = match crate::LinuxEventCapture::start() {
+            Ok(events) => (Some(events), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
         Self {
             processes: ProcessResolver::new(),
             sequence: 1,
             response_buffer: vec![0_u8; 4 * 1024 * 1024],
+            #[cfg(feature = "linux-ebpf")]
+            events,
+            #[cfg(feature = "linux-ebpf")]
+            event_error,
+            #[cfg(feature = "linux-ebpf")]
+            last_event_attempt: std::time::Instant::now(),
+            #[cfg(feature = "linux-ebpf")]
+            retired_drops: 0,
         }
     }
 }
@@ -52,11 +73,11 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
         }
         let wanted = rows.iter().map(|row| row.inode).collect::<HashSet<_>>();
         let owners = socket_owners(&wanted);
-        self.processes.refresh(owners.values().copied());
+        self.processes.refresh(owners.values().copied().flatten());
         Ok(rows
             .into_iter()
             .map(|row| {
-                let pid = owners.get(&row.inode).copied();
+                let pid = owners.get(&row.inode).copied().flatten();
                 let state = linux_state(row.state, row.protocol);
                 let direction = infer_direction(&row.local, row.remote.as_ref(), state);
                 let interface = interface_name(row.interface_index);
@@ -82,7 +103,7 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
     }
 
     fn descriptor(&self, generation: u64) -> ProviderDescriptor {
-        ProviderDescriptor {
+        let descriptor = ProviderDescriptor {
             protocol_version: 1,
             provider_id: "linux.inet_diag".into(),
             display_name: "Linux INET_DIAG".into(),
@@ -119,7 +140,71 @@ impl NetworkCaptureProvider for LinuxCaptureProvider {
                     limitation: Some("only the calling process network namespace is visible".into()),
                 },
             ],
+        };
+        #[cfg(feature = "linux-ebpf")]
+        let mut descriptor = descriptor;
+        #[cfg(feature = "linux-ebpf")]
+        if let Some(events) = &self.events {
+            descriptor.mode = ProviderMode::Hybrid;
+            descriptor
+                .capabilities
+                .extend(events.descriptor(generation).capabilities);
+        } else {
+            descriptor.capabilities.push(ProviderCapability {
+                kind: CaptureCapabilityKind::LifecycleEvents,
+                availability: CapabilityAvailability::Unavailable,
+                source: ObservationSource::LinuxEbpf,
+                limitation: self.event_error.clone(),
+            });
         }
+        descriptor
+    }
+
+    fn drain_events(&mut self) -> (Vec<sabicheiro_core::NormalizedNetworkEvent>, u64) {
+        #[cfg(feature = "linux-ebpf")]
+        {
+            let (events, dropped) = self
+                .events
+                .as_mut()
+                .map_or((Vec::new(), 0), |capture| capture.drain());
+            let total = self.retired_drops.saturating_add(dropped);
+            if !self.has_event_stream()
+                && self.last_event_attempt.elapsed() >= std::time::Duration::from_secs(30)
+            {
+                self.last_event_attempt = std::time::Instant::now();
+                self.retired_drops = total;
+                self.events = None;
+                match crate::LinuxEventCapture::start() {
+                    Ok(capture) => {
+                        self.events = Some(capture);
+                        self.event_error = None;
+                    }
+                    Err(error) => self.event_error = Some(error.to_string()),
+                }
+            }
+            (events, total)
+        }
+        #[cfg(not(feature = "linux-ebpf"))]
+        (Vec::new(), 0)
+    }
+
+    fn has_event_stream(&self) -> bool {
+        #[cfg(feature = "linux-ebpf")]
+        return self
+            .events
+            .as_ref()
+            .is_some_and(|capture| capture.is_alive());
+        #[cfg(not(feature = "linux-ebpf"))]
+        false
+    }
+    fn event_queue(&self) -> (usize, usize) {
+        #[cfg(feature = "linux-ebpf")]
+        return self
+            .events
+            .as_ref()
+            .map_or((0, 0), |capture| capture.queue());
+        #[cfg(not(feature = "linux-ebpf"))]
+        (0, 0)
     }
 }
 
@@ -307,7 +392,7 @@ fn linux_state(value: u8, protocol: NetworkProtocol) -> ConnectionState {
     }
 }
 
-fn socket_owners(wanted: &HashSet<u64>) -> HashMap<u64, u32> {
+fn socket_owners(wanted: &HashSet<u64>) -> HashMap<u64, Option<u32>> {
     let mut owners = HashMap::new();
     if wanted.is_empty() {
         return owners;
@@ -341,11 +426,15 @@ fn socket_owners(wanted: &HashSet<u64>) -> HashMap<u64, u32> {
                 continue;
             };
             if wanted.contains(&inode) {
-                owners.entry(inode).or_insert(pid);
+                owners
+                    .entry(inode)
+                    .and_modify(|owner| {
+                        if *owner != Some(pid) {
+                            *owner = None;
+                        }
+                    })
+                    .or_insert(Some(pid));
             }
-        }
-        if owners.len() == wanted.len() {
-            break;
         }
     }
     owners
@@ -359,6 +448,32 @@ mod tests {
         thread,
         time::Duration,
     };
+
+    #[test]
+    fn shared_socket_has_no_single_confirmed_owner() {
+        use std::os::fd::AsRawFd;
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let target = fs::read_link(format!("/proc/self/fd/{}", listener.as_raw_fd())).unwrap();
+        let inode: u64 = target
+            .to_str()
+            .unwrap()
+            .strip_prefix("socket:[")
+            .unwrap()
+            .strip_suffix(']')
+            .unwrap()
+            .parse()
+            .unwrap();
+        let inherited = std::os::fd::OwnedFd::from(listener.try_clone().unwrap());
+        let mut child = Command::new("sleep")
+            .arg("1")
+            .stdin(std::process::Stdio::from(inherited))
+            .spawn()
+            .unwrap();
+        let owners = socket_owners(&HashSet::from([inode]));
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(owners.get(&inode), Some(&None));
+    }
 
     #[test]
     fn provider_reads_inet_diag_tables() {

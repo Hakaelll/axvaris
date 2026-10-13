@@ -17,6 +17,8 @@ mod udp;
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
+mod linux_events;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
@@ -32,14 +34,16 @@ pub use executable::inspect_executable;
 pub use fusion::{CorrelationCandidate, EvidenceFusion, FusionBatch, FusionStats, replay_evidence};
 pub use harness::{
     CaptureHarnessReport, FixtureFlow, FixtureFlowKind, FixtureManifest, FixturePerturbation,
-    ProviderHarnessRun, compare_observations, reference_manifest, run_loopback_truth_suite,
-    run_system_provider_fixture, run_windows_event_fixture,
+    ProviderHarnessRun, compare_observations, reference_manifest, run_linux_event_fixture,
+    run_loopback_truth_suite, run_system_provider_fixture, run_windows_event_fixture,
 };
 pub use helper_protocol::{
     HELPER_MAX_FRAME_BYTES, HELPER_PROTOCOL_VERSION, HelperDnsEvent, HelperEnvelope, HelperError,
     HelperNonce, HelperOperation, HelperResponse, HelperSession, decode_helper_frame,
     decode_helper_response_frame, encode_helper_frame,
 };
+#[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
+pub use linux_events::{LinuxEventCapture, linux_event_descriptor, run_linux_helper};
 pub use neighbors::{LocalNeighbor, local_neighbors};
 pub use pipeline::{BoundedEvidenceQueue, PipelineQueueClass, PipelineQueueStats, PipelineStage};
 pub use recording::RecordingController;
@@ -137,6 +141,16 @@ pub trait NetworkCaptureProvider: Send {
     fn name(&self) -> &'static str;
     fn snapshot(&mut self) -> Result<Vec<ObservedSocket>, CaptureError>;
     fn interfaces(&mut self) -> Result<Vec<NetworkInterface>, CaptureError>;
+
+    fn drain_events(&mut self) -> (Vec<sabicheiro_core::NormalizedNetworkEvent>, u64) {
+        (Vec::new(), 0)
+    }
+    fn has_event_stream(&self) -> bool {
+        false
+    }
+    fn event_queue(&self) -> (usize, usize) {
+        (0, 0)
+    }
 
     fn descriptor(&self, generation: u64) -> ProviderDescriptor {
         ProviderDescriptor {

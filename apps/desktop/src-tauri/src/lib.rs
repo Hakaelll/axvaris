@@ -71,6 +71,10 @@ const GEO_QUEUE_CAPACITY: usize = 2_048;
 const EVIDENCE_STORAGE_BATCH_SIZE: usize = 4_096;
 
 fn evidence_provider_descriptor(source: ObservationSource, generation: u64) -> ProviderDescriptor {
+    #[cfg(target_os = "linux")]
+    if source == ObservationSource::LinuxEbpf {
+        return sabicheiro_capture::linux_event_descriptor(generation);
+    }
     let (provider_id, display_name, mode, kinds): (
         &str,
         &str,
@@ -875,6 +879,15 @@ impl Engine {
         if self.capture_mode != CaptureMode::Off {
             wait = wait.min(remaining(self.last_persist, PERSIST_INTERVAL));
         }
+        #[cfg(target_os = "linux")]
+        if self.capture_mode == CaptureMode::Live
+            && self
+                .provider
+                .as_ref()
+                .is_some_and(|provider| provider.has_event_stream())
+        {
+            wait = wait.min(Duration::from_millis(50));
+        }
         wait.clamp(Duration::from_millis(10), Duration::from_secs(15))
     }
 
@@ -1131,6 +1144,32 @@ impl Engine {
             observations.push(observation);
         }
         let mut batch = self.evidence_fusion.ingest(observations);
+        if persist_evidence {
+            for gap in &batch.gaps {
+                let observation = sabicheiro_core::EvidenceObservation::gap(
+                    sabicheiro_core::ProviderCursor {
+                        provider_id: gap.provider_id.clone(),
+                        generation: gap.generation,
+                        sequence: gap.last_missing_sequence,
+                        dropped_before: gap.missing_count(),
+                        watermark_monotonic_ns: Some(base_monotonic_ns),
+                    },
+                    sabicheiro_core::EvidenceClock {
+                        clock_id: "axvaris.fusion".into(),
+                        utc_ms: gap.detected_at_ms,
+                        monotonic_ns: base_monotonic_ns,
+                        quality: sabicheiro_core::ClockQuality::Estimated,
+                    },
+                    gap.clone(),
+                );
+                let _ = self.evidence_storage_queue.push(
+                    observation,
+                    PipelineQueueClass::Lifecycle,
+                    None,
+                    base_monotonic_ns,
+                );
+            }
+        }
         self.diagnostics.sequence_gaps = self.diagnostics.sequence_gaps.saturating_add(
             batch
                 .gaps
@@ -1575,6 +1614,9 @@ impl Engine {
     fn drain_platform_events(&mut self, now_ms: i64) {
         self.dns_observations
             .retain(|_, (_, expires_at_ms)| *expires_at_ms > now_ms);
+        if self.capture_mode != CaptureMode::Live {
+            return;
+        }
         let Some(capture) = self.event_capture.as_mut() else {
             return;
         };
@@ -1657,6 +1699,60 @@ impl Engine {
     fn drain_platform_events(&mut self, now_ms: i64) {
         self.dns_observations
             .retain(|_, (_, expires_at_ms)| *expires_at_ms > now_ms);
+        if self.capture_mode != CaptureMode::Live {
+            return;
+        }
+        let Some(provider) = self.provider.as_mut() else {
+            return;
+        };
+        let (mut events, dropped) = provider.drain_events();
+        let had_event_stream = self.diagnostics.capture_event_source == "linux_ebpf";
+        let has_event_stream = provider.has_event_stream();
+        #[cfg(target_os = "linux")]
+        if had_event_stream != has_event_stream {
+            if has_event_stream {
+                self.provider_supervisor.mark_healthy("linux.ebpf", now_ms);
+            } else {
+                self.provider_supervisor.mark_degraded(
+                    "linux.ebpf",
+                    "Linux event helper stopped; INET_DIAG remains active. Retrying every 30 seconds.",
+                    now_ms,
+                );
+            }
+        }
+        self.diagnostics.capture_event_source = if has_event_stream {
+            "linux_ebpf"
+        } else {
+            "socket_polling"
+        }
+        .into();
+        if !self.selected_interface_addresses.is_empty() {
+            events.retain(|event| {
+                self.selected_interface_addresses
+                    .contains(&event.key.local.address)
+            });
+        }
+        let newly_dropped = dropped.saturating_sub(self.last_event_capture_drops);
+        self.last_event_capture_drops = dropped;
+        self.diagnostics.dropped_capture_events = dropped;
+        self.diagnostics.packet_events_observed = self
+            .diagnostics
+            .packet_events_observed
+            .saturating_add(events.len() as u64);
+        self.record_provider_gap(
+            ObservationSource::LinuxEbpf,
+            newly_dropped,
+            [
+                CaptureCapabilityKind::LifecycleEvents,
+                CaptureCapabilityKind::FlowBytes,
+                CaptureCapabilityKind::FlowPackets,
+            ],
+            "bounded Linux event provider lost observations",
+            now_ms,
+        );
+        if !events.is_empty() {
+            self.process_events(events, false);
+        }
     }
 
     fn drain_dns_results(&mut self) {
@@ -1963,6 +2059,23 @@ impl Engine {
                 let snapshot_provider_id = provider.descriptor(self.capture_generation).provider_id;
                 self.provider_supervisor
                     .register(snapshot_provider_id, None, now_ms);
+                #[cfg(target_os = "linux")]
+                {
+                    self.provider_supervisor.register(
+                        "linux.ebpf",
+                        Some("linux.inet_diag".into()),
+                        now_ms,
+                    );
+                    if provider.has_event_stream() {
+                        self.provider_supervisor.mark_healthy("linux.ebpf", now_ms);
+                    } else {
+                        self.provider_supervisor.mark_degraded(
+                            "linux.ebpf",
+                            "Linux event helper unavailable; INET_DIAG remains active. Retrying every 30 seconds.",
+                            now_ms,
+                        );
+                    }
+                }
                 self.selected_interface_addresses = selected_addresses;
                 self.vpn_active = vpn_active;
                 self.diagnostics.backend = provider.name().into();
@@ -2355,7 +2468,10 @@ impl Engine {
             .as_ref()
             .map_or((0, 0), |capture| (capture.pending(), capture.capacity()));
         #[cfg(not(target_os = "windows"))]
-        let (event_depth, event_capacity) = (0, 0);
+        let (event_depth, event_capacity) = self
+            .provider
+            .as_ref()
+            .map_or((0, 0), |provider| provider.event_queue());
         let evidence_stats = self.evidence_storage_queue.stats(
             self.evidence_clock_origin
                 .elapsed()

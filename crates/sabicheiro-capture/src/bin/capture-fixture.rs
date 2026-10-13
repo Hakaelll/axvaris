@@ -1,6 +1,6 @@
 use sabicheiro_capture::{
-    compare_observations, run_loopback_truth_suite, run_system_provider_fixture,
-    run_windows_event_fixture,
+    compare_observations, run_linux_event_fixture, run_loopback_truth_suite,
+    run_system_provider_fixture, run_windows_event_fixture,
 };
 use sabicheiro_core::EvidenceObservation;
 use std::{env, fs, path::PathBuf, time::Duration};
@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let run = match provider.as_str() {
             "system" => run_system_provider_fixture(interval),
             "windows-etw" => run_windows_event_fixture(interval),
+            "linux-ebpf" => run_linux_event_fixture(interval),
             _ => Err(format!("unsupported fixture provider: {provider}")),
         }
         .map_err(|error| format!("provider fixture failed: {error}"))?;

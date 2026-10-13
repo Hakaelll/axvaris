@@ -28,7 +28,7 @@ Import CSV or JSON resolver logs to follow observed client addresses and queried
 | Platform | Baseline | Event capture | Limits |
 |---|---|---|---|
 | Windows | IP Helper socket snapshots | Optional ETW network and DNS events | Elevated event capture needs permission; polling can miss short-lived sockets. |
-| Linux | INET_DIAG TCP/UDP, IPv4/IPv6 snapshots | See the [validation record](docs/AXVARIS_VALIDATION.md) | PID ownership depends on `/proc` visibility and namespace access. |
+| Linux | INET_DIAG TCP/UDP, IPv4/IPv6 snapshots | Optional local Aya helper, installed separately | Active TCP attribution; UDP owners unknown. See the [Linux guide](linux.md) for permissions and limits. |
 
 Axvaris observes the local machine. External devices are represented through imported DNS evidence; this release does not install remote agents. Optional local GeoIP databases provide approximate destination context. Reverse DNS is opt-in.
 
@@ -67,7 +67,7 @@ English is the default; Spanish and saved language preferences remain available.
 
 React and TypeScript provide the interface; Tauri and Rust coordinate native capture, evidence correlation and SQLite storage. Capture and rendering run independently. Histories are paginated, dense lists are virtualized, and live correlation caches are bounded.
 
-The [validation record](docs/AXVARIS_VALIDATION.md) distinguishes automated checks from native acceptance work. Native Linux, elevated Windows capture, installation lifecycle, assistive technologies and prolonged resource measurements require their own evidence. A successful build alone does not establish those guarantees.
+The [validation record](docs/AXVARIS_VALIDATION.md) distinguishes automated checks from native acceptance work. Controlled Linux kernel fixtures have passed in Docker. Elevated Windows capture, installation lifecycle, assistive technologies and prolonged resource measurements still require their own evidence. A successful build alone does not establish those guarantees.
 
 Contributions should include a reproducible problem, the smallest complete fix and relevant verification. See [CONTRIBUTING.md](CONTRIBUTING.md), [DEPENDENCIES.md](DEPENDENCIES.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

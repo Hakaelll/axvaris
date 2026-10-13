@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-10-12T17:40:41.845Z",
+  "executable": "target/release/Axvaris.exe",
+  "executableBytes": 7123968,
+  "iterations": 3,
+  "method": "process start to the second requestAnimationFrame reported by the production WebView; cold proxy uses unique executable and empty data paths without claiming an OS cache flush",
+  "coldProxy": {
+    "runs": 3,
+    "p50Ms": 1571.663,
+    "p95Ms": 2056.495,
+    "minMs": 1326.588,
+    "maxMs": 2056.495,
+    "samplesMs": [
+      2056.495,
+      1571.663,
+      1326.588
+    ]
+  },
+  "warm": {
+    "runs": 3,
+    "p50Ms": 1141.87,
+    "p95Ms": 1306.882,
+    "minMs": 1123.077,
+    "maxMs": 1306.882,
+    "samplesMs": [
+      1306.882,
+      1123.077,
+      1141.87
+    ]
+  }
+}

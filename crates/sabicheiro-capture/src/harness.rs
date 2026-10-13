@@ -519,6 +519,69 @@ pub fn run_system_provider_fixture(poll_interval: Duration) -> Result<ProviderHa
     })
 }
 
+#[cfg(all(target_os = "linux", feature = "linux-ebpf"))]
+pub fn run_linux_event_fixture(poll_interval: Duration) -> Result<ProviderHarnessRun, String> {
+    let interval = poll_interval.clamp(Duration::from_millis(1), Duration::from_secs(1));
+    let mut capture = crate::LinuxEventCapture::start().map_err(|error| error.to_string())?;
+    let descriptor = capture.descriptor(1);
+    let origin = Instant::now();
+    let utc_ms = sabicheiro_core::now_ms();
+    let pid = std::process::id();
+    let instance = current_process_instance(pid);
+    let fixture =
+        thread::spawn(move || run_loopback_truth_suite_with_origin(origin, utc_ms, pid, instance));
+    let mut sequencer = crate::EvidenceSequencer::new(descriptor.clone(), utc_ms);
+    let mut observations = Vec::new();
+    let mut last_dropped = 0;
+    let mut collect = |capture: &mut crate::LinuxEventCapture| {
+        let (events, dropped) = capture.drain();
+        for event in events.into_iter().filter(|event| {
+            event.key.pid.is_none_or(|owner| owner == pid)
+                && event.key.local.address.is_loopback()
+                && event.key.remote.address.is_loopback()
+                // The truth suite defines originating UDP sockets, not the
+                // receiving socket's inferred inbound conversation.
+                && !(event.key.protocol == NetworkProtocol::Udp && event.direction == sabicheiro_core::Direction::Inbound)
+        }) {
+            let at = event.timestamp_ms;
+            observations.push(sequencer.wrap_network_at(elapsed_ns(&origin), at, event));
+        }
+        if let Some(gap) = sequencer.record_gap(
+            dropped.saturating_sub(last_dropped),
+            elapsed_ns(&origin),
+            sabicheiro_core::now_ms(),
+            [sabicheiro_core::CaptureCapabilityKind::LifecycleEvents],
+            "Linux event fixture dropped records",
+        ) {
+            observations.push(gap);
+        }
+        last_dropped = dropped;
+    };
+    while !fixture.is_finished() {
+        collect(&mut capture);
+        thread::sleep(interval);
+    }
+    let manifest = fixture
+        .join()
+        .map_err(|_| "fixture thread panicked".to_string())?
+        .map_err(|error| error.to_string())?;
+    thread::sleep(Duration::from_millis(100));
+    collect(&mut capture);
+    let report = compare_observations(&manifest, &descriptor.provider_id, &observations);
+    Ok(ProviderHarnessRun {
+        manifest,
+        provider: descriptor,
+        poll_interval_ms: interval.as_millis() as u64,
+        observations,
+        report,
+    })
+}
+
+#[cfg(not(all(target_os = "linux", feature = "linux-ebpf")))]
+pub fn run_linux_event_fixture(_poll_interval: Duration) -> Result<ProviderHarnessRun, String> {
+    Err("Linux eBPF fixture requires Linux with the linux-ebpf feature".into())
+}
+
 #[cfg(target_os = "windows")]
 pub fn run_windows_event_fixture(poll_interval: Duration) -> Result<ProviderHarnessRun, String> {
     use sabicheiro_core::{

@@ -35,7 +35,43 @@
 - Native IP Helper fixture measured 10/18 controlled flows, zero incorrect process attributions and zero false positives. Requested polling interval: 10 ms. Short-flow recall was 33.3%; longer-flow recall 66.7%. Polling cannot observe remote UDP peers and does not meet event-capture release targets. See `axvaris-windows-polling.json` for the scoped measurements.
 - The live ETW fixture was attempted and returned Windows access denied. IP Helper fallback remains available; elevated ETW accuracy is still unverified.
 
-Elevated live ETW, native Linux event capture and packaging, screen-reader/HiDPI
-checks, and an eight-hour desktop soak require execution in their respective
-environments. Compilation or browser checks do not substitute for that evidence.
+## Linux event capture
+
+- Aya 0.14 loads embedded TCP tracepoint and UDP cgroup programs through a separate
+  fixed-path helper. INET_DIAG remains available when the helper cannot attach.
+- Docker Desktop's WSL2 kernel detected all 18 controlled flows, including brief
+  IPv4/IPv6 TCP and UDP activity. There were no false positives or incorrect process
+  attributions. Twelve owners remained unknown for passive TCP and UDP.
+- An unprivileged fixture with a capability-enabled helper reproduced the result.
+  The helper termination test confirmed zero effective/permitted/inheritable
+  capabilities after attach and `no_new_privs=1`. This ran in a disposable privileged
+  container, not a production-host security or installation audit.
+- TCP close latency p95 was 10.38 ms in that fixture. UDP close uses a 30-second
+  inactivity timeout. Receiving UDP conversations were outside the fixture's truth
+  set. These results cannot establish general capture completeness or UDP attribution.
+- Linux desktop compilation passed with GTK/WebKit dependencies. Linux capture
+  tests passed 57 cases with one privileged helper test excluded from the ordinary
+  run and then executed separately. Tests ran sequentially because concurrent process spawning can briefly expose
+  inherited descriptors and correctly make ownership ambiguous.
+- See [event measurements](axvaris-linux-events.json) and
+  [polling measurements](axvaris-linux-polling.json). Raw reports remain under
+  ignored `target/` paths because they contain local process evidence.
+- Shared capture regressions also passed on Windows: 58 capture tests, with the
+  live ETW test still explicitly ignored. All 17 desktop command tests passed.
+  Repository, dependency, license, translation, TypeScript and frontend checks passed.
+
+## Latest interface refinement
+
+The shell uses an inset curved sidebar and fewer rigid borders. Capsule controls,
+protocol tags, explicit active/closed labels and crisp globe markers improve
+distinction between actions and evidence. Browser captures at 1440×900 and 720×600
+had no JavaScript errors or root horizontal overflow. The independent finish review
+accepted this UI pass. Those checks do not certify native resource stability.
+
+## Remaining acceptance work
+
+Elevated live ETW, Linux desktop package installation, upgrade/uninstall lifecycle,
+screen-reader/HiDPI checks, suspension/VPN recovery and an eight-hour desktop soak
+still require execution. Compilation or browser checks do not substitute for that
+evidence. The controlled fixtures do not exercise PID reuse under sustained load.
 

@@ -4,7 +4,7 @@ use sabicheiro_core::{
     TrafficCounters,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 const DEFAULT_CORRELATION_WINDOW_NS: u64 = 2_500_000_000;
 const MAX_RECENT_RECORDS: usize = 65_536;
@@ -42,7 +42,7 @@ struct FlowTrack {
     key: ConnectionKey,
     active: bool,
     last_monotonic_ns: u64,
-    providers: BTreeSet<String>,
+    providers: BTreeMap<String, ConnectionKey>,
 }
 
 pub struct EvidenceFusion {
@@ -138,28 +138,47 @@ impl EvidenceFusion {
             let Some(mut event) = observation.network.take() else {
                 continue;
             };
-            let matches = self.matching_tracks(&event.key, observation.clock.monotonic_ns);
+            let raw_key = event.key.clone();
+            let matches = self.matching_tracks(
+                &event.key,
+                observation.clock.monotonic_ns,
+                &observation.cursor.provider_id,
+            );
             let selected = select_track(&self.tracks, &matches, &event.key);
             match selected {
                 TrackSelection::One(index) => {
                     let track = &mut self.tracks[index];
-                    let exact_key = track.key == event.key;
-                    event.key = track.key.clone();
-                    event.interface = event
-                        .interface
-                        .clone()
-                        .or_else(|| track.key.interface_id.clone());
-                    event.evidence.correlation_quality = if exact_key {
-                        source_quality(event.evidence.observation_source)
+                    if event.key.process_instance.is_none() && track.key.process_instance.is_some()
+                    {
+                        event.evidence.correlation_quality = CorrelationQuality::Candidate;
+                        batch.candidates.push(CorrelationCandidate {
+                            observation_id: observation.id.clone(),
+                            candidate_keys: vec![track.key.clone()],
+                            reason: "tuple matches but process creation evidence is unavailable"
+                                .into(),
+                        });
                     } else {
-                        CorrelationQuality::Correlated
-                    };
-                    track.last_monotonic_ns = observation.clock.monotonic_ns;
-                    track
-                        .providers
-                        .insert(observation.cursor.provider_id.clone());
-                    if event.kind == NetworkEventKind::Closed {
-                        track.active = false;
+                        let exact_key = track.key == event.key;
+                        event.key = track.key.clone();
+                        event.interface = event
+                            .interface
+                            .clone()
+                            .or_else(|| track.key.interface_id.clone());
+                        event.evidence.correlation_quality = if event.key.process_instance.is_none()
+                        {
+                            CorrelationQuality::Unknown
+                        } else if exact_key {
+                            source_quality(event.evidence.observation_source)
+                        } else {
+                            CorrelationQuality::Correlated
+                        };
+                        track.last_monotonic_ns = observation.clock.monotonic_ns;
+                        track
+                            .providers
+                            .insert(observation.cursor.provider_id.clone(), raw_key);
+                        if event.kind == NetworkEventKind::Closed {
+                            track.active = false;
+                        }
                     }
                 }
                 TrackSelection::Ambiguous(indices) => {
@@ -209,11 +228,17 @@ impl EvidenceFusion {
                         key,
                         active: event.kind != NetworkEventKind::Closed,
                         last_monotonic_ns: observation.clock.monotonic_ns,
-                        providers: BTreeSet::from([observation.cursor.provider_id.clone()]),
+                        providers: BTreeMap::from([(
+                            observation.cursor.provider_id.clone(),
+                            raw_key,
+                        )]),
                     });
                 }
             }
-            if event.traffic_delta != TrafficCounters::default() {
+            // Linux packets have one path; distinct datagrams can share timestamp and size.
+            if event.traffic_delta != TrafficCounters::default()
+                && event.evidence.observation_source != ObservationSource::LinuxEbpf
+            {
                 let fingerprint = counter_fingerprint(&event, observation.clock.monotonic_ns);
                 if !self.counter_fingerprints.insert(fingerprint) {
                     event.traffic_delta = TrafficCounters::default();
@@ -272,13 +297,22 @@ impl EvidenceFusion {
         }
     }
 
-    fn matching_tracks(&self, key: &ConnectionKey, monotonic_ns: u64) -> Vec<usize> {
+    fn matching_tracks(
+        &self,
+        key: &ConnectionKey,
+        monotonic_ns: u64,
+        provider: &str,
+    ) -> Vec<usize> {
         self.tracks
             .iter()
             .enumerate()
             .filter(|(_, track)| {
                 track.active
                     && (stable_track_identity(&track.key, key)
+                        || track.providers.get(provider).is_some_and(|raw| {
+                            raw == key
+                                && (raw.process_instance.is_some() || raw.flow_generation != 0)
+                        })
                         || (monotonic_ns.saturating_sub(track.last_monotonic_ns)
                             <= self.correlation_window_ns
                             && monotonic_ns >= track.last_monotonic_ns))
@@ -324,6 +358,13 @@ fn select_track(tracks: &[FlowTrack], matches: &[usize], event: &ConnectionKey) 
         .collect::<Vec<_>>();
     if exact.len() == 1 {
         return TrackSelection::One(exact[0]);
+    }
+    if event.process_instance.is_some()
+        && matches
+            .iter()
+            .all(|index| tracks[*index].key.process_instance.is_none())
+    {
+        return TrackSelection::None;
     }
     let strongest_score = matches
         .iter()
@@ -486,6 +527,45 @@ mod tests {
     }
 
     #[test]
+    fn distinct_linux_packets_in_the_same_clock_bucket_are_counted() {
+        let counters = TrafficCounters {
+            bytes_sent: 32,
+            packets_sent: 1,
+            ..TrafficCounters::default()
+        };
+        let first = observation(
+            "linux.ebpf",
+            ObservationSource::LinuxEbpf,
+            1_000_001,
+            NetworkEventKind::Updated,
+            None,
+            None,
+            counters,
+        );
+        let second = observation(
+            "linux.ebpf",
+            ObservationSource::LinuxEbpf,
+            1_000_002,
+            NetworkEventKind::Updated,
+            None,
+            None,
+            counters,
+        );
+        let mut fusion = EvidenceFusion::new(2_500_000_000);
+        let batch = fusion.ingest([first.clone(), second, first]);
+        assert_eq!(batch.events.len(), 2);
+        assert_eq!(
+            batch
+                .events
+                .iter()
+                .map(|event| event.traffic_delta.bytes_sent)
+                .sum::<u64>(),
+            64
+        );
+        assert_eq!(batch.stats.duplicate_observations, 1);
+    }
+
+    #[test]
     fn reordered_sources_produce_the_same_canonical_projection() {
         let snapshot = observation(
             "snapshot",
@@ -513,7 +593,7 @@ mod tests {
         assert_eq!(forward.events, reverse.events);
         assert_eq!(
             forward.events[1].evidence.correlation_quality,
-            CorrelationQuality::Correlated
+            CorrelationQuality::Candidate
         );
         assert_eq!(
             forward.events[0].key.process_instance.as_deref(),
@@ -589,6 +669,72 @@ mod tests {
             batch.events[0].key.flow_generation,
             batch.events[1].key.flow_generation
         );
+    }
+
+    #[test]
+    fn provider_flow_identity_survives_canonicalization_and_idle_time() {
+        let mut snapshot = observation(
+            "linux.inet_diag",
+            ObservationSource::LinuxInetDiag,
+            1,
+            NetworkEventKind::Opened,
+            Some(7),
+            Some("pid:7:start:2"),
+            TrafficCounters::default(),
+        );
+        snapshot.network.as_mut().unwrap().key.flow_generation = 101;
+        let mut native = observation(
+            "linux.ebpf",
+            ObservationSource::LinuxEbpf,
+            2,
+            NetworkEventKind::Updated,
+            Some(7),
+            Some("pid:7:start:2"),
+            TrafficCounters::default(),
+        );
+        native.network.as_mut().unwrap().key.flow_generation = 909;
+        let mut idle_update = native.clone();
+        idle_update.id = "linux.ebpf:1:3:network".into();
+        idle_update.cursor.sequence = 3;
+        idle_update.clock.monotonic_ns = 10_000_000_000;
+        let batch = replay_evidence([snapshot, native, idle_update]);
+        assert_eq!(batch.events.len(), 3);
+        assert!(
+            batch
+                .events
+                .iter()
+                .all(|event| event.key.flow_generation == 101)
+        );
+        assert_eq!(batch.events[0].key, batch.events[2].key);
+    }
+
+    #[test]
+    fn unknown_owner_does_not_inherit_a_confirmed_process_instance() {
+        let known = observation(
+            "snapshot",
+            ObservationSource::LinuxInetDiag,
+            1,
+            NetworkEventKind::Opened,
+            Some(7),
+            Some("pid:7:start:2"),
+            TrafficCounters::default(),
+        );
+        let unknown = observation(
+            "events",
+            ObservationSource::LinuxEbpf,
+            2,
+            NetworkEventKind::Updated,
+            Some(7),
+            None,
+            TrafficCounters::default(),
+        );
+        let batch = replay_evidence([known, unknown]);
+        assert!(batch.events[1].key.process_instance.is_none());
+        assert_eq!(
+            batch.events[1].evidence.correlation_quality,
+            CorrelationQuality::Candidate
+        );
+        assert_eq!(batch.candidates.len(), 1);
     }
 
     #[test]

@@ -1,0 +1,52 @@
+{
+  "environment": "Docker Desktop / WSL2 Linux 6.18.33.2, Rust 1.99.0, Aya 0.14.0",
+  "scope": "Controlled loopback TCP endpoints and originating UDP sockets, IPv4/IPv6, 5 ms to over 1 s. Receiving UDP conversations excluded because fixture truth defines originating sockets. TCP close latency only; UDP expiry uses 30 seconds.",
+  "permissions": "Fixture UID 1000; root-owned helper started with CAP_BPF, CAP_PERFMON, CAP_NET_ADMIN, CAP_DAC_READ_SEARCH, then drops all capabilities. Disposable privileged container supplies kernel access; not an installer or production host security audit.",
+  "report": {
+    "fixture_id": "local-1791830616042",
+    "provider_id": "linux.ebpf",
+    "expected_remote_flows": 18,
+    "observed_remote_flows": 18,
+    "true_positive_flows": 18,
+    "false_positive_flows": 0,
+    "unknown_process_attributions": 12,
+    "incorrect_process_attributions": 0,
+    "precision": 1.0,
+    "process_attribution_precision": 1.0,
+    "recall_5_to_50_ms": 1.0,
+    "recall_50_ms_or_longer": 1.0,
+    "close_latency_p95_ms": 10.384882,
+    "detected_provider_gaps": 0,
+    "unknown_fields": {
+      "interface": 12
+    },
+    "duration_buckets": {
+      "100-999ms": {
+        "expected": 3,
+        "observed": 3,
+        "recall": 1.0
+      },
+      "1s+": {
+        "expected": 3,
+        "observed": 3,
+        "recall": 1.0
+      },
+      "20-49ms": {
+        "expected": 3,
+        "observed": 3,
+        "recall": 1.0
+      },
+      "5-19ms": {
+        "expected": 3,
+        "observed": 3,
+        "recall": 1.0
+      },
+      "50-99ms": {
+        "expected": 6,
+        "observed": 6,
+        "recall": 1.0
+      }
+    },
+    "meets_release_targets": true
+  }
+}

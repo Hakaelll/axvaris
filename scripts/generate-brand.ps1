@@ -42,6 +42,7 @@ function Save-Raster($axPath,$axViewWidth,$axViewHeight,$axSize,$axForeground,$a
  $axBitmap = [Drawing.Bitmap]::new($axSize,$axHeight)
  $axGraphics = [Drawing.Graphics]::FromImage($axBitmap)
  $axGraphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+ $axGraphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::Half
  $axGraphics.Clear($axBackground)
  $axGraphics.ScaleTransform($axSize/$axViewWidth,$axHeight/$axViewHeight)
  $axBrush = [Drawing.SolidBrush]::new($axForeground)
@@ -59,10 +60,10 @@ foreach ($axVariant in @(@{Name='light';Color='#eeeeee'},@{Name='dark';Color='#1
 }
 Save-Raster $axMark 100 100 1024 ([Drawing.ColorTranslator]::FromHtml('#eeeeee')) ([Drawing.ColorTranslator]::FromHtml('#101010')) "$axOut/axvaris-app.png"
 $axIcons = [IO.Path]::GetFullPath("$PSScriptRoot/../apps/desktop/src-tauri/icons")
-foreach ($axSize in @(16,24,32,48,64,128,256)) { Save-Raster $axMark 100 100 $axSize ([Drawing.ColorTranslator]::FromHtml('#eeeeee')) ([Drawing.ColorTranslator]::FromHtml('#101010')) "$axIcons/$($axSize)x$($axSize).png" }
+$axSizes = @(16,20,24,32,40,48,64,96,128,192,256)
+foreach ($axSize in $axSizes) { Save-Raster $axMark 100 100 $axSize ([Drawing.ColorTranslator]::FromHtml('#eeeeee')) ([Drawing.ColorTranslator]::FromHtml('#101010')) "$axIcons/$($axSize)x$($axSize).png" }
 [IO.File]::Copy("$axIcons/256x256.png","$axIcons/128x128@2x.png",$true)
 $axStream = [IO.MemoryStream]::new(); $axWriter = [IO.BinaryWriter]::new($axStream)
-$axSizes = @(16,24,32,48,64,128,256)
 $axWriter.Write([uint16]0); $axWriter.Write([uint16]1); $axWriter.Write([uint16]$axSizes.Length)
 $axOffset = 6+16*$axSizes.Length
 foreach ($axSize in $axSizes) {

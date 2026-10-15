@@ -147,9 +147,40 @@ function makeBorderLines(): THREE.LineSegments {
   return new THREE.LineSegments(
     geometry,
     new THREE.LineBasicMaterial({
-      color: 0x68706e,
+      color: 0xb8b3b0,
       transparent: true,
-      opacity: 0.78,
+      opacity: 0.5,
+    }),
+  );
+}
+
+function makeGraticule() {
+  const vertices: number[] = [];
+  for (let latitude = -75; latitude <= 75; latitude += 15) {
+    for (let longitude = -180; longitude < 180; longitude += 3)
+      vertices.push(
+        ...spherePoint(longitude, latitude, 1.003),
+        ...spherePoint(longitude + 3, latitude, 1.003),
+      );
+  }
+  for (let longitude = -180; longitude < 180; longitude += 15) {
+    for (let latitude = -90; latitude < 90; latitude += 3)
+      vertices.push(
+        ...spherePoint(longitude, latitude, 1.003),
+        ...spherePoint(longitude, latitude + 3, 1.003),
+      );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(vertices, 3),
+  );
+  return new THREE.LineSegments(
+    geometry,
+    new THREE.LineBasicMaterial({
+      color: 0xb8b3b0,
+      transparent: true,
+      opacity: 0.13,
     }),
   );
 }
@@ -220,24 +251,48 @@ export const GlobeScene = memo(function GlobeScene({
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.append(renderer.domElement);
 
-    const globe = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 64, 40),
-      new THREE.MeshStandardMaterial({
-        color: 0x383b38,
-        roughness: 0.88,
-        metalness: 0.08,
-      }),
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.92,
+      metalness: 0.03,
+    });
+    material.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <map_fragment>",
+        "#include <map_fragment>\nfloat reliefLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));\ndiffuseColor.rgb = vec3(reliefLuminance) * vec3(0.76, 0.74, 0.70);",
+      );
+    };
+    let disposed = false;
+    const relief = new THREE.TextureLoader().load(
+      "/maps/earth-relief.jpg",
+      (texture) => {
+        if (disposed) {
+          texture.dispose();
+          return;
+        }
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = Math.min(
+          4,
+          renderer.capabilities.getMaxAnisotropy(),
+        );
+        material.map = texture;
+        material.needsUpdate = true;
+        host.dataset.reliefReady = "true";
+        requestRender();
+      },
     );
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40), material);
     scene.add(globe);
     scene.add(makeBorderLines());
-    scene.add(new THREE.HemisphereLight(0x8e969f, 0x060708, 1.8));
-    const side = new THREE.DirectionalLight(0xeeeeee, 0.8);
-    side.position.set(-2.4, 1.8, 2.2);
+    scene.add(makeGraticule());
+    scene.add(new THREE.HemisphereLight(0xeeeeee, 0x101010, 1.3));
+    const side = new THREE.DirectionalLight(0xffffff, 2.2);
+    side.position.set(3.6, 4.0, 2.6);
     scene.add(side);
     const rim = new THREE.Mesh(
       new THREE.SphereGeometry(1.035, 64, 40),
       new THREE.MeshBasicMaterial({
-        color: 0x687078,
+        color: 0xb8b3b0,
         transparent: true,
         opacity: 0.05,
         side: THREE.BackSide,
@@ -356,6 +411,9 @@ export const GlobeScene = memo(function GlobeScene({
     requestRender();
 
     return () => {
+      disposed = true;
+      relief.dispose();
+      delete host.dataset.reliefReady;
       cancelAnimationFrame(state.animation);
       document.removeEventListener("visibilitychange", handleVisibility);
       renderer.domElement.removeEventListener("pointerup", handlePointer);

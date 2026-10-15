@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { classifyUnlocatedTargets } from "../lib/unlocated";
 import type { DashboardSnapshot, TodayEvidenceTarget } from "../types";
 import { usePresentation } from "../privacy/PresentationMode";
+import { worldBorders } from "../lib/world";
 
 interface UnlocatedTargetsProps {
   snapshot: DashboardSnapshot;
@@ -39,13 +40,26 @@ export function UnlocatedTargets({
     [snapshot.capture.mode, snapshot.connections, snapshot.generated_at_ms],
   );
   const plotted = snapshot.connections.length - targets.length;
+  const mapOutline = useMemo(
+    () =>
+      worldBorders()
+        .map((line) =>
+          line
+            .map(
+              ([longitude, latitude], index) =>
+                `${index && Math.abs(longitude - (line[index - 1]?.[0] ?? longitude)) <= 180 ? "L" : "M"}${longitude + 180},${90 - latitude}`,
+            )
+            .join(" "),
+        )
+        .join(" "),
+    [],
+  );
 
   return (
     <section className="unlocated-targets" aria-labelledby="unlocated-title">
       <header>
         <div>
-          <span className="eyebrow">{t("LOCATION COVERAGE")}</span>
-          <h2 id="unlocated-title">{t("Unlocated targets")}</h2>
+          <h2 id="unlocated-title">{t("Location coverage")}</h2>
           <p>
             {t(
               "Missing coordinates stay unplotted; Axvaris never invents a location.",
@@ -63,6 +77,13 @@ export function UnlocatedTargets({
           </div>
         </dl>
       </header>
+      <svg
+        className="location-coverage-map"
+        aria-hidden="true"
+        viewBox="0 0 360 165"
+      >
+        <path d={mapOutline} />
+      </svg>
       <div className="unlocated-actions">
         <button
           className="button button--secondary"

@@ -154,6 +154,27 @@ export function SettingsView({
   const [localDataResult, setLocalDataResult] =
     useState<LocalDataRemovalResult | null>(null);
   const [settingsSearch, setSettingsSearch] = useState("");
+  const [activeSection, setActiveSection] = useState("external-dns");
+  const settingsViewRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const view = settingsViewRef.current;
+    const scroller = view?.closest("main");
+    if (!view || !scroller) return;
+    const updateVisibleSection = () => {
+      const top = scroller.getBoundingClientRect().top;
+      let current = "external-dns";
+      for (const section of view.querySelectorAll<HTMLElement>(
+        ".settings-content > section[id]",
+      )) {
+        if (section.getBoundingClientRect().top <= top + 100)
+          current = section.id;
+      }
+      setActiveSection(current);
+    };
+    updateVisibleSection();
+    scroller.addEventListener("scroll", updateVisibleSection, { passive: true });
+    return () => scroller.removeEventListener("scroll", updateVisibleSection);
+  }, []);
   const requestGates = useRef({
     maintenance: new LatestRequest(),
     bundle: new LatestRequest(),
@@ -171,6 +192,7 @@ export function SettingsView({
   const focusSection = (section: string) => {
     const element = document.getElementById(section);
     if (!element) return;
+    setActiveSection(section);
     window.history.replaceState(null, "", `#${section}`);
     element.scrollIntoView({
       behavior: settings.reduce_motion ? "auto" : "smooth",
@@ -251,7 +273,10 @@ export function SettingsView({
     }
   };
   return (
-    <section className="data-view settings-view">
+    <section
+      className="data-view settings-view"
+      ref={settingsViewRef}
+    >
       <header className="view-heading">
         <div>
           <span className="eyebrow">{t("LOCAL CONTROL")}</span>
@@ -296,14 +321,28 @@ export function SettingsView({
       </header>
       <div className="settings-layout">
         <nav aria-label={t("Settings sections")}>
-          <a href="#capture">{t("Capture")}</a>
-          <a href="#privacy">{t("Privacy & storage")}</a>
-          <a href="#focus">{t("Focus rules")}</a>
-          <a href="#notifications">{t("Notifications")}</a>
-          <a href="#geo">{t("GeoIP data")}</a>
-          <a href="#display">{t("Display")}</a>
-          <a href="#diagnostics">{t("Diagnostics")}</a>
-          <a href="#external-dns">{t("External DNS evidence")}</a>
+          {[
+            { id: "capture", label: t("Capture") },
+            { id: "privacy", label: t("Privacy & storage") },
+            { id: "focus", label: t("Focus rules") },
+            { id: "notifications", label: t("Notifications") },
+            { id: "geo", label: t("GeoIP data") },
+            { id: "display", label: t("Display") },
+            { id: "diagnostics", label: t("Diagnostics") },
+            { id: "external-dns", label: t("External DNS evidence") },
+          ].map(({ id, label }) => (
+            <a
+              href={`#${id}`}
+              aria-current={activeSection === id ? "location" : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                focusSection(id);
+              }}
+              key={id}
+            >
+              {label}
+            </a>
+          ))}
         </nav>
         <div className="settings-content">
           <ExternalDns />
@@ -1274,7 +1313,7 @@ export function SettingsView({
             <Toggle
               checked={settings.enhanced_contrast}
               detail={t(
-                "Raises text and border contrast without changing evidence semantics.",
+                "Raises text and border contrast and makes glass controls opaque.",
               )}
               label={t("Enhanced contrast")}
               onChange={(value) =>
@@ -1328,7 +1367,9 @@ export function SettingsView({
             <div className="diagnostics-grid">
               <div>
                 <small>{t("BACKEND")}</small>
-                <strong>{diagnostics.backend}</strong>
+                <strong title={diagnostics.backend}>
+                  {diagnostics.backend}
+                </strong>
               </div>
               <div>
                 <small>CPU</small>
@@ -1352,6 +1393,8 @@ export function SettingsView({
                 <small>{t("DATABASE")}</small>
                 <strong>{formatBytes(diagnostics.database_size_bytes)}</strong>
               </div>
+            </div>
+            <div className="diagnostics-counters">
               <div>
                 <small>{t("QUEUE")}</small>
                 <strong>
@@ -1419,24 +1462,79 @@ export function SettingsView({
                 </strong>
               </div>
             </div>
-            <div className="subsystem-grid">
-              {diagnostics.subsystems.map((subsystem) => (
-                <article
-                  className={`subsystem-card is-${subsystem.status}`}
-                  key={subsystem.subsystem}
-                >
-                  <header>
-                    <strong>{t(subsystem.subsystem)}</strong>
-                    <span>{t(subsystem.status)}</span>
-                  </header>
-                  <p>{t(subsystem.message)}</p>
-                  {subsystem.action && <small>{t(subsystem.action)}</small>}
-                  <code>
-                    {subsystem.queue_depth}/{subsystem.queue_capacity} ·{" "}
-                    {t("dropped")} {subsystem.dropped_events}
-                  </code>
-                </article>
-              ))}
+            <h3 className="diagnostics-section-title diagnostics-section-title--pipeline">
+              {t("System architecture")}
+            </h3>
+            <div className="subsystem-grid subsystem-pipeline">
+              {diagnostics.subsystems
+                .filter(
+                  (subsystem) =>
+                    subsystem.subsystem === "capture" ||
+                    subsystem.subsystem === "storage" ||
+                    subsystem.subsystem === "render",
+                )
+                .map((subsystem) => (
+                  <article
+                    className={`subsystem-card is-${subsystem.status}`}
+                    key={subsystem.subsystem}
+                  >
+                    <Icon
+                      name={
+                        subsystem.subsystem === "capture"
+                          ? "process"
+                          : subsystem.subsystem === "storage"
+                            ? "database"
+                            : "terminal"
+                      }
+                    />
+                    <header>
+                      <strong>{t(subsystem.subsystem)}</strong>
+                      <span>{t(subsystem.status)}</span>
+                    </header>
+                    <p>{t(subsystem.message)}</p>
+                    {subsystem.action && <small>{t(subsystem.action)}</small>}
+                    <code>
+                      {subsystem.queue_depth}/{subsystem.queue_capacity} ·{" "}
+                      {t("dropped")} {subsystem.dropped_events}
+                    </code>
+                  </article>
+                ))}
+            </div>
+            {diagnostics.subsystems.some(
+              (subsystem) =>
+                subsystem.subsystem !== "capture" &&
+                subsystem.subsystem !== "storage" &&
+                subsystem.subsystem !== "render",
+            ) && (
+              <h3 className="diagnostics-section-title diagnostics-section-title--supporting">
+                {t("Supporting components")}
+              </h3>
+            )}
+            <div className="subsystem-grid subsystem-supporting">
+              {diagnostics.subsystems
+                .filter(
+                  (subsystem) =>
+                    subsystem.subsystem !== "capture" &&
+                    subsystem.subsystem !== "storage" &&
+                    subsystem.subsystem !== "render",
+                )
+                .map((subsystem) => (
+                  <article
+                    className={`subsystem-card is-${subsystem.status}`}
+                    key={subsystem.subsystem}
+                  >
+                    <header>
+                      <strong>{t(subsystem.subsystem)}</strong>
+                      <span>{t(subsystem.status)}</span>
+                    </header>
+                    <p>{t(subsystem.message)}</p>
+                    {subsystem.action && <small>{t(subsystem.action)}</small>}
+                    <code>
+                      {subsystem.queue_depth}/{subsystem.queue_capacity} ·{" "}
+                      {t("dropped")} {subsystem.dropped_events}
+                    </code>
+                  </article>
+                ))}
             </div>
             <div className="self-test-panel">
               <div>

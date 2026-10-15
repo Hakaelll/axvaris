@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type { Connection } from "../types";
+import { isListenerOnly } from "../lib/filter";
 import { Icon } from "./Icon";
 import {
   endpointLabel,
@@ -21,6 +22,7 @@ interface LiveFeedProps {
   flowTrafficAvailable: boolean;
   onSelect: (id: string) => void;
   onPause: (paused: boolean) => void;
+  onCapture: (mode: "live" | "demo") => void;
 }
 
 interface FeedGroup {
@@ -31,11 +33,14 @@ interface FeedGroup {
 }
 
 function conceptualKey(connection: Connection): string {
+  const endpoint = isListenerOnly(connection)
+    ? connection.key.local
+    : connection.key.remote;
   return [
     connection.process.name.toLowerCase(),
     connection.process.pid ?? "unknown",
-    connection.key.remote.address,
-    connection.key.remote.port,
+    endpoint.address,
+    endpoint.port,
     connection.protocol,
   ].join("|");
 }
@@ -92,6 +97,7 @@ export function LiveFeed({
   flowTrafficAvailable,
   onSelect,
   onPause,
+  onCapture,
 }: LiveFeedProps) {
   const t = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
@@ -121,7 +127,7 @@ export function LiveFeed({
     <aside aria-label={t("Live connections")} className="live-feed">
       <header className="panel-heading">
         <div>
-          <span className="eyebrow">{t("LIVE CONNECTIONS")}</span>
+          <h2>{t("Live connections")}</h2>
           <strong>{groups.length.toLocaleString()}</strong>
           <small>
             {connections.length !== groups.length
@@ -146,9 +152,26 @@ export function LiveFeed({
       >
         {groups.length === 0 ? (
           <div className="feed-empty">
-            <span className="feed-empty__radar" />
+            <span className="feed-empty__radar">
+              <Icon name="globe" />
+            </span>
             <strong>{t("Waiting for network activity")}</strong>
             <p>{t("Start live capture or use deterministic demo data.")}</p>
+            <button
+              className="button button--primary"
+              onClick={() => onCapture("live")}
+              type="button"
+            >
+              <Icon name="play" />
+              {t("Start live capture")}
+            </button>
+            <button
+              className="button button--secondary"
+              onClick={() => onCapture("demo")}
+              type="button"
+            >
+              {t("Use demo data")}
+            </button>
           </div>
         ) : (
           groups.map((group) => {
@@ -162,10 +185,14 @@ export function LiveFeed({
               )[0]!;
             const selected = Boolean(selectedItem);
             const active = group.items.some((item) => item.active);
+            const listener = isListenerOnly(representative);
+            const endpoint = listener
+              ? representative.key.local
+              : representative.key.remote;
             const destination =
-              representative.domain ??
-              representative.hostname ??
-              representative.key.remote.address;
+              (listener ? null : representative.domain) ??
+              (listener ? null : representative.hostname) ??
+              endpoint.address;
             const place =
               [
                 representative.geo?.city,
@@ -197,7 +224,10 @@ export function LiveFeed({
               0,
             );
             const hasFlowTraffic =
-              flowTrafficAvailable ||
+              (flowTrafficAvailable &&
+                group.items.some(
+                  (item) => item.counter_source !== "unavailable",
+                )) ||
               totalRate > 0 ||
               bytesDown > 0 ||
               bytesUp > 0;
@@ -228,18 +258,15 @@ export function LiveFeed({
                     </span>
                     <span
                       className="connection-row__destination"
-                      title={endpointLabel(
-                        representative.key.remote.address,
-                        representative.key.remote.port,
-                      )}
+                      title={endpointLabel(endpoint.address, endpoint.port)}
                     >
                       {destination}
-                      <em>:{representative.key.remote.port}</em>
+                      <em>:{endpoint.port}</em>
                       {observations > 1 && <b>× {observations}</b>}
                     </span>
-                    {destination !== representative.key.remote.address && (
+                    {destination !== endpoint.address && (
                       <span className="connection-row__endpoint">
-                        {representative.key.remote.address}
+                        {endpoint.address}
                       </span>
                     )}
                     <span className="connection-row__meta">

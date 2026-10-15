@@ -39,7 +39,7 @@ function borderPath(line: [number, number][]): string {
   return line
     .map(([longitude, latitude], index) => {
       const [x, y] = mapPoint(longitude, latitude);
-      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      return `${index === 0 || Math.abs(longitude - (line[index - 1]?.[0] ?? longitude)) > 180 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
 }
@@ -96,10 +96,20 @@ export const MapView = memo(function MapView({
   } | null>(null);
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [feedCollapsed, setFeedCollapsed] = useState(false);
+  const [aspect, setAspect] = useState(2);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry && entry.contentRect.height > 0)
+        setAspect(entry.contentRect.width / entry.contentRect.height);
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
   const worldPaths = useMemo(() => {
     const borders = detailedWorldBorders().map(borderPath);
     return {
-      land: borders.map((path) => `${path} Z`).join(" "),
       borders: borders.join(" "),
     };
   }, []);
@@ -113,7 +123,7 @@ export const MapView = memo(function MapView({
   );
   const [startX, startY] = useMemo(() => mapPoint(home[1], home[0]), [home]);
   const width = 1000 / viewport.zoom;
-  const height = 500 / viewport.zoom;
+  const height = Math.min(500, width / Math.max(0.5, aspect));
   const clampedCenterX = Math.min(
     1000 - width / 2,
     Math.max(width / 2, viewport.centerX),
@@ -294,9 +304,16 @@ export const MapView = memo(function MapView({
             );
           })}
         </g>
-        <g aria-hidden="true" className="world-map__land">
-          <path d={worldPaths.land} />
-        </g>
+        <image
+          aria-hidden="true"
+          className="world-map__relief"
+          href="/maps/earth-relief.jpg"
+          x="0"
+          y="0"
+          width="1000"
+          height="500"
+          preserveAspectRatio="none"
+        />
         <g aria-hidden="true" className="world-map__borders">
           <path d={worldPaths.borders} />
         </g>

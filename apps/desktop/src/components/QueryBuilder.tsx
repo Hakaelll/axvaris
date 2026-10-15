@@ -127,7 +127,7 @@ export function QueryBuilder({ query, connections, rangeLabel, onChange }: Query
       </header>
       <div className="query-builder__text">
         <Icon name="search" />
-        <input aria-invalid={Boolean(parsed.error)} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && remember(query)} value={query} />
+        <input aria-label={t("Build an evidence query")} aria-invalid={Boolean(parsed.error)} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && remember(query)} value={query} />
         <button disabled={!parsed.expression || Boolean(parsed.error)} onClick={() => parsed.expression && onChange(serializeQueryExpression(parsed.expression))} type="button">{t("Canonicalize")}</button>
       </div>
       {parsed.error && <p className="query-builder__error" role="alert">{parsed.error}</p>}

@@ -318,13 +318,18 @@ export function ExternalDns() {
           </caption>
           <thead>
             <tr>
-              {["Time", "Client IP", "Domain", "Type", "Result", "Source"].map(
-                (label) => (
-                  <th scope="col" key={label}>
-                    {t(label)}
-                  </th>
-                ),
-              )}
+              {[
+                t("Time"),
+                t("Client IP"),
+                t("Domain"),
+                t("Type"),
+                t("Result"),
+                t("Source"),
+              ].map((label) => (
+                <th scope="col" key={label}>
+                  {label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>

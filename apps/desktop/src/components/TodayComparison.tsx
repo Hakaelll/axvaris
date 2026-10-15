@@ -1,4 +1,5 @@
 import { useI18n } from "../i18n";
+import { Icon } from "./Icon";
 import { formatBytes, formatDateTime } from "../lib/format";
 import type {
   ComparisonRow,
@@ -54,11 +55,12 @@ export function TodayComparison({
       >
         <header>
           <div>
-            <span className="eyebrow">{t("QUICK COMPARISON")}</span>
-            <h2 id="today-comparison-title">{t("Previous session")}</h2>
+            <h2 id="today-comparison-title">{t("Quick comparison")}</h2>
+            <p>{t("Previous session")}</p>
           </div>
         </header>
         <div className="today-empty">
+          <Icon name="history" />
           <strong>{t("No previous valid session")}</strong>
           <p>
             {t(
@@ -92,8 +94,7 @@ export function TodayComparison({
     >
       <header>
         <div>
-          <span className="eyebrow">{t("QUICK COMPARISON")}</span>
-          <h2 id="today-comparison-title">{t("Previous session")}</h2>
+          <h2 id="today-comparison-title">{t("Quick comparison")}</h2>
           <p>
             {t("Compared with {date}", {
               date: formatDateTime(comparison.previous_session.started_at_ms),

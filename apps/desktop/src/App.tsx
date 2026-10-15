@@ -42,6 +42,11 @@ const LocalPeers = lazy(async () => {
   return { default: module.LocalPeers };
 });
 
+const ServiceDiagram = lazy(async () => {
+  const module = await import("./components/ServiceDiagram");
+  return { default: module.ServiceDiagram };
+});
+
 const TopContext = lazy(async () => {
   const module = await import("./components/TopContext");
   return { default: module.TopContext };
@@ -477,7 +482,7 @@ export default function App() {
                   }
                 >
                   <div
-                    className={`observatory${mapExpanded ? " is-map-expanded" : ""}`}
+                    className={`observatory workspace--${app.settings.active_workspace}${mapExpanded ? " is-map-expanded" : ""}`}
                   >
                     <section className="visual-canvas">
                       <div className="visual-canvas__heading">
@@ -515,7 +520,7 @@ export default function App() {
                             })
                           }
                         />
-                        {app.settings.active_workspace !== "local" && (
+                        {app.settings.active_workspace === "remote" && (
                           <div
                             className="view-switcher"
                             aria-label={t("Visualization mode")}
@@ -563,6 +568,12 @@ export default function App() {
                               selectedId={app.selectedId}
                             />
                           </Suspense>
+                        ) : app.settings.active_workspace === "listeners" ? (
+                          <ServiceDiagram
+                            connections={app.snapshot.connections}
+                            selectedId={app.selectedId}
+                            onSelect={app.setSelectedId}
+                          />
                         ) : app.viewMode === "globe" && webglAvailable ? (
                           <GlobeErrorBoundary
                             onError={() => setWebglFailed(true)}
@@ -654,14 +665,14 @@ export default function App() {
                               )}
                             </div>
                           )}
-                        {app.settings.active_workspace !== "local" && (
+                        {app.settings.active_workspace === "remote" && (
                           <FocusBar
                             bookmarks={app.focusRules.bookmarks}
                             onFilter={showFilter}
                             onRemove={(id) => void app.removeBookmark(id)}
                           />
                         )}
-                        {app.settings.active_workspace !== "local" && (
+                        {app.settings.active_workspace === "remote" && (
                           <TopContext
                             connections={app.snapshot.connections}
                             onFilter={showFilter}
@@ -704,10 +715,14 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      {app.settings.active_workspace === "local" ? (
+                      {app.settings.active_workspace !== "remote" ? (
                         <div className="canvas-legend">
                           <small>
-                            {t("Select a device to inspect its connections")}
+                            {t(
+                              app.settings.active_workspace === "local"
+                                ? "Select a device to inspect its connections"
+                                : "Select a service to inspect its socket evidence",
+                            )}
                           </small>
                         </div>
                       ) : (
@@ -729,6 +744,12 @@ export default function App() {
                       )}
                     </section>
                     <LiveFeed
+                      onCapture={(mode) =>
+                        void app.startCapture(
+                          mode,
+                          app.settings.selected_interface,
+                        )
+                      }
                       connections={app.snapshot.connections}
                       cityInstalled={app.geoStatus?.city.installed ?? false}
                       flowTrafficAvailable={

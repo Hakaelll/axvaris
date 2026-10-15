@@ -98,7 +98,7 @@ function normalizeListener(value: unknown): ListenerExposure | null {
   };
 }
 
-export function listenerKey(listener: ListenerExposure): string {
+export function listenerKey(listener: Pick<ListenerExposure, "protocol" | "endpoint" | "process_instance">): string {
   return [
     listener.protocol,
     listener.endpoint.address,

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { desktopApi } from "#backend";
 import { useI18n } from "../i18n";
 import type { Connection, LocalNeighbor } from "../types";
+import { Icon } from "./Icon";
+import { endpointLabel } from "../lib/format";
+import { usePresentation } from "../privacy/PresentationMode";
 
 interface LocalPeersProps {
   connections: Connection[];
@@ -18,6 +21,7 @@ interface Device {
   processes: Set<string>;
   ports: Set<number>;
   connectionCount: number;
+  connectionIds: Set<string>;
   activeCount: number;
   isRouter: boolean;
   isOwnDevice: boolean;
@@ -36,6 +40,7 @@ function createDevice(key: string, mac: string | null): Device {
     processes: new Set(),
     ports: new Set(),
     connectionCount: 0,
+    connectionIds: new Set(),
     activeCount: 0,
     isRouter: false,
     isOwnDevice: false,
@@ -92,6 +97,7 @@ export function groupDevices(
     if (connection.process.name) device.processes.add(connection.process.name);
     if (remote.port) device.ports.add(remote.port);
     device.connectionCount += 1;
+    device.connectionIds.add(connection.id);
     device.activeCount += Number(connection.active);
     device.isOwnDevice ||= remote.scope === "loopback";
     device.selected ||= connection.id === selectedId;
@@ -124,6 +130,8 @@ export function LocalPeers({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [deviceKey, setDeviceKey] = useState<string | null>(null);
+  const { display } = usePresentation();
 
   useEffect(() => {
     let cancelled = false;
@@ -165,6 +173,30 @@ export function LocalPeers({
   );
   const identified = devices.filter((device) => device.mac !== null);
   const unverified = devices.filter((device) => device.mac === null);
+  const selectedDevice =
+    devices.find((device) => device.key === deviceKey) ??
+    devices.find((device) => device.selected) ??
+    devices[0];
+  const interfaceGroups = new Map<string, Device[]>();
+  for (const device of identified.slice(0, 100)) {
+    for (const networkInterface of device.interfaces.size
+      ? device.interfaces
+      : [t("Unknown interface")]) {
+      const group = interfaceGroups.get(networkInterface) ?? [];
+      group.push(device);
+      interfaceGroups.set(networkInterface, group);
+    }
+  }
+
+  const deviceLabel = (device: Device) =>
+    device.hostname ??
+    (device.isOwnDevice
+      ? t("This device")
+      : device.isRouter
+        ? t("Router")
+        : device.mac
+          ? `${t("Device")} · ${device.mac.slice(-5)}`
+          : ([...device.addresses][0] ?? t("Device")));
 
   const renderDevice = (device: Device) => {
     const addresses = [...device.addresses].sort();
@@ -179,6 +211,7 @@ export function LocalPeers({
             : addresses[0]);
     const content = (
       <>
+        <Icon name={device.isRouter ? "process" : "terminal"} />
         <span className="local-peers__top">
           <strong>{label}</strong>
           <small>
@@ -189,69 +222,23 @@ export function LocalPeers({
                 : t("Neighbor cache")}
           </small>
         </span>
-        <span className="local-peers__identity">
-          {device.mac
-            ? t("Grouped by MAC address")
-            : t("Address only — device unverified")}
-        </span>
         <span className="local-peers__addresses">
           {addresses.map((address) => (
-            <code key={address}>{address}</code>
+            <code key={address}>{display("local_ip", address)}</code>
           ))}
-        </span>
-        <span className="local-peers__details">
-          {device.mac && (
-            <span>
-              MAC: <code>{device.mac}</code>
-            </span>
-          )}
-          {device.connectionCount > 0 ? (
-            <span>
-              {t("{count} connections", { count: device.connectionCount })}
-            </span>
-          ) : (
-            <span>{t("No connection from this computer observed")}</span>
-          )}
-          {device.interfaces.size > 0 && (
-            <span>
-              {t("Interface")}: {[...device.interfaces].slice(0, 2).join(", ")}
-            </span>
-          )}
-          {device.processes.size > 0 && (
-            <span>
-              {t("Process")}: {[...device.processes].slice(0, 2).join(", ")}
-            </span>
-          )}
-          {device.ports.size > 0 && (
-            <span>
-              {t("Ports")}: {[...device.ports].slice(0, 4).join(", ")}
-            </span>
-          )}
-          {device.lastSeen !== null && (
-            <span>
-              {t("Last seen")}: {new Date(device.lastSeen).toLocaleTimeString()}
-            </span>
-          )}
         </span>
       </>
     );
-    return device.representativeId ? (
+    return (
       <button
-        aria-pressed={device.selected}
+        aria-pressed={selectedDevice?.key === device.key}
         className="local-peers__item"
         key={device.key}
-        onClick={() => onSelect(device.representativeId!)}
+        onClick={() => setDeviceKey(device.key)}
         type="button"
       >
         {content}
       </button>
-    ) : (
-      <div
-        className="local-peers__item local-peers__item--cached"
-        key={device.key}
-      >
-        {content}
-      </div>
     );
   };
 
@@ -259,7 +246,7 @@ export function LocalPeers({
     <section aria-label={t("Local devices")} className="local-peers">
       <div className="local-peers__intro">
         <div className="local-peers__heading">
-          <strong>{t("Local devices")}</strong>
+          <h1>{t("Local devices")}</h1>
           <span>{t("{count} device groups", { count: devices.length })}</span>
           <button
             className="button button--secondary"
@@ -289,37 +276,133 @@ export function LocalPeers({
           )}
         </p>
       ) : (
-        <div className="local-peers__scroll">
-          {identified.length > 0 && (
-            <section aria-label={t("Devices with MAC evidence")}>
+        <div className="local-peers__workspace">
+          <div className="local-peers__scroll">
+            {identified.length > 0 && (
+              <section aria-label={t("Devices with MAC evidence")}>
+                <h3>
+                  {t("Devices with MAC evidence")}{" "}
+                  <small>{identified.length}</small>
+                </h3>
+                {[...interfaceGroups].map(([networkInterface, entries]) => (
+                  <section className="device-interface" key={networkInterface}>
+                    <h4>
+                      {t("Interface")} {display("interface", networkInterface)}
+                    </h4>
+                    <div className="local-peers__list">
+                      {entries.map(renderDevice)}
+                    </div>
+                  </section>
+                ))}
+              </section>
+            )}
+            {unverified.length > 0 && (
+              <section aria-label={t("Addresses without device identity")}>
+                <h3>
+                  {t("Addresses without device identity")}{" "}
+                  <small>{unverified.length}</small>
+                </h3>
+                <div className="local-peers__list">
+                  {unverified
+                    .slice(0, Math.max(0, 100 - identified.length))
+                    .map(renderDevice)}
+                </div>
+              </section>
+            )}
+            {devices.length > 100 && (
+              <p className="local-peers__more">
+                {t("Showing the 100 most recent peers of {count}.", {
+                  count: devices.length,
+                })}
+              </p>
+            )}
+          </div>
+          {selectedDevice && (
+            <aside className="device-inspector" aria-label={t("Device")}>
+              <header>
+                <Icon name={selectedDevice.isRouter ? "process" : "terminal"} />
+                <h2>{deviceLabel(selectedDevice)}</h2>
+              </header>
+              <p>
+                {t(
+                  selectedDevice.mac
+                    ? "Grouped by MAC address"
+                    : "Address only — device unverified",
+                )}
+              </p>
+              <dl>
+                <div>
+                  <dt>{t("IP address")}</dt>
+                  <dd>
+                    {[...selectedDevice.addresses].map((address) => (
+                      <code key={address}>{display("local_ip", address)}</code>
+                    ))}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("MAC address")}</dt>
+                  <dd>
+                    <code>
+                      {selectedDevice.mac
+                        ? display("local_ip", selectedDevice.mac)
+                        : t("Unavailable")}
+                    </code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("Interface")}</dt>
+                  <dd>
+                    {[...selectedDevice.interfaces]
+                      .map((item) => display("interface", item))
+                      .join(", ") || t("Unknown interface")}
+                  </dd>
+                </div>
+              </dl>
               <h3>
-                {t("Devices with MAC evidence")}{" "}
-                <small>{identified.length}</small>
+                {t("Live connections")}{" "}
+                <span>{selectedDevice.connectionCount}</span>
               </h3>
-              <div className="local-peers__list">
-                {identified.slice(0, 100).map(renderDevice)}
-              </div>
-            </section>
-          )}
-          {unverified.length > 0 && (
-            <section aria-label={t("Addresses without device identity")}>
-              <h3>
-                {t("Addresses without device identity")}{" "}
-                <small>{unverified.length}</small>
-              </h3>
-              <div className="local-peers__list">
-                {unverified
-                  .slice(0, Math.max(0, 100 - identified.length))
-                  .map(renderDevice)}
-              </div>
-            </section>
-          )}
-          {devices.length > 100 && (
-            <p className="local-peers__more">
-              {t("Showing the 100 most recent peers of {count}.", {
-                count: devices.length,
-              })}
-            </p>
+              {selectedDevice.connectionCount === 0 ? (
+                <div className="today-empty">
+                  <Icon name="activity" />
+                  <strong>
+                    {t("No connection from this computer observed")}
+                  </strong>
+                </div>
+              ) : (
+                <div className="device-connections">
+                  {connections
+                    .filter((connection) =>
+                      selectedDevice.connectionIds.has(connection.id),
+                    )
+                    .slice(0, 100)
+                    .map((connection) => (
+                      <button
+                        type="button"
+                        key={connection.id}
+                        onClick={() => onSelect(connection.id)}
+                      >
+                        <strong>
+                          {display("process", connection.process.name)}
+                        </strong>
+                        <code>
+                          {display(
+                            "local_ip",
+                            endpointLabel(
+                              connection.key.remote.address,
+                              connection.key.remote.port,
+                            ),
+                          )}
+                        </code>
+                        <small>
+                          {connection.protocol.toUpperCase()} ·{" "}
+                          {t(connection.active ? "Active" : "closed")}
+                        </small>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </aside>
           )}
         </div>
       )}

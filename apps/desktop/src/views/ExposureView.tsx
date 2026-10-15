@@ -10,6 +10,7 @@ import {
 import { Icon } from "../components/Icon";
 import { translate, useI18n, useLanguage } from "../i18n";
 import { desktopApi } from "#backend";
+import { isListenerOnly } from "../lib/filter";
 import {
   compareListenerSnapshots,
   listenerKey,
@@ -105,6 +106,10 @@ export function ExposureView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedSnapshotHash, setSelectedSnapshotHash] = useState<
+    string | null
+  >(null);
   const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -155,37 +160,46 @@ export function ExposureView({
 
   const latest = snapshots[0] ?? null;
   const previous = snapshots[1] ?? null;
+  const viewedSnapshot =
+    snapshots.find((item) => item.snapshot_sha256 === selectedSnapshotHash) ??
+    latest;
   const comparison = useMemo(
     () => compareListenerSnapshots(latest, previous),
     [latest, previous],
   );
 
-  const liveByInstance = useMemo(
+  const liveByListener = useMemo(
     () =>
       new Map(
-        (Array.isArray(snapshot.connections) ? snapshot.connections : []).map(
-          (connection) => [connection.key.process_instance, connection],
+        (Array.isArray(snapshot.connections) ? snapshot.connections : []).filter(isListenerOnly).map(
+          (connection) => [listenerKey({ endpoint: connection.key.local, protocol: connection.protocol, process_instance: connection.key.process_instance }), connection],
         ),
       ),
     [snapshot.connections],
   );
 
   const rows = useMemo(
-    () => [
-      ...comparison.added.map((listener) => ({
-        change: "added" as const,
-        listener,
-      })),
-      ...comparison.current.map((listener) => ({
-        change: "current" as const,
-        listener,
-      })),
-      ...comparison.removed.map((listener) => ({
-        change: "removed" as const,
-        listener,
-      })),
-    ],
-    [comparison],
+    () =>
+      viewedSnapshot && viewedSnapshot !== latest
+        ? viewedSnapshot.listeners.map((listener) => ({
+            change: "current" as const,
+            listener,
+          }))
+        : [
+            ...comparison.added.map((listener) => ({
+              change: "added" as const,
+              listener,
+            })),
+            ...comparison.current.map((listener) => ({
+              change: "current" as const,
+              listener,
+            })),
+            ...comparison.removed.map((listener) => ({
+              change: "removed" as const,
+              listener,
+            })),
+          ],
+    [comparison, latest, viewedSnapshot],
   );
 
   const renderListener = (
@@ -193,12 +207,23 @@ export function ExposureView({
     change: "added" | "removed" | "current",
     index: number,
   ) => {
-    const connection = liveByInstance.get(listener.process_instance) ?? null;
+    const connection = liveByListener.get(listenerKey(listener)) ?? null;
     return (
-      <tr key={`${change}:${listenerKey(listener)}:${index}`}>
+      <tr
+        className={
+          selectedRow?.listener === listener ? "is-selected" : undefined
+        }
+        key={`${change}:${listenerKey(listener)}:${index}`}
+      >
         <td>
           <span className={`change-pill change-pill--${change}`}>
-            {t(change)}
+            {t(
+              change === "current"
+                ? "Current"
+                : change === "added"
+                  ? "Added listener"
+                  : "Removed listener",
+            )}
           </span>
         </td>
         <td>
@@ -224,30 +249,10 @@ export function ExposureView({
           </span>
         </td>
         <td>
-          {connection?.process.executable_revision_id ??
-            t("Revision unavailable")}
-        </td>
-        <td>
-          {connection?.process.user_id
-            ? display("user", connection.process.user_id)
-            : t("User unavailable")}
-        </td>
-        <td>
-          {connection?.interface
-            ? display("interface", connection.interface)
-            : t("Interface unavailable")}
-        </td>
-        <td>
-          <strong>{t(listener.firewall)}</strong>
-          <small>{displayText(listener.limitation)}</small>
-        </td>
-        <td>
           <button
             className="button button--secondary"
-            disabled={!connection}
-            onClick={() =>
-              onOpenEvidence(connection?.id ?? null, "state:listening")
-            }
+            aria-pressed={selectedRow?.listener === listener}
+            onClick={() => setSelectedKey(`${change}:${listenerKey(listener)}`)}
             type="button"
           >
             {t("Evidence")}
@@ -257,7 +262,19 @@ export function ExposureView({
     );
   };
 
-  const displayed = latest?.listeners ?? [];
+  const displayed = viewedSnapshot?.listeners ?? [];
+  const selectSnapshot = (hash: string) => {
+    setSelectedSnapshotHash(hash);
+    setSelectedKey(null);
+  };
+  const selectedRow =
+    rows.find(
+      ({ change, listener }) =>
+        `${change}:${listenerKey(listener)}` === selectedKey,
+    ) ?? rows[0];
+  const selectedConnection = selectedRow
+    ? liveByListener.get(listenerKey(selectedRow.listener))
+    : undefined;
   return (
     <section
       aria-busy={loading}
@@ -299,7 +316,7 @@ export function ExposureView({
 
       <div className="exposure-summary" role="status">
         <article>
-          <strong>{displayed.length}</strong>
+          <strong>{latest?.listeners.length ?? 0}</strong>
           <span>{t("listeners in latest snapshot")}</span>
         </article>
         <article>
@@ -333,11 +350,63 @@ export function ExposureView({
           </div>
           <span>{t("{count} retained", { count: snapshots.length })}</span>
         </header>
-        <div className="snapshot-ledger__list">
-          {snapshots.slice(0, 8).map((item, index) => (
-            <article key={`${item.id ?? "new"}:${item.snapshot_sha256}`}>
+        {latest && previous && (
+          <div className="snapshot-comparison">
+            <button
+              className="snapshot-node"
+              aria-pressed={viewedSnapshot === previous}
+              onClick={() => selectSnapshot(previous.snapshot_sha256)}
+              type="button"
+            >
+              <small>{t("Previous snapshot")}</small>
+              <time>{new Date(previous.observed_at_ms).toLocaleString()}</time>
+              <code title={previous.snapshot_sha256}>
+                {shortHash(previous.snapshot_sha256)}
+              </code>
+              <strong>
+                {t("{count} listeners", { count: previous.listeners.length })}
+              </strong>
+            </button>
+            <div className="snapshot-comparison__changes">
               <span>
-                {index === 0
+                {comparison.added.length} {t("added")} <Icon name="chevron" />
+              </span>
+              <span>
+                {comparison.removed.length} {t("removed")}{" "}
+                <Icon name="chevron" />
+              </span>
+              <span>
+                {comparison.unchanged} {t("unchanged")} <Icon name="chevron" />
+              </span>
+            </div>
+            <button
+              className="snapshot-node is-current"
+              aria-pressed={viewedSnapshot === latest}
+              onClick={() => selectSnapshot(latest.snapshot_sha256)}
+              type="button"
+            >
+              <small>{t("Current snapshot")}</small>
+              <time>{new Date(latest.observed_at_ms).toLocaleString()}</time>
+              <code title={latest.snapshot_sha256}>
+                {shortHash(latest.snapshot_sha256)}
+              </code>
+              <strong>
+                {t("{count} listeners", { count: latest.listeners.length })}
+              </strong>
+            </button>
+          </div>
+        )}
+        <div className="snapshot-ledger__list">
+          {snapshots.slice(previous ? 2 : 0, 8).map((item) => (
+            <button
+              className="snapshot-node"
+              aria-pressed={viewedSnapshot === item}
+              onClick={() => selectSnapshot(item.snapshot_sha256)}
+              key={`${item.id ?? "new"}:${item.snapshot_sha256}`}
+              type="button"
+            >
+              <span>
+                {item === latest
                   ? t("Latest")
                   : new Date(item.observed_at_ms).toLocaleString()}
               </span>
@@ -347,7 +416,7 @@ export function ExposureView({
               <strong>
                 {t("{count} listeners", { count: item.listeners.length })}
               </strong>
-            </article>
+            </button>
           ))}
           {loading && snapshots.length === 0 && (
             <p className="list-empty">{t("Loading listener snapshots…")}</p>
@@ -362,62 +431,149 @@ export function ExposureView({
         </div>
       </section>
 
-      <section
-        className="exposure-table-section"
-        aria-labelledby="exposure-table-title"
-      >
-        <header>
-          <div>
-            <h2 id="exposure-table-title">{t("Listener evidence")}</h2>
-            <p>
-              {t(
-                "Wildcard means all local interfaces; it does not prove Internet accessibility.",
+      <div className="exposure-evidence">
+        <section
+          className="exposure-table-section"
+          aria-labelledby="exposure-table-title"
+        >
+          <header>
+            <div>
+              <h2 id="exposure-table-title">{t("Listener evidence")}</h2>
+              {viewedSnapshot && (
+                <p>
+                  {new Date(viewedSnapshot.observed_at_ms).toLocaleString()} ·{" "}
+                  {shortHash(viewedSnapshot.snapshot_sha256)}
+                </p>
               )}
-            </p>
-          </div>
-        </header>
-        <div className="table-scroll" tabIndex={0}>
-          <table className="evidence-table">
-            <caption className="sr-only">
-              {t("Current and changed local listener evidence")}
-            </caption>
-            <thead>
-              <tr>
-                <th>{t("Change")}</th>
-                <th>{t("Process / instance")}</th>
-                <th>{t("Bind endpoint")}</th>
-                <th>{t("Protocol")}</th>
-                <th>{t("Scope")}</th>
-                <th>{t("Executable revision")}</th>
-                <th>{t("User")}</th>
-                <th>{t("Interface")}</th>
-                <th>{t("Firewall evidence")}</th>
-                <th>{t("Action")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ listener, change }, index) =>
-                renderListener(listener, change, index),
-              )}
-            </tbody>
-          </table>
-        </div>
-        {displayed.length === 0 &&
-          comparison.removed.length === 0 &&
-          !loading && (
-            <div className="today-empty">
-              <Icon name="shield" />
-              <strong>
-                {t("No listener evidence in the latest snapshot")}
-              </strong>
               <p>
                 {t(
-                  "This is an observation result, not proof that no service can listen between snapshots.",
+                  "Wildcard means all local interfaces; it does not prove Internet accessibility.",
                 )}
               </p>
             </div>
-          )}
-      </section>
+          </header>
+          <div className="table-scroll" tabIndex={0}>
+            <table className="evidence-table">
+              <caption className="sr-only">
+                {t("Current and changed local listener evidence")}
+              </caption>
+              <thead>
+                <tr>
+                  <th>{t("Change")}</th>
+                  <th>{t("Process / instance")}</th>
+                  <th>{t("Bind endpoint")}</th>
+                  <th>{t("Protocol")}</th>
+                  <th>{t("Scope")}</th>
+                  <th>{t("Action")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ listener, change }, index) =>
+                  renderListener(listener, change, index),
+                )}
+              </tbody>
+            </table>
+          </div>
+          {displayed.length === 0 &&
+            comparison.removed.length === 0 &&
+            !loading && (
+              <div className="today-empty">
+                <Icon name="shield" />
+                <strong>
+                  {t("No listener evidence in the latest snapshot")}
+                </strong>
+                <p>
+                  {t(
+                    "This is an observation result, not proof that no service can listen between snapshots.",
+                  )}
+                </p>
+              </div>
+            )}
+        </section>
+        {selectedRow && (
+          <aside
+            className="listener-inspector"
+            aria-label={t("Listener evidence")}
+          >
+            <header>
+              <Icon name="process" />
+              <h2>
+                {selectedConnection
+                  ? display("process", selectedConnection.process.name)
+                  : t("Unknown process")}
+              </h2>
+              <span
+                className={`change-pill change-pill--${selectedRow.change}`}
+              >
+                {t(
+                  selectedRow.change === "current"
+                    ? "Current"
+                    : selectedRow.change === "added"
+                      ? "Added listener"
+                      : "Removed listener",
+                )}
+              </span>
+            </header>
+            <dl>
+              <div>
+                <dt>{t("Bind endpoint")}</dt>
+                <dd>
+                  <code>
+                    {display("local_ip", selectedRow.listener.endpoint.address)}
+                    :{selectedRow.listener.endpoint.port}
+                  </code>
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Protocol")}</dt>
+                <dd>{selectedRow.listener.protocol.toUpperCase()}</dd>
+              </div>
+              <div>
+                <dt>{t("Executable revision")}</dt>
+                <dd>
+                  {selectedConnection?.process.executable_revision_id ??
+                    t("Revision unavailable")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("User")}</dt>
+                <dd>
+                  {selectedConnection?.process.user_id
+                    ? display("user", selectedConnection.process.user_id)
+                    : t("User unavailable")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Interface")}</dt>
+                <dd>
+                  {selectedConnection?.interface
+                    ? display("interface", selectedConnection.interface)
+                    : t("Interface unavailable")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Firewall evidence")}</dt>
+                <dd>{t(selectedRow.listener.firewall)}</dd>
+              </div>
+            </dl>
+            <p>{displayText(selectedRow.listener.limitation)}</p>
+            <button
+              className="button button--secondary"
+              disabled={!selectedConnection}
+              onClick={() =>
+                onOpenEvidence(
+                  selectedConnection?.id ?? null,
+                  "state:listening",
+                )
+              }
+              type="button"
+            >
+              {t("Open evidence")}
+              <Icon name="chevron" />
+            </button>
+          </aside>
+        )}
+      </div>
 
       <aside className="evidence-limitation">
         <Icon name="shield" />

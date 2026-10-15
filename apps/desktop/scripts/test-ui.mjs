@@ -35,6 +35,9 @@ try {
   const { desktopApi: previewApi } = await server.ssrLoadModule(
     "/src/lib/backend.ts",
   );
+  const { ServiceDiagram } = await server.ssrLoadModule("/src/components/ServiceDiagram.tsx");
+  const { HistoryInspector } = await server.ssrLoadModule("/src/components/HistoryInspector.tsx");
+  const { mapPoint } = await server.ssrLoadModule("/src/lib/world-detail.ts");
 
   const sensitive = {
     process: "Secret Browser",
@@ -201,6 +204,7 @@ try {
   const dualStack = deviceGroups.find((device) => device.mac === "02:11:22:33:44:55");
   assert.deepEqual([...dualStack.addresses].sort(), ["192.168.1.10", "fe80::10"]);
   assert.equal(dualStack.connectionCount, 2);
+  assert.deepEqual([...dualStack.connectionIds].sort(), ["ipv4", "ipv6"], "device inspection retains only the connections attributed to that group");
   assert.equal(dualStack.selected, true);
   assert.equal(deviceGroups.find((device) => device.addresses.has("192.168.1.12")).mac, null);
 
@@ -216,9 +220,31 @@ try {
     quickComparison.countries.every((row) => /^[A-Z]{2}$/.test(row.key)),
     "country comparison rows use country codes",
   );
+  await previewApi.setCaptureState("demo", null);
+  const demoUpdate = await previewApi.getDashboardUpdate(null);
+  const demoConnection = demoUpdate.snapshot?.connections[0] ?? demoUpdate.upserted_connections[0];
+  assert.ok(demoConnection, "demo capture supplies an actual connection fixture");
+  const listener = {
+    ...demoConnection,
+    id: "test-listener",
+    state: "listening",
+    counter_source: "unavailable",
+    key: { ...demoConnection.key, local: { ...demoConnection.key.local, address: "127.0.0.1", port: 3000 }, remote: { ...demoConnection.key.remote, address: "0.0.0.0", port: 0 } },
+    traffic: { bytes_sent: 0, bytes_received: 0, packets_sent: 0, packets_received: 0 },
+  };
+  const diagramMarkup = renderToStaticMarkup(React.createElement(I18nProvider, { value: "en" }, React.createElement(ServiceDiagram, { connections: [listener], selectedId: listener.id, onSelect() {} })));
+  assert.match(diagramMarkup, /127\.0\.0\.1:3000/);
+  assert.doesNotMatch(diagramMarkup, /0\.0\.0\.0:0/, "listener diagram must show the bound local endpoint");
+  assert.match(diagramMarkup, /aria-pressed="true"/);
+  const inspectorMarkup = renderToStaticMarkup(React.createElement(I18nProvider, { value: "en" }, React.createElement(HistoryInspector, { entry: { session_id: "test-session", connection: listener }, onClose() {}, onReconstruct() {} })));
+  assert.doesNotMatch(inspectorMarkup, /0 B/, "unavailable counters must remain absent rather than becoming zero");
+  assert.match(inspectorMarkup, /—/);
+  assert.deepEqual(mapPoint(-180, 90), [0, 0]);
+  assert.deepEqual(mapPoint(180, -90), [1000, 500]);
+  assert.deepEqual(mapPoint(0, 0), [500, 250], "atlas, markers and relief raster must share the same equirectangular registration");
 
   console.log(
-    "UI behavior passed: presentation DOM, compact capture navigation, unlocated classification, local device grouping, stale-response gate, bilingual settings search, quick comparison.",
+    "UI behavior passed: presentation DOM, compact capture navigation, unlocated classification, local device grouping, stale-response gate, bilingual settings search, quick comparison, listener endpoints, absent counters and relief registration.",
   );
 } finally {
   await server.close();

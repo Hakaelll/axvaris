@@ -109,6 +109,7 @@ export function TodaySessionStrip({
           {" · "}
           {counterQuality}
         </small>
+        <small>{t("{count} local profiles", { count: profiles.length })}</small>
       </div>
       <dl className="today-session-metrics">
         <div>
@@ -144,17 +145,19 @@ export function TodaySessionStrip({
           <dd>{unlocated}</dd>
         </div>
       </dl>
-      <svg
-        aria-labelledby={chartTitleId}
-        className="today-traffic-sparkline"
-        preserveAspectRatio="none"
-        role="img"
-        viewBox="0 0 100 32"
-      >
-        <title id={chartTitleId}>{chartSummary}</title>
-        <path d="M0 30H100" />
-        <polyline points={trendPoints(trend)} />
-      </svg>
+      {snapshot.session && countersAvailable && trend.length > 1 && (
+        <svg
+          aria-labelledby={chartTitleId}
+          className="today-traffic-sparkline"
+          preserveAspectRatio="none"
+          role="img"
+          viewBox="0 0 100 32"
+        >
+          <title id={chartTitleId}>{chartSummary}</title>
+          <path d="M0 30H100" />
+          <polyline points={trendPoints(trend)} />
+        </svg>
+      )}
     </section>
   );
 }

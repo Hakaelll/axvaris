@@ -60,13 +60,28 @@
   live ETW test still explicitly ignored. All 17 desktop command tests passed.
   Repository, dependency, license, translation, TypeScript and frontend checks passed.
 
-## Latest interface refinement
+## Reference-guided interface update — 2026-10-14
 
-The shell uses an inset curved sidebar and fewer rigid borders. Capsule controls,
-protocol tags, explicit active/closed labels and crisp globe markers improve
-distinction between actions and evidence. Browser captures at 1440×900 and 720×600
-had no JavaScript errors or root horizontal overflow. The independent finish review
-accepted this UI pass. Those checks do not certify native resource stability.
+The interface follows the 13 selected screens in
+`design-references/axvaris-2026-10-13/`: a straight divided sidebar, warm opaque
+evidence panels, local device groups, process-to-listener diagrams, retained
+snapshot comparisons and an evidence inspector. Packaged NASA relief supplies
+the geographic backdrop; plotted markers still require known coordinates.
+Floating map controls and the command palette have an opaque glass fallback.
+
+`pnpm --dir apps/desktop check` passed translation, UI behavior, TypeScript and
+production build checks. `node scripts/audit-frontend.mjs` and `git diff --check`
+passed. The reusable `scripts/verify-reference-ui.cjs` produced 20 browser
+captures covering all selected reference screens, opaque commands and compact
+layouts at 720×600 and 390×844, without runtime errors or root overflow.
+It also checked keyboard focus, local device selection, distinct local listener
+ports, retained snapshot selection, current settings sections and readable
+compact summary values. Fixtures are explicitly browser demonstration data.
+Native capture and installer acceptance were outside this interface update.
+The independent final finish review inspected all 13 selected references and all
+20 final captures, confirmed current design persistence and returned `ship`
+without remaining material fixes. Its report is in
+`.impeccable/review/finish-review.md`.
 
 ## Remaining acceptance work
 

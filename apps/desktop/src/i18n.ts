@@ -4,6 +4,39 @@ export type Language = "en" | "es";
 export type TranslationValues = Record<string, string | number>;
 
 const spanish: Record<string, string> = {
+  Time: "Hora",
+  Type: "Tipo",
+  Result: "Resultado",
+  Current: "Actual",
+  "Added listener": "Añadido",
+  "Removed listener": "Eliminado",
+  "Snapshot comparison": "Comparación de snapshots",
+  "History views": "Vistas del historial",
+  Workspace: "Espacio de trabajo",
+  Timeline: "Línea temporal",
+  "Selected connection": "Conexión seleccionada",
+  "Evidence details": "Detalles de la evidencia",
+  "System architecture": "Arquitectura del sistema",
+  "Supporting components": "Componentes auxiliares",
+  "Previous snapshot": "Snapshot anterior",
+  "Current snapshot": "Snapshot actual",
+  Present: "Presente",
+  Absent: "Ausente",
+  added: "añadidos",
+  removed: "eliminados",
+  "Quick comparison": "Comparación rápida",
+  "Location coverage": "Cobertura de ubicación",
+  "Local endpoint": "Endpoint local",
+  "Showing {shown} of {count} sockets":
+    "Se muestran {shown} de {count} sockets",
+  "Select a service to inspect its socket evidence":
+    "Selecciona un servicio para consultar la evidencia de su socket",
+  "Unknown interface": "Interfaz desconocida",
+  "MAC address": "Dirección MAC",
+  "Start live capture": "Iniciar captura en vivo",
+  "Use demo data": "Usar datos de demostración",
+  "Raises text and border contrast and makes glass controls opaque.":
+    "Aumenta el contraste del texto y los bordes y hace opacos los controles de cristal.",
   "Capture health": "Salud de captura",
   Application: "Aplicación",
   "Network profile": "Perfil de red",
@@ -248,8 +281,6 @@ const spanish: Record<string, string> = {
   "Process / instance": "Proceso/instancia",
   "Profiles change capture cadence and resource budgets; the active behavior remains visible.":
     "Los perfiles cambian la cadencia de captura y los presupuestos de recursos; el comportamiento activo permanece visible.",
-  "Raises text and border contrast without changing evidence semantics.":
-    "Aumenta el contraste de texto y bordes sin cambiar la semántica de la evidencia.",
   "Reachability limitation": "Limitación de alcance",
   "Reload Exposure": "Volver a cargar Exposición",
   "READ-ONLY .SABI / schema {version}":
@@ -408,7 +439,6 @@ const spanish: Record<string, string> = {
   "No retained sessions.": "No hay sesiones conservadas.",
   "{count} records": "{count} registros",
   "Live connections": "Conexiones en vivo",
-  "LIVE CONNECTIONS": "CONEXIONES EN VIVO",
   Resume: "Reanudar",
   "Pause view": "Pausar vista",
   "Waiting for network activity": "Esperando actividad de red",
@@ -432,8 +462,6 @@ const spanish: Record<string, string> = {
   inbound: "entrante",
   outbound: "saliente",
   "Connection inspector": "Inspector de conexión",
-  "ACTIVE CONNECTION": "CONEXIÓN ACTIVA",
-  "RECENT CONNECTION": "CONEXIÓN RECIENTE",
   "Close inspector": "Cerrar inspector",
   "THIS DEVICE": "ESTE DISPOSITIVO",
   Name: "Nombre",
@@ -1240,7 +1268,6 @@ const spanish: Record<string, string> = {
   "Listener removed": "Listener eliminado",
   "Listener scope widened": "Alcance del listener ampliado",
   "Local or reserved destination": "Destino local o reservado",
-  "LOCATION COVERAGE": "COBERTURA DE UBICACIÓN",
   "Location precision is too low":
     "La precisión de ubicación es demasiado baja",
   "Missing coordinates stay unplotted; Axvaris never invents a location.":
@@ -1270,7 +1297,6 @@ const spanish: Record<string, string> = {
     "Navegación principal en el menú compacto",
   "Pseudonymizes sensitive values only in the current visual session. Stored evidence, filters and export redaction remain unchanged.":
     "Seudonimiza los valores sensibles solo en la sesión visual actual. La evidencia guardada, los filtros y la redacción de las exportaciones no cambian.",
-  "QUICK COMPARISON": "COMPARACIÓN RÁPIDA",
   Received: "Recibido",
   "Received difference": "Diferencia recibida",
   Removed: "Eliminados",
@@ -1291,7 +1317,6 @@ const spanish: Record<string, string> = {
     "Tendencia de tráfico con {count} muestras; última tasa: {rate}",
   Unlocated: "Sin ubicación",
   "Unlocated target evidence": "Evidencia de destinos sin ubicación",
-  "Unlocated targets": "Destinos sin ubicación",
   "Visual pseudonyms are active": "Los seudónimos visuales están activos",
   Widened: "Ampliados",
 };

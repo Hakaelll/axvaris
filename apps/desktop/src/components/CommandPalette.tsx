@@ -44,12 +44,13 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const actions = useMemo(
     () => [
       {
         label: t("Open Today"),
         keywords: "world network mundo red",
-        icon: "globe" as IconName,
+        icon: "activity" as IconName,
         run: () => onView("today"),
       },
       {
@@ -79,7 +80,7 @@ export function CommandPalette({
       {
         label: t("Open Exposure"),
         keywords: "countries domains ip países dominios destinos",
-        icon: "map" as IconName,
+        icon: "shield" as IconName,
         run: () => onView("exposure"),
       },
       {
@@ -190,11 +191,22 @@ export function CommandPalette({
 
   useEffect(() => {
     if (!open) return;
+    const previousFocus = document.activeElement;
     setQuery("");
     setActiveIndex(0);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => {
+      cancelAnimationFrame(frame);
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
   }, [open]);
   useEffect(() => setActiveIndex(0), [query]);
+  useEffect(() => {
+    if (open)
+      dialogRef.current
+        ?.querySelector('[aria-selected="true"]')
+        ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open]);
   if (!open) return null;
 
   const run = (index: number) => {
@@ -216,11 +228,28 @@ export function CommandPalette({
         aria-label={t("Command palette")}
         aria-modal="true"
         className="command-palette"
+        ref={dialogRef}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+          if (event.key !== "Tab") return;
+          const controls =
+            event.currentTarget.querySelectorAll<HTMLElement>("input, button");
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
         role="dialog"
       >
         <label>
           <Icon name="search" />
           <input
+            aria-label={t("Type a command...")}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") onClose();

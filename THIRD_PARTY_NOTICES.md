@@ -13,6 +13,7 @@ redistribution decision for primary components are in `DEPENDENCIES.md`.
 - React, Three.js and their runtime dependencies: MIT.
 - TopoJSON Client and `world-atlas`: ISC. `world-atlas` derives its geography from
   Natural Earth, whose source data is public domain.
+- NASA Earth Observatory's [Blue Marble: Next Generation with Topography and Bathymetry](https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography-bathymetry/), January 2004: packaged raster relief backdrop. NASA is the source; its [media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/) permit factual use without implying endorsement. Axvaris renders the original raster in neutral tones and keeps connection markers separate. Source and projection details are in `apps/desktop/public/maps/README.md`.
 - SQLite: public domain; `rusqlite` is MIT.
 - `maxminddb`: ISC.
 - `ferrisetw` and `sha2`: MIT OR Apache-2.0.

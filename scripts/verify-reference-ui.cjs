@@ -1,0 +1,164 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { chromium } = require(process.env.AXVARIS_PLAYWRIGHT_MODULE || 'playwright');
+
+(async () => {
+  const output = path.resolve(process.env.AXVARIS_REVIEW_DIR || '.impeccable/review');
+  fs.mkdirSync(output, { recursive: true });
+  const browser = await chromium.launch({ headless: true, channel: 'msedge' });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1620, height: 972 }, reducedMotion: 'reduce' });
+    const errors = [];
+    const captures = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const capture = async (name, target) => {
+      if (target) await page.locator(target).scrollIntoViewIfNeeded();
+      await page.evaluate(() => document.fonts.ready);
+      await page.screenshot({ path: path.join(output, name + '.png') });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, name + ' must fit the window');
+      captures.push(name);
+    };
+    const navigate = async name => page.getByRole('button', { name, exact: true }).first().click();
+    await page.goto(process.env.AXVARIS_PREVIEW_URL || 'http://127.0.0.1:1420');
+    await page.locator('.today-session-strip').waitFor();
+    await navigate('Data & Health');
+    await page.getByRole('combobox', { name: 'Interface language', exact: true }).selectOption('es');
+    await navigate('Hoy');
+    await capture('01-hoy-resumen');
+    await capture('02-hoy-comparacion-reglas', '.rule-studio');
+    await navigate('En vivo');
+    await page.locator('.globe-scene canvas').waitFor();
+    await page.locator('.globe-scene[data-relief-ready="true"]').waitFor();
+    await capture('03-en-vivo-globo-3d');
+    await page.getByRole('tab', { name: 'Dispositivos', exact: true }).click();
+    await page.locator('.device-inspector').waitFor();
+    await page.locator('.local-peers__item').first().click();
+    assert.match(await page.locator('.device-inspector').innerText(), /MAC/);
+    await capture('04-en-vivo-dispositivos');
+    await page.getByRole('tab', { name: /Remoto/ }).click();
+    await page.getByRole('button', { name: '2D', exact: true }).click();
+    await page.locator('.world-map__svg').waitFor();
+    await capture('05-en-vivo-mapa-2d');
+    await page.getByRole('combobox', { name: 'Modo de captura', exact: true }).selectOption('demo');
+    await page.locator('.connection-row').first().waitFor();
+    await page.evaluate(async () => {
+      const { desktopApi } = await import('/src/lib/backend.ts');
+      const originalUpdate = desktopApi.getDashboardUpdate.bind(desktopApi);
+      const sample = await originalUpdate(null);
+      const base = sample.snapshot?.connections[0] ?? sample.upserted_connections[0];
+      if (!base) throw new Error('Demo fixture did not produce a connection');
+      const timestamp = sample.generated_at_ms;
+      const services = [3000, 5353, 8080].map((port, index) => {
+        const connection = structuredClone(base);
+        connection.id = 'reference-demo-service-' + port;
+        connection.process.name = 'Demo Service';
+        connection.process.pid = 8400;
+        connection.process.executable = 'demo-service.exe';
+        connection.process.executable_path = null;
+        connection.process.executable_revision_id = null;
+        connection.key.process_instance = 'reference-demo-instance';
+        connection.key.local = { address: '0.0.0.0', port, observed_family: 'ipv4', scope: 'unspecified', zone: null };
+        connection.key.remote = { address: '0.0.0.0', port: 0, observed_family: 'ipv4', scope: 'unspecified', zone: null };
+        connection.state = 'listening';
+        connection.direction = 'unknown';
+        connection.protocol = index === 1 ? 'udp' : 'tcp';
+        connection.geo = null;
+        connection.domain = null;
+        connection.hostname = null;
+        connection.asn = null;
+        connection.active = true;
+        connection.counter_source = 'unavailable';
+        connection.evidence = { ...connection.evidence, endpoint_role: 'listener', role_reason: 'Demonstration listener socket', correlation_quality: 'snapshot_only' };
+        connection.traffic = { bytes_sent: 0, bytes_received: 0, packets_sent: 0, packets_received: 0 };
+        connection.rates = { down_bytes_per_second: 0, up_bytes_per_second: 0, packets_per_second: 0 };
+        return connection;
+      });
+      desktopApi.getDashboardUpdate = async (...args) => {
+        const update = await originalUpdate(...args);
+        if (update.snapshot) update.snapshot.connections.push(...services);
+        else update.upserted_connections.push(...services);
+        update.stats.total_connections += services.length;
+        update.stats.active_connections += services.length;
+        if (update.snapshot) update.snapshot.stats = update.stats;
+        return update;
+      };
+      const listeners = services.map(connection => ({ endpoint: connection.key.local, protocol: connection.protocol, process_instance: connection.key.process_instance, scope: 'wildcard', firewall: 'not_queryable', first_observed_ms: timestamp, last_observed_ms: timestamp, limitation: 'Demonstration fixture. Bind scope does not prove Internet reachability.' }));
+      const removed = { ...listeners[0], process_instance: null, endpoint: { ...listeners[0].endpoint, port: 27036 } };
+      desktopApi.listListenerSnapshots = async () => [
+        { id: 3, session_id: 'reference-demo-session', observed_at_ms: timestamp, snapshot_sha256: 'a'.repeat(64), listeners },
+        { id: 2, session_id: 'reference-demo-session', observed_at_ms: timestamp - 60000, snapshot_sha256: 'b'.repeat(64), listeners: [listeners[0], removed] },
+        { id: 1, session_id: 'reference-demo-session', observed_at_ms: timestamp - 120000, snapshot_sha256: 'c'.repeat(64), listeners: [removed] },
+      ];
+    });
+    await page.getByRole('tab', { name: /Servicios en escucha/ }).click();
+    await page.locator('.service-link').first().waitFor();
+    await page.locator('.service-link').first().click();
+    await page.locator('.inspector').waitFor();
+    assert.equal(await page.locator('.live-feed .connection-row').count(), 3, 'different local ports of one process must remain distinct listener groups');
+    assert.match(await page.locator('.live-feed').innerText(), /0\.0\.0\.0:3000/);
+    assert.doesNotMatch(await page.locator('.live-feed').innerText(), /0\.0\.0\.0:0\b/);
+    await capture('06-en-vivo-servicios');
+    await navigate('Investigar');
+    await page.locator('.query-builder').waitFor();
+    await capture('07-investigar-workspace');
+    await page.getByRole('button', { name: 'Línea temporal', exact: true }).click();
+    await page.locator('.evidence-grid__actions button').filter({ hasText: 'Abrir' }).first().click();
+    await page.locator('.history-inspector').waitFor();
+    await page.locator('.evidence-grid__viewport').evaluate(element => { element.scrollLeft = 0; });
+    await page.locator('.history-view').evaluate(element => { element.scrollTop = 0; });
+    await capture('08-investigar-timeline-evidencia');
+    await page.getByRole('button', { name: 'Sesiones', exact: true }).click();
+    await page.locator('.history-entries > button').first().click();
+    await page.locator('.history-inspector').waitFor();
+    await capture('09-investigar-sesiones');
+    await navigate('Exposición');
+    await page.locator('.snapshot-comparison').waitFor();
+    await page.locator('.exposure-table-section button').first().click();
+    await page.locator('.snapshot-ledger__list .snapshot-node').first().click();
+    assert.match(await page.locator('.exposure-table-section').innerText(), /27036/);
+    assert.doesNotMatch(await page.locator('.exposure-table-section').innerText(), /8080/);
+    await page.locator('.snapshot-comparison .is-current').click();
+    await capture('10-exposicion');
+    await navigate('Datos y estado');
+    await page.locator('.settings-layout nav a[href="#external-dns"]').click();
+    await capture('11-ajustes-dns', '#external-dns');
+    assert.equal(await page.locator('.settings-layout nav a[aria-current="location"]').getAttribute('href'), '#external-dns');
+    await page.locator('.settings-layout nav a[href="#diagnostics"]').click();
+    await capture('12-diagnostico', '#diagnostics');
+    assert.equal(await page.locator('.settings-layout nav a[aria-current="location"]').getAttribute('href'), '#diagnostics');
+    await page.keyboard.press('Control+k');
+    await page.getByRole('dialog').waitFor();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.locator('.command-palette [aria-selected="true"]').count(), 1);
+    await capture('13-comandos-liquid-glass');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.closest('.command-palette') !== null), true, 'palette traps keyboard focus');
+    await page.keyboard.press('Escape');
+    await page.locator('.command-palette').waitFor({ state: 'detached' });
+    await page.locator('#display').evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    await page.locator('.settings-layout nav a[href="#display"][aria-current="location"]').waitFor();
+    await page.getByText('Contraste reforzado', { exact: true }).click();
+    await page.keyboard.press('Control+k');
+    await page.getByRole('dialog').waitFor();
+    assert.equal(await page.locator('.command-palette').evaluate(element => getComputedStyle(element).backdropFilter), 'none');
+    await capture('13-comandos-opaco');
+    await page.keyboard.press('Escape');
+    for (const width of [720, 390]) {
+      await page.setViewportSize({ width, height: width === 720 ? 600 : 844 });
+      await navigate('Hoy');
+      assert.equal(await page.locator('.today-session-metrics dt, .today-session-metrics dd').evaluateAll(elements => elements.some(element => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1)), false, 'session labels and amounts must remain complete at ' + width + 'px');
+      await capture('compact-' + width + '-hoy');
+      await navigate('En vivo');
+      await page.getByRole('tab', { name: /Remoto/ }).click();
+      await capture('compact-' + width + '-live');
+      await navigate('Datos y estado');
+      await capture('compact-' + width + '-dns', '#external-dns');
+    }
+    assert.deepEqual(errors, [], 'all reference routes render without runtime errors');
+    fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ captures, errors, fixtureScope: 'Browser demonstration data; additional listener and retained snapshot fixtures are injected only into this test page.', checked: ['five navigation areas', 'local device selection', 'listener socket selection', 'exposure inspector and retained snapshot selection', 'command keyboard navigation and focus containment', 'opaque glass fallback', '720px and 390px document overflow'] }, null, 2));
+    console.log('Reference UI passed: ' + captures.length + ' captures; keyboard, inspectors, opaque fallback and compact layouts.');
+  } finally {
+    await browser.close();
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });

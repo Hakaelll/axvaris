@@ -185,16 +185,7 @@ export function ConnectionInspector({
   return (
     <aside aria-label={t("Connection inspector")} className="inspector">
       <header>
-        <div>
-          <span
-            className={`connection-state${connection.active ? " is-live" : ""}`}
-          />
-          <span>
-            {connection.active
-              ? t("ACTIVE CONNECTION")
-              : t("RECENT CONNECTION")}
-          </span>
-        </div>
+        <strong>{connection.process.name}</strong>
         <button
           aria-label={t("Close inspector")}
           className="icon-button"
@@ -210,6 +201,12 @@ export function ConnectionInspector({
         </span>
         <div>
           <h2>{connection.process.name}</h2>
+          <span className="inspector__state">
+            <span
+              className={`connection-state${connection.active ? " is-live" : ""}`}
+            />
+            {connection.active ? t("Active") : t("Recently observed")}
+          </span>
           <p>
             {connection.process.executable ??
               `PID ${connection.process.pid ?? t("unknown")}`}
@@ -602,7 +599,8 @@ export function ConnectionInspector({
       </section>
       <section className="inspector-section inspector-section--traffic">
         <h3>{t("Traffic")}</h3>
-        {!flowTrafficAvailable ? (
+        {!flowTrafficAvailable ||
+        connection.counter_source === "unavailable" ? (
           <p className="inspector-metric-note">
             {t(
               "The current socket provider exposes endpoints but not per-connection byte counters. Live device totals are shown in the bottom bar.",

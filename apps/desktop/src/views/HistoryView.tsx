@@ -14,6 +14,7 @@ import type {
 import { formatBytes, formatDateTime, formatDuration } from "../lib/format";
 import { desktopApi } from "#backend";
 import { EvidenceTable } from "../components/EvidenceTable";
+import { HistoryInspector } from "../components/HistoryInspector";
 import { QueryBuilder } from "../components/QueryBuilder";
 import { ContextProfiles } from "../components/ContextProfiles";
 import { usePresentation } from "../privacy/PresentationMode";
@@ -54,6 +55,14 @@ export function HistoryView({
   const t = useI18n();
   const { display, displayText } = usePresentation();
   const [history, setHistory] = useState<HistoryResponse | null>(null);
+  const [pane, setPane] = useState<"workspace" | "timeline" | "sessions">(
+    "workspace",
+  );
+  const [inspection, setInspection] = useState<{
+    area: "evidence" | "sessions";
+    sessionId: string;
+    connectionId: string;
+  } | null>(null);
   const [range, setRange] = useState<(typeof ranges)[number]>(ranges[1]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [cursorMs, setCursorMs] = useState<number | null>(null);
@@ -503,8 +512,31 @@ export function HistoryView({
     );
   };
 
+  const inspectedEntry = inspection
+    ? history?.entries.find(
+        (entry) =>
+          entry.session_id === inspection.sessionId &&
+          entry.connection.id === inspection.connectionId,
+      )
+    : undefined;
+  const inspector = inspectedEntry ? (
+    <HistoryInspector
+      entry={inspectedEntry}
+      onClose={() => setInspection(null)}
+      onReconstruct={() =>
+        onReconstruct(
+          Math.min(
+            inspectedEntry.connection.last_seen_ms,
+            inspectedEntry.connection.first_seen_ms + 1,
+          ),
+          inspectedEntry.session_id,
+          inspectedEntry.connection.id,
+        )
+      }
+    />
+  ) : null;
   return (
-    <section className="data-view history-view">
+    <section className={`data-view history-view history-pane--${pane}`}>
       <header className="view-heading">
         <div>
           <span className="eyebrow">{t("LOCAL EVIDENCE")}</span>
@@ -548,231 +580,314 @@ export function HistoryView({
           </button>
         </div>
       </header>
-      <section className="investigation-panel">
-        <header>
-          <div>
-            <span className="eyebrow">{t("SAVED INVESTIGATIONS")}</span>
-            <h2>{t("Local investigation workspaces")}</h2>
-            <p>
-              {t(
-                "Save the active query, exact time range, session, pinned evidence and notes on this device. Nothing is synced.",
-              )}
-            </p>
-          </div>
-          <code>{currentQuery || t("No active filter")}</code>
-        </header>
-        <div className="investigation-panel__editor">
-          <input
-            aria-label={t("Investigation name")}
-            onChange={(event) => setInvestigationName(event.target.value)}
-            placeholder={t("Investigation name")}
-            value={investigationName}
-          />
-          <textarea
-            aria-label={t("Local notes")}
-            onChange={(event) => setInvestigationNotes(event.target.value)}
-            placeholder={t("Local notes")}
-            rows={2}
-            value={investigationNotes}
-          />
-          <input
-            aria-label={t("Investigation tags")}
-            onChange={(event) => setInvestigationTags(event.target.value)}
-            placeholder={t("Tags separated by commas")}
-            value={investigationTags}
-          />
-          <div>
-            <button
-              className="button button--secondary"
-              disabled={(history?.entries.length ?? 0) === 0}
-              onClick={() =>
-                setPinnedConnectionIds(
-                  (history?.entries ?? []).map(
-                    ({ connection }) => connection.id,
-                  ),
-                )
-              }
-              type="button"
-            >
-              {t("Pin visible evidence")}
-            </button>
-            <button
-              className="button button--secondary"
-              disabled={pinnedConnectionIds.length === 0}
-              onClick={() => setPinnedConnectionIds([])}
-              type="button"
-            >
-              {t("Clear pins")}
-            </button>
-            <button
-              className="button button--primary"
-              disabled={!investigationName.trim()}
-              onClick={() => void saveInvestigation()}
-              type="button"
-            >
-              {activeInvestigation ? t("Save now") : t("Save investigation")}
-            </button>
-            <button
-              className="button button--secondary"
-              onClick={() => {
-                setActiveInvestigation(null);
-                setInvestigationName("");
-                setInvestigationNotes("");
-                setInvestigationTags("");
-                setPinnedConnectionIds([]);
-              }}
-              type="button"
-            >
-              {t("New workspace")}
-            </button>
-          </div>
-          <small>
-            {t("{count} pinned connections", {
-              count: pinnedConnectionIds.length,
-            })}
-          </small>
-        </div>
-        <div className="investigation-list">
-          {investigations.map((investigation) => (
-            <article key={investigation.id}>
-              <div>
-                <strong>{investigation.name}</strong>
-                <small>
-                  {formatDateTime(investigation.updated_at_ms)} ·{" "}
-                  {investigation.query.pinned_connection_ids.length} {t("pins")}
-                </small>
-                <code>
-                  {investigation.query.filter ?? t("No active filter")}
-                </code>
-                {investigation.notes && <p>{investigation.notes}</p>}
-                {investigation.tags.length > 0 && (
-                  <span className="investigation-tags">
-                    {investigation.tags.map((tag) => (
-                      <em key={tag}>{tag}</em>
-                    ))}
-                  </span>
-                )}
-              </div>
-              <span>
-                <button
-                  className="button button--secondary"
-                  onClick={() => openInvestigation(investigation)}
-                  type="button"
-                >
-                  {t("Open exact view")}
-                </button>
-                <button
-                  className="button button--secondary"
-                  onClick={() => void exportSabi(investigation)}
-                  type="button"
-                >
-                  {t("Export redacted .sabi")}
-                </button>
-                <button
-                  aria-label={t("Delete investigation {name}", {
-                    name: investigation.name,
-                  })}
-                  className="button button--danger"
-                  onClick={() => void deleteInvestigation(investigation.id)}
-                  type="button"
-                >
-                  {t("Delete")}
-                </button>
-              </span>
-            </article>
-          ))}
-          {investigations.length === 0 && (
-            <p className="list-empty">{t("No saved investigations yet.")}</p>
-          )}
-        </div>
-        <div className="sabi-import-panel">
-          <div>
-            <strong>{t("Open portable investigation")}</strong>
-            <p>
-              {t(
-                "The ZIP manifest, exact entry set, CRC and SHA-256 hashes are verified before opening. Imported evidence stays read-only and is never merged or uploaded.",
-              )}
-            </p>
-          </div>
-          <input
-            aria-label={t(".sabi file path")}
-            onChange={(event) => setSabiImportPath(event.target.value)}
-            placeholder="C:\\Evidence\\investigation.sabi"
-            value={sabiImportPath}
-          />
+      <nav
+        className="history-pane-nav segmented"
+        aria-label={t("History views")}
+      >
+        {(["workspace", "timeline", "sessions"] as const).map((item) => (
           <button
-            className="button button--secondary"
-            disabled={!sabiImportPath.trim()}
-            onClick={() => void importSabi()}
+            className={pane === item ? "is-active" : undefined}
+            aria-pressed={pane === item}
+            onClick={() => {
+              setPane(item);
+              setInspection(null);
+            }}
+            key={item}
             type="button"
           >
-            {t("Verify and open read-only")}
+            {t(
+              {
+                workspace: "Workspace",
+                timeline: "Timeline",
+                sessions: "Sessions",
+              }[item],
+            )}
           </button>
-          {sabiStatus && <small role="status">{sabiStatus}</small>}
-        </div>
-        {importedBundle && (
-          <section
-            className="sabi-readonly"
-            aria-label={t("Imported read-only investigation")}
-          >
-            <header>
-              <div>
-                <strong>{importedBundle.investigation.name}</strong>
-                <small>
-                  {t("READ-ONLY .SABI / schema {version}", {
-                    version: importedBundle.manifest.schema_version,
-                  })}
-                </small>
-              </div>
+        ))}
+      </nav>
+      <div className="investigation-workspace">
+        <section className="investigation-panel">
+          <header>
+            <div>
+              <span className="eyebrow">{t("SAVED INVESTIGATIONS")}</span>
+              <h2>{t("Local investigation workspaces")}</h2>
+              <p>
+                {t(
+                  "Save the active query, exact time range, session, pinned evidence and notes on this device. Nothing is synced.",
+                )}
+              </p>
+            </div>
+            <code>{currentQuery || t("No active filter")}</code>
+          </header>
+          <div className="investigation-panel__editor">
+            <label>
+              <span>{t("Investigation name")}</span>
+              <input
+                aria-label={t("Investigation name")}
+                onChange={(event) => setInvestigationName(event.target.value)}
+                placeholder={t("Investigation name")}
+                value={investigationName}
+              />
+            </label>
+            <label>
+              <span>{t("Local notes")}</span>
+              <textarea
+                aria-label={t("Local notes")}
+                onChange={(event) => setInvestigationNotes(event.target.value)}
+                placeholder={t("Local notes")}
+                rows={2}
+                value={investigationNotes}
+              />
+            </label>
+            <label>
+              <span>{t("Investigation tags")}</span>
+              <input
+                aria-label={t("Investigation tags")}
+                onChange={(event) => setInvestigationTags(event.target.value)}
+                placeholder={t("Tags separated by commas")}
+                value={investigationTags}
+              />
+            </label>
+            <div>
               <button
                 className="button button--secondary"
-                onClick={() => setImportedBundle(null)}
+                disabled={(history?.entries.length ?? 0) === 0}
+                onClick={() =>
+                  setPinnedConnectionIds(
+                    (history?.entries ?? []).map(
+                      ({ connection }) => connection.id,
+                    ),
+                  )
+                }
                 type="button"
               >
-                {t("Close bundle")}
+                {t("Pin visible evidence")}
               </button>
-            </header>
-            <p>
-              {importedBundle.investigation.notes ||
-                t("No local notes in this bundle.")}
-            </p>
-            <dl>
-              <div>
-                <dt>{t("Source path")}</dt>
-                <dd>
-                  <code>{importedBundle.source_path}</code>
-                </dd>
+              <button
+                className="button button--secondary"
+                disabled={pinnedConnectionIds.length === 0}
+                onClick={() => setPinnedConnectionIds([])}
+                type="button"
+              >
+                {t("Clear pins")}
+              </button>
+              <button
+                className="button button--primary"
+                disabled={!investigationName.trim()}
+                onClick={() => void saveInvestigation()}
+                type="button"
+              >
+                {activeInvestigation ? t("Save now") : t("Save investigation")}
+              </button>
+              <button
+                className="button button--secondary"
+                onClick={() => {
+                  setActiveInvestigation(null);
+                  setInvestigationName("");
+                  setInvestigationNotes("");
+                  setInvestigationTags("");
+                  setPinnedConnectionIds([]);
+                }}
+                type="button"
+              >
+                {t("New workspace")}
+              </button>
+            </div>
+            <small>
+              {t("{count} pinned connections", {
+                count: pinnedConnectionIds.length,
+              })}
+            </small>
+          </div>
+          <div className="investigation-list">
+            {investigations.map((investigation) => (
+              <article key={investigation.id}>
+                <div>
+                  <strong>{investigation.name}</strong>
+                  <small>
+                    {formatDateTime(investigation.updated_at_ms)} ·{" "}
+                    {investigation.query.pinned_connection_ids.length}{" "}
+                    {t("pins")}
+                  </small>
+                  <code>
+                    {investigation.query.filter ?? t("No active filter")}
+                  </code>
+                  {investigation.notes && <p>{investigation.notes}</p>}
+                  {investigation.tags.length > 0 && (
+                    <span className="investigation-tags">
+                      {investigation.tags.map((tag) => (
+                        <em key={tag}>{tag}</em>
+                      ))}
+                    </span>
+                  )}
+                </div>
+                <span>
+                  <button
+                    className="button button--secondary"
+                    onClick={() => openInvestigation(investigation)}
+                    type="button"
+                  >
+                    {t("Open exact view")}
+                  </button>
+                  <button
+                    className="button button--secondary"
+                    onClick={() => void exportSabi(investigation)}
+                    type="button"
+                  >
+                    {t("Export redacted .sabi")}
+                  </button>
+                  <button
+                    aria-label={t("Delete investigation {name}", {
+                      name: investigation.name,
+                    })}
+                    className="button button--danger"
+                    onClick={() => void deleteInvestigation(investigation.id)}
+                    type="button"
+                  >
+                    {t("Delete")}
+                  </button>
+                </span>
+              </article>
+            ))}
+            {investigations.length === 0 && (
+              <p className="list-empty">{t("No saved investigations yet.")}</p>
+            )}
+          </div>
+          <div className="sabi-import-panel">
+            <div>
+              <strong>{t("Open portable investigation")}</strong>
+              <p>
+                {t(
+                  "The ZIP manifest, exact entry set, CRC and SHA-256 hashes are verified before opening. Imported evidence stays read-only and is never merged or uploaded.",
+                )}
+              </p>
+            </div>
+            <input
+              aria-label={t(".sabi file path")}
+              onChange={(event) => setSabiImportPath(event.target.value)}
+              placeholder="C:\\Evidence\\investigation.sabi"
+              value={sabiImportPath}
+            />
+            <button
+              className="button button--secondary"
+              disabled={!sabiImportPath.trim()}
+              onClick={() => void importSabi()}
+              type="button"
+            >
+              {t("Verify and open read-only")}
+            </button>
+            {sabiStatus && <small role="status">{sabiStatus}</small>}
+          </div>
+          {importedBundle && (
+            <section
+              className="sabi-readonly"
+              aria-label={t("Imported read-only investigation")}
+            >
+              <header>
+                <div>
+                  <strong>{importedBundle.investigation.name}</strong>
+                  <small>
+                    {t("READ-ONLY .SABI / schema {version}", {
+                      version: importedBundle.manifest.schema_version,
+                    })}
+                  </small>
+                </div>
+                <button
+                  className="button button--secondary"
+                  onClick={() => setImportedBundle(null)}
+                  type="button"
+                >
+                  {t("Close bundle")}
+                </button>
+              </header>
+              <p>
+                {importedBundle.investigation.notes ||
+                  t("No local notes in this bundle.")}
+              </p>
+              <dl>
+                <div>
+                  <dt>{t("Source path")}</dt>
+                  <dd>
+                    <code>{importedBundle.source_path}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("Connections")}</dt>
+                  <dd>{importedBundle.connections.length}</dd>
+                </div>
+                <div>
+                  <dt>{t("Timeline samples")}</dt>
+                  <dd>{importedBundle.timeline.length}</dd>
+                </div>
+                <div>
+                  <dt>{t("Verified entries")}</dt>
+                  <dd>
+                    {Object.keys(importedBundle.manifest.entry_sha256).length}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          )}
+        </section>
+        <div className="investigation-workspace__main">
+          <QueryBuilder
+            connections={(history?.entries ?? []).map(
+              (entry) => entry.connection,
+            )}
+            onChange={onQueryChange}
+            query={currentQuery}
+            rangeLabel={
+              selectedSession
+                ? t("Selected retained session")
+                : investigationWindow
+                  ? t("Saved exact time window")
+                  : t(range.label)
+            }
+          />
+          <div
+            className={`history-evidence${inspection?.area === "evidence" && inspectedEntry ? " has-inspector" : ""}`}
+          >
+            {" "}
+            <EvidenceTable
+              selectedEntry={
+                inspection?.area === "evidence" ? inspectedEntry : undefined
+              }
+              entries={history?.entries ?? []}
+              loading={loading}
+              onOpen={({ session_id: sessionId, connection }) =>
+                setInspection({
+                  area: "evidence",
+                  sessionId,
+                  connectionId: connection.id,
+                })
+              }
+              onTogglePin={(connectionId) =>
+                setPinnedConnectionIds((items) =>
+                  items.includes(connectionId)
+                    ? items.filter((id) => id !== connectionId)
+                    : [...items, connectionId],
+                )
+              }
+              pinnedIds={pinnedConnectionIds}
+            />
+            {history?.has_more && (
+              <div className="history-page-action">
+                <button
+                  className="button button--secondary"
+                  disabled={loadingMore}
+                  onClick={() => void loadNextPage()}
+                  type="button"
+                >
+                  {loadingMore
+                    ? t("Loading next page...")
+                    : t("Load 500 more records")}
+                </button>
               </div>
-              <div>
-                <dt>{t("Connections")}</dt>
-                <dd>{importedBundle.connections.length}</dd>
-              </div>
-              <div>
-                <dt>{t("Timeline samples")}</dt>
-                <dd>{importedBundle.timeline.length}</dd>
-              </div>
-              <div>
-                <dt>{t("Verified entries")}</dt>
-                <dd>
-                  {Object.keys(importedBundle.manifest.entry_sha256).length}
-                </dd>
-              </div>
-            </dl>
-          </section>
-        )}
-      </section>
-      <QueryBuilder
-        connections={(history?.entries ?? []).map((entry) => entry.connection)}
-        onChange={onQueryChange}
-        query={currentQuery}
-        rangeLabel={
-          selectedSession
-            ? t("Selected retained session")
-            : investigationWindow
-              ? t("Saved exact time window")
-              : t(range.label)
-        }
-      />
+            )}
+            {inspection?.area === "evidence" && inspector}
+          </div>
+        </div>
+      </div>
       <ContextProfiles
         entries={history?.entries ?? []}
         onFilter={onQueryChange}
@@ -923,169 +1038,143 @@ export function HistoryView({
           </button>
         </div>
       </div>
-      <EvidenceTable
-        entries={history?.entries ?? []}
-        loading={loading}
-        onOpen={({ session_id: sessionId, connection }) =>
-          onReconstruct(
-            Math.min(connection.last_seen_ms, connection.first_seen_ms + 1),
-            sessionId,
-            connection.id,
-          )
-        }
-        onTogglePin={(connectionId) =>
-          setPinnedConnectionIds((items) =>
-            items.includes(connectionId)
-              ? items.filter((id) => id !== connectionId)
-              : [...items, connectionId],
-          )
-        }
-        pinnedIds={pinnedConnectionIds}
-      />
-      {history?.has_more && (
-        <div className="history-page-action">
-          <button
-            className="button button--secondary"
-            disabled={loadingMore}
-            onClick={() => void loadNextPage()}
-            type="button"
-          >
-            {loadingMore
-              ? t("Loading next page...")
-              : t("Load 500 more records")}
-          </button>
-        </div>
-      )}
-      <div className="history-layout">
-        <div className="history-sessions">
-          <h2>{t("Sessions")}</h2>
-          <button
-            aria-pressed={selectedSession === null}
-            className={`history-session${selectedSession === null ? " is-selected" : ""}`}
-            onClick={() => {
-              setSelectedSession(null);
-              setInvestigationWindow(null);
-            }}
-            type="button"
-          >
-            <span className="session-dot" />
-            <div>
-              <strong>{t("All retained sessions")}</strong>
-              <small>{t("Current time range")}</small>
-            </div>
-            <div>
-              <strong>{history?.sessions.length ?? 0}</strong>
-              <small>{t("sessions")}</small>
-            </div>
-          </button>
-          {(history?.sessions ?? []).map((session) => (
+      <div
+        className={`history-session-workspace${inspection?.area === "sessions" && inspectedEntry ? " has-inspector" : ""}`}
+      >
+        <div className="history-layout">
+          <div className="history-sessions">
+            <h2>{t("Sessions")}</h2>
             <button
-              aria-pressed={selectedSession === session.id}
-              className={`history-session${selectedSession === session.id ? " is-selected" : ""}`}
-              key={session.id}
+              aria-pressed={selectedSession === null}
+              className={`history-session${selectedSession === null ? " is-selected" : ""}`}
               onClick={() => {
-                setSelectedSession(session.id);
+                setSelectedSession(null);
                 setInvestigationWindow(null);
-                setReenrichmentJob(null);
-                setGeoView([]);
               }}
               type="button"
             >
               <span className="session-dot" />
               <div>
-                <strong>{formatDateTime(session.started_at_ms)}</strong>
-                <small>
-                  {session.ended_at_ms
-                    ? formatDuration(
-                        session.ended_at_ms - session.started_at_ms,
-                      )
-                    : t("Current session")}
-                </small>
+                <strong>{t("All retained sessions")}</strong>
+                <small>{t("Current time range")}</small>
               </div>
               <div>
-                <strong>
-                  {session.connection_count}
-                  {session.recording_count > 0
-                    ? ` / ${session.recording_count}`
-                    : ""}
-                </strong>
-                <small>
-                  {session.recording_count > 0
-                    ? t("connections / PCAPNG")
-                    : t("connections")}
-                </small>
+                <strong>{history?.sessions.length ?? 0}</strong>
+                <small>{t("sessions")}</small>
               </div>
             </button>
-          ))}
-          {!loading && (history?.sessions.length ?? 0) === 0 && (
-            <p className="list-empty">{t("No retained sessions.")}</p>
-          )}
-        </div>
-        <div className="history-entries">
-          <div className="history-entries__heading">
-            <h2>{t("Connections")}</h2>
-            <span>
-              {t("{count} records", { count: history?.entries.length ?? 0 })}
-            </span>
+            {(history?.sessions ?? []).map((session) => (
+              <button
+                aria-pressed={selectedSession === session.id}
+                className={`history-session${selectedSession === session.id ? " is-selected" : ""}`}
+                key={session.id}
+                onClick={() => {
+                  setSelectedSession(session.id);
+                  setInvestigationWindow(null);
+                  setReenrichmentJob(null);
+                  setGeoView([]);
+                }}
+                type="button"
+              >
+                <span className="session-dot" />
+                <div>
+                  <strong>{formatDateTime(session.started_at_ms)}</strong>
+                  <small>
+                    {session.ended_at_ms
+                      ? formatDuration(
+                          session.ended_at_ms - session.started_at_ms,
+                        )
+                      : t("Current session")}
+                  </small>
+                </div>
+                <div>
+                  <strong>
+                    {session.connection_count}
+                    {session.recording_count > 0
+                      ? ` / ${session.recording_count}`
+                      : ""}
+                  </strong>
+                  <small>
+                    {session.recording_count > 0
+                      ? t("connections / PCAPNG")
+                      : t("connections")}
+                  </small>
+                </div>
+              </button>
+            ))}
+            {!loading && (history?.sessions.length ?? 0) === 0 && (
+              <p className="list-empty">{t("No retained sessions.")}</p>
+            )}
           </div>
-          {loading ? (
-            <div className="loading-line" />
-          ) : (
-            (history?.entries ?? [])
-              .slice(0, 300)
-              .map(({ session_id: sessionId, connection }) => (
-                <button
-                  key={`${sessionId}-${connection.id}`}
-                  onClick={() =>
-                    onReconstruct(
-                      Math.min(
-                        connection.last_seen_ms,
-                        connection.first_seen_ms + 1,
-                      ),
-                      sessionId,
-                      connection.id,
-                    )
-                  }
-                  type="button"
-                >
-                  <time>{formatDateTime(connection.first_seen_ms)}</time>
-                  <span>
-                    <strong>
-                      {display("process", connection.process.name)}
-                    </strong>
-                    <small>PID {connection.process.pid ?? "?"}</small>
-                  </span>
-                  <span>
-                    <strong>
-                      {connection.domain
-                        ? display("domain", connection.domain)
-                        : display(
-                            connection.key.remote.scope === "global"
-                              ? "public_ip"
-                              : "local_ip",
-                            connection.key.remote.address,
-                          )}
-                    </strong>
-                    <small>
-                      {connection.geo?.country_name ?? t("Unknown location")}
-                    </small>
-                  </span>
-                  <span>
-                    <strong>
-                      {connection.protocol.toUpperCase()}{" "}
-                      {connection.key.remote.port}
-                    </strong>
-                    <small>
-                      {formatBytes(
-                        connection.traffic.bytes_received +
-                          connection.traffic.bytes_sent,
-                      )}
-                    </small>
-                  </span>
-                </button>
-              ))
-          )}
+          <div className="history-entries">
+            <div className="history-entries__heading">
+              <h2>{t("Connections")}</h2>
+              <span>
+                {t("{count} records", { count: history?.entries.length ?? 0 })}
+              </span>
+            </div>
+            {loading ? (
+              <div className="loading-line" />
+            ) : (
+              (history?.entries ?? [])
+                .slice(0, 300)
+                .map(({ session_id: sessionId, connection }) => (
+                  <button
+                    key={`${sessionId}-${connection.id}`}
+                    aria-pressed={
+                      inspection?.area === "sessions" &&
+                      inspection.connectionId === connection.id &&
+                      inspection.sessionId === sessionId
+                    }
+                    onClick={() =>
+                      setInspection({
+                        area: "sessions",
+                        sessionId,
+                        connectionId: connection.id,
+                      })
+                    }
+                    type="button"
+                  >
+                    <time>{formatDateTime(connection.first_seen_ms)}</time>
+                    <span>
+                      <strong>
+                        {display("process", connection.process.name)}
+                      </strong>
+                      <small>PID {connection.process.pid ?? "?"}</small>
+                    </span>
+                    <span>
+                      <strong>
+                        {connection.domain
+                          ? display("domain", connection.domain)
+                          : display(
+                              connection.key.remote.scope === "global"
+                                ? "public_ip"
+                                : "local_ip",
+                              connection.key.remote.address,
+                            )}
+                      </strong>
+                      <small>
+                        {connection.geo?.country_name ?? t("Unknown location")}
+                      </small>
+                    </span>
+                    <span>
+                      <strong>
+                        {connection.protocol.toUpperCase()}{" "}
+                        {connection.key.remote.port}
+                      </strong>
+                      <small>
+                        {formatBytes(
+                          connection.traffic.bytes_received +
+                            connection.traffic.bytes_sent,
+                        )}
+                      </small>
+                    </span>
+                  </button>
+                ))
+            )}
+          </div>
         </div>
+        {inspection?.area === "sessions" && inspector}
       </div>
       <section className="reenrichment-panel">
         <header>

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-12T18:43:53.698Z",
+  "generatedAt": "2026-10-14T18:45:04.0228094Z",
   "title": "Design System: Axvaris",
   "extensions": {
     "colorMeta": {
@@ -232,11 +232,11 @@
     "typographyMeta": {
       "headline": {
         "displayName": "Page heading",
-        "purpose": "Workspace headings."
+        "purpose": "Page headings at 32px, weight 560."
       },
       "title": {
         "displayName": "Card title",
-        "purpose": "Titles lead full-width observation rows before category and scope."
+        "purpose": "Observation titles and primary object names at 16px."
       },
       "body": {
         "displayName": "Body",
@@ -252,7 +252,7 @@
       },
       "metric": {
         "displayName": "Session metric",
-        "purpose": "Larger tabular session values."
+        "purpose": "Session metric values at 23px in Geist Mono."
       },
       "mono": {
         "displayName": "Technical text",
@@ -263,7 +263,17 @@
       {
         "name": "compact-menu",
         "value": "0 12px 30px rgba(0, 0, 0, 0.45)",
-        "purpose": "Transient capture and actions menu only. Persistent workspaces are flat."
+        "purpose": "Transient capture and actions menu."
+      },
+      {
+        "name": "floating-glass",
+        "value": "inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 8px 20px rgba(0, 0, 0, 0.22)",
+        "purpose": "Floating geographic and temporal controls only."
+      },
+      {
+        "name": "command-palette",
+        "value": "inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 24px 60px rgba(0, 0, 0, 0.5)",
+        "purpose": "Command palette separation from the dimmed workspace."
       }
     ],
     "motion": [
@@ -291,6 +301,30 @@
       {
         "name": "live-stack",
         "value": "900px"
+      },
+      {
+        "name": "browser-fallback",
+        "value": "650px"
+      }
+    ],
+    "materials": [
+      {
+        "name": "warm-glass",
+        "background": "var(--glass-surface,rgba(29,26,24,.9))",
+        "edge": "var(--glass-edge,rgba(238,238,238,.3))",
+        "filter": "blur(20px) saturate(110%)",
+        "purpose": "Floating map and temporal controls."
+      },
+      {
+        "name": "palette-glass",
+        "filter": "blur(28px) saturate(110%)",
+        "purpose": "Command palette; its dimmed backdrop uses blur(4px)."
+      },
+      {
+        "name": "opaque-fallback",
+        "background": "var(--obsidian,#1d1a18)",
+        "filter": "none",
+        "purpose": "Enhanced contrast, reduced transparency and missing backdrop-filter support."
       }
     ]
   },
@@ -323,9 +357,9 @@
       "name": "Sidebar navigation",
       "kind": "nav",
       "refersTo": "sidebar-item-active",
-      "description": "Persistent investigation areas with an explicit current page.",
+      "description": "Straight full-height navigation with a quiet divider and an explicit current page.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Primary\"><button>Today</button><button aria-current=\"page\">Live</button><button>Investigate</button><button>Exposure</button><button>Data &amp; Health</button></nav>",
-      "css": ".ds-nav{margin:8px 0;border:0;border-radius:0 16px 16px 0;width:172px;display:grid;gap:6px;background:var(--carbon,#151413);padding:12px}.ds-nav button{min-height:46px;width:100%;padding:10px;text-align:left;font:14px Geist,\"Segoe UI\",sans-serif;border:1px solid transparent;border-radius:var(--control-radius,10px);background:transparent;color:var(--fog,#b8b3b0);cursor:pointer}.ds-nav button:hover{background:#151617;color:var(--mist,#eeeeee)}.ds-nav button[aria-current]{background:#292522;border-color:transparent;color:var(--paper,#fff)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
+      "css": ".ds-nav{margin:0;border:0;border-right:1px solid var(--divider,rgba(238,238,238,.12));border-radius:0;width:208px;display:grid;gap:6px;background:var(--carbon,#151413);padding:12px}.ds-nav button{min-height:46px;width:100%;padding:10px;text-align:left;font:14px Geist,\"Segoe UI\",sans-serif;border:1px solid transparent;border-radius:var(--control-radius,10px);background:transparent;color:var(--fog,#b8b3b0);cursor:pointer}.ds-nav button:hover{background:#151617;color:var(--mist,#eeeeee)}.ds-nav button[aria-current]{background:#292522;border-color:transparent;color:var(--paper,#fff)}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-search:focus-visible,.ds-nav button:focus-visible,.ds-chip:focus-visible,.ds-row:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}@media(prefers-reduced-motion:no-preference){.ds-primary,.ds-secondary,.ds-nav button{transition:background-color 120ms cubic-bezier(0.2,0.8,0.2,1),border-color 120ms cubic-bezier(0.2,0.8,0.2,1)}}"
     },
     {
       "name": "Query chip",
@@ -341,48 +375,48 @@
       "refersTo": "observation-list",
       "description": "One continuous list with titles before category and scope, and quiet inline evidence actions.",
       "html": "<section class=\"ds-observations\"><article class=\"ds-observation\"><div><h3>Demo Browser</h3><header><span>New network process</span><small>This device</small></header><p>First observed opening a network connection on this device.</p></div><footer><button class=\"ds-evidence\">Open evidence <svg aria-hidden=\"true\" viewBox=\"0 0 16 16\" width=\"14\" height=\"14\"><path d=\"m6 3 5 5-5 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg></button><button>Pin</button><button>Dismiss</button></footer></article><article class=\"ds-observation\"><div><h3>portal.invalid</h3><header><span>New destination for application</span><small>Application</small></header><p>Open the retained evidence to inspect its source and quality.</p></div><footer><button class=\"ds-evidence\">Open evidence</button><button>Pin</button><button>Dismiss</button></footer></article></section>",
-      "css": ".ds-observations{padding:0 24px;border-radius:var(--surface-radius,16px);background:var(--carbon,#151413);font:14px/1.6 Geist,\"Segoe UI\",sans-serif;color:var(--fog,#b8b3b0)}.ds-observation{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:center;padding:22px 0;border-bottom:1px solid var(--divider,rgba(238,238,238,.12))}.ds-observation:last-child{border-bottom:0}.ds-observation h3{margin:0 0 6px;font-size:18px;font-weight:500;color:var(--mist,#eeeeee)}.ds-observation header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-bottom:8px;font-size:12px}.ds-observation small{padding:3px 8px;border-radius:6px;background:var(--surface-interactive,#24211f);font-size:12px}.ds-observation p{max-width:72ch;margin:0}.ds-observation footer{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.ds-observation button{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid transparent;border-radius:var(--control-radius,10px);background:transparent;color:var(--fog,#b8b3b0);font:12px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-observation .ds-evidence{color:var(--paper,#fff);border-color:var(--divider,rgba(238,238,238,.12))}.ds-observation button:hover{background:var(--surface-interactive,#24211f)}@media(max-width:900px){.ds-observations{padding:0 18px}.ds-observation{grid-template-columns:minmax(0,1fr);gap:14px;padding:20px 0}.ds-observation footer{justify-content:flex-start}}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
+      "css": ".ds-observations{padding:0 24px;border:1px solid var(--graphite,#3d3a39);border-radius:var(--surface-radius,16px);background:var(--carbon,#151413);font:14px/1.6 Geist,\"Segoe UI\",sans-serif;color:var(--fog,#b8b3b0)}.ds-observation{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:center;padding:22px 0;border-bottom:1px solid var(--divider,rgba(238,238,238,.12))}.ds-observation:last-child{border-bottom:0}.ds-observation h3{margin:0 0 6px;font-size:16px;font-weight:500;color:var(--mist,#eeeeee)}.ds-observation header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-bottom:8px;font-size:12px}.ds-observation small{padding:3px 8px;border-radius:6px;background:var(--surface-interactive,#24211f);font-size:12px}.ds-observation p{max-width:72ch;margin:0}.ds-observation footer{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.ds-observation button{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid transparent;border-radius:var(--control-radius,10px);background:transparent;color:var(--fog,#b8b3b0);font:12px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-observation .ds-evidence{color:var(--paper,#fff);border-color:var(--divider,rgba(238,238,238,.12))}.ds-observation button:hover{background:var(--surface-interactive,#24211f)}@media(max-width:900px){.ds-observations{padding:0 18px}.ds-observation{grid-template-columns:minmax(0,1fr);gap:14px;padding:20px 0}.ds-observation footer{justify-content:flex-start}}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
     },
     {
       "name": "Inset Live feed",
       "kind": "custom",
       "refersTo": "live-feed",
-      "description": "Rounded feed with quiet separators and readable selected connection rows.",
+      "description": "Opaque enclosed feed with quiet separators and readable selected connection rows.",
       "html": "<section class=\"ds-feed\"><header>Live connections <strong>2</strong></header><div class=\"ds-feed-list\"><button class=\"ds-feed-row\" aria-pressed=\"true\"><strong>Demo Browser</strong><code>portal.invalid:443</code><span><em class=\"ds-protocol\">TCP</em> Madrid, Spain · 4m 39s</span><small class=\"ds-status ds-active\"><i aria-hidden=\"true\"></i>Active</small></button><button class=\"ds-feed-row\"><strong>Demo Updater</strong><code>updates.invalid:443</code><span><em class=\"ds-protocol\">UDP</em> Frankfurt, Germany · 6m 6s</span><small class=\"ds-status\"><i aria-hidden=\"true\"></i>closed</small></button></div></section>",
-      "css": ".ds-feed{overflow:hidden;border-radius:var(--surface-radius,16px);background:var(--obsidian,#1d1a18);font:14px Geist,\"Segoe UI\",sans-serif;color:var(--fog,#b8b3b0)}.ds-feed>header{display:flex;gap:8px;align-items:center;height:60px;padding:0 18px;border-bottom:1px solid var(--divider,rgba(238,238,238,.12))}.ds-feed strong{color:var(--mist,#eeeeee)}.ds-feed-list{padding:8px}.ds-feed-row{display:grid;gap:6px;min-height:112px;width:100%;padding:12px 10px;border:0;border-radius:10px;background:transparent;text-align:left;color:var(--mist,#eeeeee);font:14px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-feed-row+button{margin-top:8px}.ds-feed-row:hover{background:#292522}.ds-feed-row[aria-pressed=true]{background:#34302c}.ds-feed-row strong{font-size:16px}.ds-feed-row code{font:14px \"Geist Mono\",ui-monospace,monospace}.ds-feed-row span{font-size:12px;color:var(--fog,#b8b3b0)}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px} .ds-protocol{padding:2px 6px;border-radius:6px;background:var(--selection-muted,rgba(238,238,238,.08));color:var(--mist,#eeeeee);font:normal 12px \"Geist Mono\",ui-monospace,monospace}.ds-status{display:flex;align-items:center;gap:5px;color:var(--fog,#b8b3b0);font-size:12px}.ds-status i{width:5px;height:5px;border-radius:50%;background:var(--fog,#b8b3b0)}.ds-active i{background:var(--state-positive,#a0ca92)}"
+      "css": ".ds-feed{overflow:hidden;border:1px solid var(--graphite,#3d3a39);border-radius:var(--surface-radius,16px);background:var(--obsidian,#1d1a18);font:14px Geist,\"Segoe UI\",sans-serif;color:var(--fog,#b8b3b0)}.ds-feed>header{display:flex;gap:8px;align-items:center;height:60px;padding:0 18px;border-bottom:1px solid var(--divider,rgba(238,238,238,.12))}.ds-feed strong{color:var(--mist,#eeeeee)}.ds-feed-list{padding:8px}.ds-feed-row{display:grid;gap:6px;min-height:112px;width:100%;padding:12px 10px;border:0;border-radius:10px;background:transparent;text-align:left;color:var(--mist,#eeeeee);font:14px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-feed-row+button{margin-top:8px}.ds-feed-row:hover{background:#292522}.ds-feed-row[aria-pressed=true]{background:#34302c}.ds-feed-row strong{font-size:16px}.ds-feed-row code{font:14px \"Geist Mono\",ui-monospace,monospace}.ds-feed-row span{font-size:12px;color:var(--fog,#b8b3b0)}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px} .ds-protocol{padding:2px 6px;border-radius:6px;background:var(--selection-muted,rgba(238,238,238,.08));color:var(--mist,#eeeeee);font:normal 12px \"Geist Mono\",ui-monospace,monospace}.ds-status{display:flex;align-items:center;gap:5px;color:var(--fog,#b8b3b0);font-size:12px}.ds-status i{width:5px;height:5px;border-radius:50%;background:var(--fog,#b8b3b0)}.ds-active i{background:var(--state-positive,#a0ca92)}"
     },
     {
-      "name": "Globe context caption",
-      "kind": "custom",
-      "refersTo": "globe-caption",
-      "description": "Readable filter caption restricted to process, country and destination.",
-      "html": "<div class=\"ds-caption\" aria-label=\"Top context\"><button><span>PROCESS</span><strong>Demo Browser</strong></button><button><span>COUNTRY</span><strong>ES</strong></button><button><span>DESTINATION</span><strong>portal.invalid</strong></button></div>",
-      "css": ".ds-caption{display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,1.3fr);width:min(520px,calc(100% - 24px));gap:8px 20px;padding:12px 16px;border-radius:12px;background:var(--obsidian,#1d1a18)}.ds-caption button{display:grid;gap:5px;min-width:0;padding:0;border:0;background:transparent;text-align:left;font-family:\"Geist Mono\",ui-monospace,monospace;cursor:pointer}.ds-caption span{font-size:12px;color:var(--fog,#b8b3b0);letter-spacing:0}.ds-caption strong{max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:13px;color:var(--mist,#eeeeee)}.ds-caption button:hover{background:transparent}@media(max-width:900px){.ds-caption{display:none}}.ds-observation button:focus-visible,.ds-feed-row:focus-visible,.ds-caption button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}"
-    },
-    {
-      "name": "Protocol tag",
-      "kind": "chip",
-      "refersTo": "protocol-tag",
-      "description": "Compact mono protocol text beside location and elapsed time.",
-      "html": "<span class=\"ds-protocol-tag\">TCP</span>",
-      "css": ".ds-protocol-tag{display:inline-block;padding:2px 6px;border-radius:6px;background:var(--selection-muted,rgba(238,238,238,.08));color:var(--mist,#eeeeee);font:12px \"Geist Mono\",ui-monospace,monospace}"
-    },
-    {
-      "name": "Map capsules and legend",
+      "name": "Floating geographic controls and legend",
       "kind": "custom",
       "refersTo": "map-controls",
-      "description": "Borderless map-control capsules with a legend whose colors match rendered markers.",
+      "description": "Bordered warm glass controls, opaque contrast fallback and marker-matched legend.",
       "html": "<div class=\"ds-map-controls\"><button aria-pressed=\"true\">3D</button><button>2D</button></div><div class=\"ds-map-controls ds-map-zoom\"><button aria-label=\"Zoom in\">+</button><button aria-label=\"Zoom out\">−</button><button>Reset camera</button></div><div class=\"ds-legend\"><span><i class=\"ds-home\" aria-hidden=\"true\"></i>This device</span><span><i class=\"ds-destination\" aria-hidden=\"true\"></i>Active destination</span><span><i class=\"ds-selected\" aria-hidden=\"true\"></i>Selected route</span></div>",
-      "css": ".ds-map-controls{display:inline-flex;gap:2px;margin:4px;padding:4px;border:0;border-radius:20px;background:var(--obsidian,#1d1a18)}.ds-map-controls button{min-height:30px;padding:0 8px;border:0;border-radius:16px;background:transparent;color:var(--mist,#eeeeee);font:12px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-map-controls button[aria-pressed=true]{background:#3d3a39}.ds-map-zoom button{min-height:32px;border-radius:4px;background:#191b1d}.ds-map-zoom button:hover{background:#282b2e;color:var(--paper,#fff)}.ds-map-controls button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}.ds-legend{display:flex;flex-wrap:wrap;gap:16px;margin:12px 4px;color:var(--fog,#b8b3b0);font:12px Geist,\"Segoe UI\",sans-serif}.ds-legend span{display:flex;align-items:center;gap:6px}.ds-legend i{width:5px;height:5px;border-radius:50%}.ds-home{background:var(--state-positive,#a0ca92);outline:1px solid var(--mist,#eeeeee);outline-offset:2px}.ds-destination{background:#a4acaf}.ds-selected{background:var(--state-warning,#ee6018)}"
+      "css": ".ds-map-controls{display:inline-flex;gap:2px;margin:4px;padding:4px;border:1px solid var(--glass-edge,rgba(238,238,238,.3));border-radius:14px;background:var(--glass-surface,rgba(29,26,24,.9));backdrop-filter:blur(20px) saturate(110%);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 8px 20px rgba(0,0,0,.22)}.ds-map-controls button{min-height:36px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--mist,#eeeeee);font:12px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-map-controls button[aria-pressed=true]{background:var(--smoke,#4d4947)}.ds-map-zoom button{min-height:32px;border-radius:4px;background:#191b1d}.ds-map-zoom button:hover{background:#282b2e;color:var(--paper,#fff)}.ds-map-controls button:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}.ds-legend{display:flex;flex-wrap:wrap;gap:16px;margin:12px 4px;color:var(--fog,#b8b3b0);font:12px Geist,\"Segoe UI\",sans-serif}.ds-legend span{display:flex;align-items:center;gap:6px}.ds-legend i{width:5px;height:5px;border-radius:50%}.ds-home{background:var(--state-positive,#a0ca92);outline:1px solid var(--mist,#eeeeee);outline-offset:2px}.ds-destination{background:#a4acaf}.ds-selected{background:var(--state-warning,#ee6018)}.ds-map-controls button:hover{background:var(--surface-interactive,#24211f)}.ds-map-controls.ds-opaque{background:var(--obsidian,#1d1a18);backdrop-filter:none}@media(prefers-reduced-transparency:reduce){.ds-map-controls{background:var(--obsidian,#1d1a18);backdrop-filter:none}}@supports not(backdrop-filter:blur(1px)){.ds-map-controls{background:var(--obsidian,#1d1a18)}}"
+    },
+    {
+      "name": "Command palette",
+      "kind": "custom",
+      "description": "Scrollable commands with keyboard hints, visible selection and an opaque alternative.",
+      "html": "<section class=\"ds-palette\" aria-label=\"Commands\"><label>Search commands<input aria-label=\"Search commands\" placeholder=\"Type a command...\"></label><div><button>Open Today</button><button class=\"ds-active\">Switch to 3D globe</button><button>Open Investigate</button></div><footer><kbd>UP/DOWN</kbd> Navigate <kbd>ENTER</kbd> Select</footer></section>",
+      "css": ".ds-palette{width:min(650px,100%);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;border:1px solid rgba(238,238,238,.45);border-radius:18px;background:var(--glass-surface,rgba(29,26,24,.9));background-image:linear-gradient(145deg,rgba(238,238,238,.08),transparent 45%);color:var(--mist,#eeeeee);font:14px Geist,\"Segoe UI\",sans-serif;backdrop-filter:blur(28px) saturate(110%);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 24px 60px rgba(0,0,0,.5)}.ds-palette label{display:grid;gap:6px;padding:14px;border-bottom:1px solid var(--glass-edge,rgba(238,238,238,.3));color:var(--fog,#b8b3b0)}.ds-palette input{padding:6px;border:1px solid var(--graphite,#3d3a39);border-radius:10px;background:var(--carbon,#151413);color:var(--mist,#eeeeee);font:16px Geist,\"Segoe UI\",sans-serif}.ds-palette>div{max-height:min(480px,65dvh);overflow:auto;padding:10px}.ds-palette button{display:block;width:100%;min-height:44px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:inherit;text-align:left;font:14px Geist,\"Segoe UI\",sans-serif;cursor:pointer}.ds-palette button:hover,.ds-palette .ds-active{background:rgba(238,238,238,.14)}.ds-palette .ds-active{outline:1px solid var(--glass-edge,rgba(238,238,238,.3));outline-offset:-1px}.ds-palette button:focus-visible,.ds-palette input:focus-visible{outline:2px solid var(--selection,#eeeeee);outline-offset:2px}.ds-palette footer{padding:14px;color:var(--fog,#b8b3b0);border-top:1px solid var(--glass-edge,rgba(238,238,238,.3))}.ds-palette kbd{font:12px \"Geist Mono\",monospace;color:var(--mist,#eeeeee)}.ds-palette.ds-opaque{background:var(--obsidian,#1d1a18);backdrop-filter:none}@media(prefers-reduced-transparency:reduce){.ds-palette{background:var(--obsidian,#1d1a18);backdrop-filter:none}}@supports not(backdrop-filter:blur(1px)){.ds-palette{background:var(--obsidian,#1d1a18)}}"
+    },
+    {
+      "name": "Notification evidence panel",
+      "kind": "card",
+      "refersTo": "notification-panel",
+      "description": "Opaque enclosed inbox with a quiet separator and centered empty state.",
+      "html": "<section class=\"ds-inbox\"><header><h2>Local notification inbox</h2><span>0</span></header><p>No local notifications.</p></section>",
+      "css": ".ds-inbox{padding:18px 20px;border:1px solid var(--graphite,#3d3a39);border-radius:var(--surface-radius,16px);background:var(--carbon,#151413);color:var(--fog,#b8b3b0);font:14px/1.6 Geist,\"Segoe UI\",sans-serif}.ds-inbox header{display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid var(--divider,rgba(238,238,238,.12))}.ds-inbox h2{margin:0;color:var(--mist,#eeeeee);font-size:18px;font-weight:500}.ds-inbox header span{font:12px \"Geist Mono\",monospace;color:var(--mist,#eeeeee)}.ds-inbox p{min-height:84px;display:grid;place-items:center;margin:14px 0 0;text-align:center}"
     }
   ],
   "narrative": {
     "northStar": "The Network Observatory",
-    "overview": "Axvaris presents network evidence in a restrained desktop workspace. Factory and Gotham are the confirmed references for its serious observability character. Warm dark panels, quiet dividers and readable text separate controls from connection evidence. An inset curved sidebar and borderless shell keep enclosure at the task level. Capsule search and map controls sit above the globe. The globe shares the workspace with the feed; evidence remains available when a destination cannot be plotted.\n\nThe serif AXVARIS wordmark supplies the identity. Interface text uses Geist and technical values use Geist Mono. Motion responds to an action or a data change. Continuous decorative particles and pulsing chrome have no role in this design.",
+    "overview": "Axvaris presents network evidence in a restrained desktop workspace. Factory and Gotham are the confirmed references for its serious observability character. The selected Axvaris guide of 2026-10-13 establishes the current composition and materials. A straight sidebar anchors warm opaque evidence panels with quiet enclosing edges. Bordered warm glass separates floating geographic and temporal controls and the command palette from the evidence behind them. The globe shares the workspace with the feed; evidence remains available when a destination cannot be plotted.\n\nThe serif AXVARIS wordmark supplies the identity. Interface text uses Geist and technical values use Geist Mono. Motion responds to an action or a data change. Continuous decorative particles and pulsing chrome have no role in this design.",
     "keyCharacteristics": [
       "Five persistent investigation areas in a left sidebar.",
       "Monochrome controls with limited color for evidence states.",
-      "Full-width observations with titles before category and scope.",
+      "Full-width observations with titles before category and scope, beside snapshot comparisons.",
+      "Distinct geographic, device, listener and retained-evidence workspaces.",
       "Larger values and row names above quieter metadata.",
       "Local brand and font assets, with no remote font dependency."
     ],
@@ -399,7 +433,7 @@
       },
       {
         "name": "The Panel Rule",
-        "body": "Separate persistent panels with their background and edge. Reserve shadows for transient overlays that already use them.",
+        "body": "Keep evidence, tables and fields opaque. Use warm glass and shadows for floating controls and transient overlays, with an opaque fallback under enhanced contrast, reduced transparency or missing backdrop-filter support.",
         "section": "elevation"
       }
     ],
@@ -411,14 +445,19 @@
       "Do match legend symbols to the actual home, destination and selected-route colors.",
       "Do preserve the five-area sidebar and stacked compact Live layout.",
       "Do keep visible focus, text labels for states and reduced motion behavior.",
-      "Do distinguish local capture, imported DNS queries and demo data in the interface."
+      "Do distinguish local capture, imported DNS queries and demo data in the interface.",
+      "Do keep evidence opaque and reserve warm glass for floating controls and the command palette.",
+      "Do retain snapshot identity, zeros, unavailable values and unknown attribution.",
+      "Do group local devices by interface and inspect observed relationships beside their source."
     ],
     "donts": [
       "Don't add a crossing line, glow or neon accent to the brand assets.",
       "Don't use continuous decorative particles or pulsing chrome.",
       "Don't draw destinations without known coordinates.",
       "Don't turn imported DNS queries into confirmed connections or remote process identities.",
-      "Don't describe the UI as certified accessible or resource-efficient without corresponding validation evidence."
+      "Don't describe the UI as certified accessible or resource-efficient without corresponding validation evidence.",
+      "Don't turn neighbor cache entries into proof of observed traffic or draw invented device links.",
+      "Don't use generated map geometry as geographic evidence."
     ]
   }
 }

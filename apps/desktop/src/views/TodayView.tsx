@@ -37,6 +37,7 @@ interface TodayViewProps {
 
 interface DecisionCard {
   id: string;
+  kind: TodayChangeKind;
   category: string;
   scope: "device" | "application" | "profile" | "health";
   title: string;
@@ -263,6 +264,7 @@ export function TodayView({
       group.examples.map(
         (example): DecisionCard => ({
           id: example.id,
+          kind: example.kind,
           category: t(categoryLabels[example.kind]),
           scope: scopeFor(example.kind),
           title: example.primary,
@@ -413,16 +415,6 @@ export function TodayView({
             )}
           </p>
         </div>
-        <div className="today-profile-summary">
-          <strong>
-            {profiles[0]?.display_name
-              ? display("profile", profiles[0].display_name)
-              : t("Current network profile")}
-          </strong>
-          <small>
-            {t("{count} local profiles", { count: profiles.length })}
-          </small>
-        </div>
       </header>
 
       <TodaySessionStrip
@@ -462,6 +454,11 @@ export function TodayView({
                 >
                   <div className="today-card__content">
                     <h3>
+                      <Icon
+                        name={
+                          card.target === "exposure" ? "process" : "activity"
+                        }
+                      />
                       {card.sensitiveKind
                         ? display(card.sensitiveKind, card.title)
                         : card.title}
@@ -479,8 +476,36 @@ export function TodayView({
                         )}
                       </small>
                     </header>
-                    <p>{displayText(card.detail)}</p>
+                    <details className="observation-details">
+                      <summary>{t("Evidence details")}</summary>
+                      <p>{displayText(card.detail)}</p>
+                    </details>
                   </div>
+                  {(card.kind === "listener_added" ||
+                    card.kind === "listener_removed") && (
+                    <div
+                      className="observation-change"
+                      aria-label={t("Snapshot comparison")}
+                    >
+                      <span>
+                        <small>{t("Previous snapshot")}</small>
+                        {t(
+                          card.kind === "listener_removed"
+                            ? "Present"
+                            : "Absent",
+                        )}
+                      </span>
+                      <Icon name="chevron" />
+                      <span>
+                        <small>{t("Current snapshot")}</small>
+                        {t(
+                          card.kind === "listener_removed"
+                            ? "Absent"
+                            : "Present",
+                        )}
+                      </span>
+                    </div>
+                  )}
                   <footer>
                     <button
                       className="button button--evidence"

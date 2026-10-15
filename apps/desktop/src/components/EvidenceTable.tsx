@@ -31,6 +31,7 @@ interface TablePreset {
 interface EvidenceTableProps {
   entries: HistoryEntry[];
   loading: boolean;
+  selectedEntry: HistoryEntry | undefined;
   pinnedIds: string[];
   onTogglePin: (connectionId: string) => void;
   onOpen: (entry: HistoryEntry) => void;
@@ -234,6 +235,7 @@ function loadCustomPreset(): TablePreset | null {
 export function EvidenceTable({
   entries,
   loading,
+  selectedEntry,
   pinnedIds,
   onTogglePin,
   onOpen,
@@ -339,6 +341,10 @@ export function EvidenceTable({
     return (
       <div
         aria-rowindex={sorted.indexOf(entry) + 2}
+        aria-selected={
+          selectedEntry?.session_id === entry.session_id &&
+          selectedEntry.connection.id === entry.connection.id
+        }
         className={`evidence-grid__row${pinned ? " is-pinned" : ""}`}
         key={`${entry.session_id}:${entry.connection.id}`}
         role="row"
@@ -562,7 +568,13 @@ export function EvidenceTable({
             </thead>
             <tbody>
               {semanticRows.map((entry) => (
-                <tr key={`${entry.session_id}:${entry.connection.id}`}>
+                <tr
+                  aria-selected={
+                    selectedEntry?.session_id === entry.session_id &&
+                    selectedEntry.connection.id === entry.connection.id
+                  }
+                  key={`${entry.session_id}:${entry.connection.id}`}
+                >
                   {preset.visible.map((column) => (
                     <td key={column}>{cell(entry, column, t, display)}</td>
                   ))}

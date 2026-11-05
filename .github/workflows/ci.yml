@@ -37,6 +37,7 @@ jobs:
           sudo apt-get install -y clang libbpf-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: pnpm install --frozen-lockfile
       - run: node scripts/check-repository.mjs
+      - run: cargo fetch --locked
       - run: node scripts/audit-licenses.mjs
       - run: pnpm --dir apps/desktop check
       - run: cargo fmt --all -- --check

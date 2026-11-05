@@ -8,9 +8,11 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type CSSProperties,
 } from "react";
 import { desktopApi } from "#backend";
 import { useSabicheiro } from "./hooks/useSabicheiro";
+import { isShortcutControl } from "./lib/shortcuts";
 import { I18nProvider, translate, type Language } from "./i18n";
 import { TopBar } from "./components/TopBar";
 import { MetricStrip } from "./components/MetricStrip";
@@ -129,15 +131,6 @@ class GlobeErrorBoundary extends Component<
   override render() {
     return this.state.failed ? null : this.props.children;
   }
-}
-
-function isEditable(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
-  );
 }
 
 const localizedFailureMessages: Record<string, string> = {
@@ -326,7 +319,8 @@ export default function App() {
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      const editable = isEditable(event.target);
+      if (event.defaultPrevented) return;
+      const control = isShortcutControl(event.target);
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         app.setCommandPaletteOpen(true);
@@ -350,7 +344,7 @@ export default function App() {
         app.setRecordDialogOpen(false);
         app.setExportDialogOpen(false);
       } else if (
-        !editable &&
+        !control &&
         !event.ctrlKey &&
         !event.metaKey &&
         !event.altKey
@@ -414,6 +408,10 @@ export default function App() {
     : (localizedFailureMessages[app.error?.code ?? "operation_failed"] ??
       "The operation could not be completed.");
   const originalFailureDetail = app.error?.message ?? captureError ?? undefined;
+  const shellStyle: CSSProperties & { "--text-scale": number } = {
+    "--text-scale": app.settings.text_scale_percent / 100,
+    fontSize: `${app.settings.text_scale_percent}%`,
+  };
 
   return (
     <I18nProvider value={language}>
@@ -429,7 +427,7 @@ export default function App() {
         >
           <div
             className={`app-shell density--${app.settings.ui_density}${app.settings.reduce_motion ? " reduce-motion" : ""}${app.settings.enhanced_contrast ? " enhanced-contrast" : ""}`}
-            style={{ fontSize: `${app.settings.text_scale_percent}%` }}
+            style={shellStyle}
           >
             <TopBar
               capture={app.snapshot.capture}

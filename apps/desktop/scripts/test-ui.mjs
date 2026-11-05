@@ -38,6 +38,90 @@ try {
   const { ServiceDiagram } = await server.ssrLoadModule("/src/components/ServiceDiagram.tsx");
   const { HistoryInspector } = await server.ssrLoadModule("/src/components/HistoryInspector.tsx");
   const { mapPoint } = await server.ssrLoadModule("/src/lib/world-detail.ts");
+  const { buildInvestigationQuery, savedInvestigationWindow, saveInvestigationDraft } = await server.ssrLoadModule("/src/lib/investigation.ts");
+  const { isShortcutControl } = await server.ssrLoadModule("/src/lib/shortcuts.ts");
+
+  const domGlobals = ["Element", "HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "HTMLSelectElement"];
+  const previousDomGlobals = domGlobals.map((name) => globalThis[name]);
+  class ShortcutElement {
+    constructor(tag, parent = null) { this.tag = tag; this.parent = parent; this.isContentEditable = false; }
+    closest(selector) {
+      return selector.split(",").some((item) => item.trim() === this.tag)
+        ? this : this.parent?.closest(selector) ?? null;
+    }
+  }
+  try {
+    globalThis.Element = globalThis.HTMLElement = ShortcutElement;
+    globalThis.HTMLInputElement = class extends ShortcutElement {};
+    globalThis.HTMLTextAreaElement = class extends ShortcutElement {};
+    globalThis.HTMLSelectElement = class extends ShortcutElement {};
+    const button = new ShortcutElement("button");
+    assert.equal(isShortcutControl(button), true, "Space belongs to the focused button");
+    assert.equal(isShortcutControl(new ShortcutElement("span", button)), true, "button descendants preserve native keyboard activation");
+    assert.equal(isShortcutControl(new ShortcutElement("summary")), true, "Space toggles the investigation editor");
+    assert.equal(isShortcutControl(new ShortcutElement("p", new ShortcutElement("dialog"))), true, "workspace shortcuts do not run inside dialogs");
+    assert.equal(isShortcutControl(new ShortcutElement("main")), false);
+    assert.equal(isShortcutControl(null), false);
+  } finally {
+    domGlobals.forEach((name, index) => {
+      if (previousDomGlobals[index] === undefined) delete globalThis[name];
+      else globalThis[name] = previousDomGlobals[index];
+    });
+  }
+
+  const requestedHistory = {
+    from_ms: 1_000, to_ms: null, session_id: null, query: "protocol:tcp", limit: 500, cursor: null,
+  };
+  const savedQuery = buildInvestigationQuery({
+    query: requestedHistory,
+    savedAtMs: 2_100,
+    pinnedConnectionIds: [], pinnedEntries: [],
+  });
+  assert.equal(savedQuery.from_ms, 1_000, "saving preserves the requested interval beyond the loaded 500 rows");
+  assert.equal(savedQuery.to_ms, 2_100, "an open-ended investigation freezes at save time");
+  assert.equal(savedQuery.filter, "protocol:tcp");
+  const frozenWindow = savedInvestigationWindow(null, savedQuery);
+  const autoSavedQuery = buildInvestigationQuery({
+    query: { ...requestedHistory, ...frozenWindow }, savedAtMs: 9_999,
+    pinnedConnectionIds: [], pinnedEntries: [], previousQuery: savedQuery,
+  });
+  assert.equal(autoSavedQuery.to_ms, 2_100, "metadata autosave cannot advance the first saved end");
+  assert.equal(savedInvestigationWindow(frozenWindow, autoSavedQuery), frozenWindow, "adopting the same saved window does not restart autosave");
+  const saveRequests = new LatestRequest();
+  const saveA = Promise.withResolvers();
+  const draftA = { id: "A", name: "A", query: savedQuery };
+  const pendingA = saveInvestigationDraft({ draft: draftA, requests: saveRequests, persist: () => saveA.promise });
+  saveRequests.invalidate();
+  saveA.resolve(draftA);
+  assert.equal(await pendingA, null, "a delayed A autosave cannot reactivate A after opening B or a new workspace");
+  const saveOldRange = Promise.withResolvers();
+  const pendingOldRange = saveInvestigationDraft({ draft: draftA, requests: saveRequests, persist: () => saveOldRange.promise });
+  saveRequests.invalidate();
+  saveOldRange.resolve(draftA);
+  assert.equal(await pendingOldRange, null, "a delayed save cannot restore a range the user has changed");
+  assert.equal(await saveInvestigationDraft({ draft: draftA, requests: saveRequests, persist: async (draft) => draft }), draftA);
+  const savedPins = {
+    ...savedQuery, pinned_connection_ids: ["off-page"],
+    pinned_destination_ips: ["203.0.113.9"], pinned_process_keys: ["retained-process"], pinned_asns: [64500],
+  };
+  const metadataOnlyEdit = buildInvestigationQuery({
+    query: { ...requestedHistory, from_ms: savedPins.from_ms, to_ms: savedPins.to_ms },
+    savedAtMs: 9_999, previousQuery: savedPins,
+    pinnedConnectionIds: ["off-page"], pinnedEntries: [],
+  });
+  assert.deepEqual(metadataOnlyEdit, savedPins, "autosave retains the frozen interval and unloaded pin scope");
+  assert.deepEqual(buildInvestigationQuery({
+    query: requestedHistory, savedAtMs: 9_999, previousQuery: savedPins,
+    pinnedConnectionIds: [], pinnedEntries: [],
+  }).pinned_destination_ips, [], "explicitly clearing pins removes their derived selection");
+  assert.deepEqual(buildInvestigationQuery({
+    query: { ...requestedHistory, from_ms: null, to_ms: 1_900, session_id: "retained-session" },
+    savedAtMs: 2_100, pinnedConnectionIds: [], pinnedEntries: [],
+  }), {
+    filter: "protocol:tcp", from_ms: null, to_ms: 1_900, session_id: "retained-session",
+    pinned_connection_ids: [], pinned_destination_ips: [], pinned_process_keys: [], pinned_asns: [],
+  }, "explicit windows and session scope remain unchanged");
+  const { processNotificationConnections } = await server.ssrLoadModule("/src/lib/notifications.ts");
 
   const sensitive = {
     process: "Secret Browser",
@@ -224,6 +308,85 @@ try {
   const demoUpdate = await previewApi.getDashboardUpdate(null);
   const demoConnection = demoUpdate.snapshot?.connections[0] ?? demoUpdate.upserted_connections[0];
   assert.ok(demoConnection, "demo capture supplies an actual connection fixture");
+  const notificationSettings = {
+    ...await previewApi.getSettings(),
+    notification_rules: [
+      { id: "port-rule", enabled: true, kind: "port", value: String(demoConnection.key.remote.port), cooldown_seconds: 10 },
+    ],
+    notification_quiet_hours_enabled: true,
+    notification_quiet_start_minute: 1_320,
+    notification_quiet_end_minute: 420,
+  };
+  const freshNotificationTracking = () => ({
+    seenConnectionIds: new Set(), seenProcesses: new Set(), seenCountries: new Set(), cooldowns: new Map(),
+  });
+  const nativeNotifications = [];
+  const originalNotification = globalThis.Notification;
+  globalThis.Notification = class {
+    static permission = "granted";
+    constructor(title, options) { nativeNotifications.push({ title, ...options }); }
+  };
+  try {
+    for (const [enabled, start, end, minute, muted] of [
+      [true, 1_320, 420, 1_380, true],
+      [true, 540, 1_020, 539, false],
+      [true, 540, 1_020, 540, true],
+      [true, 540, 1_020, 1_019, true],
+      [true, 540, 1_020, 1_020, false],
+      [true, 1_320, 420, 1_319, false],
+      [true, 1_320, 420, 1_320, true],
+      [true, 1_320, 420, 1_439, true],
+      [true, 1_320, 420, 0, true],
+      [true, 1_320, 420, 419, true],
+      [true, 1_320, 420, 420, false],
+      [false, 1_320, 420, 0, false],
+      [true, 540, 540, 540, false],
+      [true, 1_440, 420, 0, false],
+    ]) {
+      nativeNotifications.length = 0;
+      const tracking = freshNotificationTracking();
+      const settings = {
+        ...notificationSettings,
+        notification_quiet_hours_enabled: enabled,
+        notification_quiet_start_minute: start,
+        notification_quiet_end_minute: end,
+      };
+      const now = new Date(2026, 10, 5, Math.floor(minute / 60), minute % 60).getTime();
+      const created = processNotificationConnections([demoConnection], settings, tracking, now);
+      assert.equal(created.length, muted ? 0 : 1, `quiet hours ${start}-${end} at minute ${minute}`);
+      assert.equal(nativeNotifications.length, muted ? 0 : 1, "native alerts respect the same quiet-hours gate");
+      assert.ok(tracking.seenConnectionIds.has(demoConnection.id), "muted connections are still consumed");
+      if (muted) assert.equal(tracking.cooldowns.size, 0, "silence does not start an alert cooldown");
+    }
+    const tracking = freshNotificationTracking();
+    const quietTime = new Date(2026, 10, 5, 23).getTime();
+    const morningTime = new Date(2026, 10, 6, 7).getTime();
+    processNotificationConnections([demoConnection], notificationSettings, tracking, quietTime);
+    assert.equal(processNotificationConnections([demoConnection], notificationSettings, tracking, morningTime).length, 0, "quiet-window evidence does not become a delayed alert");
+    const nextConnection = { ...demoConnection, id: "after-quiet-hours" };
+    assert.equal(processNotificationConnections([nextConnection], notificationSettings, tracking, morningTime).length, 1);
+    assert.equal(processNotificationConnections([{ ...nextConnection, id: "during-cooldown" }], notificationSettings, tracking, morningTime + 9_999).length, 0);
+    assert.equal(processNotificationConnections([{ ...nextConnection, id: "at-cooldown-end" }], notificationSettings, tracking, morningTime + 10_000).length, 1);
+    const newEvidenceTracking = freshNotificationTracking();
+    const noveltySettings = {
+      ...notificationSettings,
+      notification_rules: [
+        { id: "new-process", enabled: true, kind: "new_process", value: null, cooldown_seconds: 0 },
+        { id: "new-country", enabled: true, kind: "new_country", value: null, cooldown_seconds: 0 },
+      ],
+    };
+    const countryConnection = { ...demoConnection, geo: { ...demoConnection.geo, country_code: "ES" } };
+    processNotificationConnections([countryConnection], noveltySettings, newEvidenceTracking, quietTime);
+    assert.equal(processNotificationConnections([{ ...countryConnection, id: "same-muted-process-and-country" }], noveltySettings, newEvidenceTracking, morningTime).length, 0, "muted process and country evidence is consumed without a backlog");
+    const minimumCooldownTracking = freshNotificationTracking();
+    const minimumCooldownSettings = { ...notificationSettings, notification_rules: [{ ...notificationSettings.notification_rules[0], cooldown_seconds: 0 }] };
+    assert.equal(processNotificationConnections([demoConnection], minimumCooldownSettings, minimumCooldownTracking, morningTime).length, 1);
+    assert.equal(processNotificationConnections([{ ...demoConnection, id: "minimum-cooldown" }], minimumCooldownSettings, minimumCooldownTracking, morningTime + 4_999).length, 0);
+    assert.equal(processNotificationConnections([{ ...demoConnection, id: "minimum-cooldown-end" }], minimumCooldownSettings, minimumCooldownTracking, morningTime + 5_000).length, 1);
+  } finally {
+    if (originalNotification === undefined) delete globalThis.Notification;
+    else globalThis.Notification = originalNotification;
+  }
   const listener = {
     ...demoConnection,
     id: "test-listener",
@@ -244,7 +407,7 @@ try {
   assert.deepEqual(mapPoint(0, 0), [500, 250], "atlas, markers and relief raster must share the same equirectangular registration");
 
   console.log(
-    "UI behavior passed: presentation DOM, compact capture navigation, unlocated classification, local device grouping, stale-response gate, bilingual settings search, quick comparison, listener endpoints, absent counters and relief registration.",
+    "UI behavior passed: investigation windows and frozen autosave, unloaded pins and stale saves, shortcut controls, presentation DOM, compact capture navigation, unlocated classification, local device grouping, stale-response gate, bilingual settings search, quick comparison, listener endpoints, absent counters, relief registration and notification quiet hours with cooldowns.",
   );
 } finally {
   await server.close();

@@ -19,6 +19,11 @@ import { QueryBuilder } from "../components/QueryBuilder";
 import { ContextProfiles } from "../components/ContextProfiles";
 import { usePresentation } from "../privacy/PresentationMode";
 import { LatestRequest } from "../lib/latestRequest";
+import {
+  buildInvestigationQuery,
+  saveInvestigationDraft,
+  savedInvestigationWindow,
+} from "../lib/investigation";
 
 interface HistoryViewProps {
   currentQuery: string;
@@ -50,7 +55,7 @@ export function HistoryView({
   loadHistory,
   onReconstruct,
   onExport,
-  onQueryChange,
+  onQueryChange: changeQuery,
 }: HistoryViewProps) {
   const t = useI18n();
   const { display, displayText } = usePresentation();
@@ -107,11 +112,17 @@ export function HistoryView({
   const [geoView, setGeoView] = useState<DerivedGeoEnrichment[]>([]);
   const pageRequest = useRef(new LatestRequest());
   const comparisonRequest = useRef(new LatestRequest());
+  const saveRequest = useRef(new LatestRequest());
+  const onQueryChange = (query: string) => {
+    saveRequest.current.invalidate();
+    changeQuery(query);
+  };
 
   useEffect(
     () => () => {
       pageRequest.current.invalidate();
       comparisonRequest.current.invalidate();
+      saveRequest.current.invalidate();
     },
     [],
   );
@@ -141,6 +152,10 @@ export function HistoryView({
     }),
     [currentQuery, investigationWindow, range, selectedSession],
   );
+
+  useEffect(() => {
+    saveRequest.current.invalidate();
+  }, [historyQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -379,50 +394,37 @@ export function HistoryView({
       scroll: "evidence-table",
     }),
     autosave_revision: existing?.autosave_revision ?? 0,
-    query: {
-      filter: currentQuery || null,
-      from_ms: bounds?.start ?? null,
-      to_ms: bounds?.end ?? null,
-      session_id: selectedSession,
-      pinned_connection_ids: pinnedConnectionIds,
-      pinned_destination_ips: [
-        ...new Set(
-          pinnedEntries.map(({ connection }) => connection.key.remote.address),
-        ),
-      ],
-      pinned_process_keys: [
-        ...new Set(
-          pinnedEntries.flatMap(({ connection }) =>
-            connection.key.process_instance
-              ? [connection.key.process_instance]
-              : [],
-          ),
-        ),
-      ],
-      pinned_asns: [
-        ...new Set(
-          pinnedEntries.flatMap(({ connection }) =>
-            connection.asn ? [connection.asn.number] : [],
-          ),
-        ),
-      ],
-    },
+    query: buildInvestigationQuery({
+      query: historyQuery,
+      savedAtMs: Date.now(),
+      pinnedConnectionIds,
+      pinnedEntries,
+      previousQuery: existing?.query ?? null,
+    }),
     created_at_ms: existing?.created_at_ms ?? 0,
     updated_at_ms: existing?.updated_at_ms ?? 0,
   });
-  const saveInvestigation = async () => {
-    const name = investigationName.trim();
-    if (!name) return;
-    const saved = await desktopApi.saveInvestigation(
-      buildInvestigation(activeInvestigation),
-    );
+  const acceptSavedInvestigation = (saved: SavedInvestigation) => {
     setInvestigations((items) => [
       saved,
       ...items.filter((item) => item.id !== saved.id),
     ]);
     setActiveInvestigation(saved);
+    setInvestigationWindow((current) =>
+      savedInvestigationWindow(current, saved.query),
+    );
+  };
+  const saveInvestigation = async () => {
+    if (!investigationName.trim()) return;
+    const saved = await saveInvestigationDraft({
+      draft: buildInvestigation(activeInvestigation),
+      requests: saveRequest.current,
+      persist: desktopApi.saveInvestigation,
+    });
+    if (saved) acceptSavedInvestigation(saved);
   };
   const openInvestigation = (investigation: SavedInvestigation) => {
+    saveRequest.current.invalidate();
     setSelectedSession(investigation.query.session_id);
     setRange(ranges[3]);
     setInvestigationWindow({
@@ -438,6 +440,7 @@ export function HistoryView({
   };
   const deleteInvestigation = async (id: string) => {
     if (!window.confirm(t("Delete this saved local investigation?"))) return;
+    saveRequest.current.invalidate();
     if (await desktopApi.deleteInvestigation(id)) {
       setInvestigations((items) => items.filter((item) => item.id !== id));
       if (activeInvestigation?.id === id) setActiveInvestigation(null);
@@ -453,21 +456,21 @@ export function HistoryView({
 
   useEffect(() => {
     if (!activeInvestigation?.id || !investigationName.trim()) return;
+    const token = saveRequest.current.begin();
     const timer = window.setTimeout(() => {
-      void desktopApi
-        .saveInvestigation(buildInvestigation(activeInvestigation))
-        .then((saved) => {
-          setInvestigations((items) => [
-            saved,
-            ...items.filter((item) => item.id !== saved.id),
-          ]);
-        });
+      if (!saveRequest.current.isCurrent(token)) return;
+      void saveInvestigationDraft({
+        draft: buildInvestigation(activeInvestigation),
+        requests: saveRequest.current,
+        persist: desktopApi.saveInvestigation,
+      }).then((saved) => {
+        if (saved) acceptSavedInvestigation(saved);
+      });
     }, 700);
     return () => window.clearTimeout(timer);
   }, [
     activeInvestigation?.id,
-    bounds?.end,
-    bounds?.start,
+    historyQuery,
     currentQuery,
     investigationName,
     investigationNotes,
@@ -555,6 +558,7 @@ export function HistoryView({
                 className={item.label === range.label ? "is-active" : undefined}
                 key={item.label}
                 onClick={() => {
+                  saveRequest.current.invalidate();
                   setRange(item);
                   setSelectedSession(null);
                   setInvestigationWindow(null);
@@ -570,8 +574,8 @@ export function HistoryView({
             onClick={() =>
               onExport(
                 selectedSession,
-                bounds?.start ?? null,
-                bounds?.end ?? null,
+                historyQuery.from_ms,
+                historyQuery.to_ms ?? Date.now(),
               )
             }
             type="button"
@@ -619,86 +623,98 @@ export function HistoryView({
             </div>
             <code>{currentQuery || t("No active filter")}</code>
           </header>
-          <div className="investigation-panel__editor">
-            <label>
-              <span>{t("Investigation name")}</span>
-              <input
-                aria-label={t("Investigation name")}
-                onChange={(event) => setInvestigationName(event.target.value)}
-                placeholder={t("Investigation name")}
-                value={investigationName}
-              />
-            </label>
-            <label>
-              <span>{t("Local notes")}</span>
-              <textarea
-                aria-label={t("Local notes")}
-                onChange={(event) => setInvestigationNotes(event.target.value)}
-                placeholder={t("Local notes")}
-                rows={2}
-                value={investigationNotes}
-              />
-            </label>
-            <label>
-              <span>{t("Investigation tags")}</span>
-              <input
-                aria-label={t("Investigation tags")}
-                onChange={(event) => setInvestigationTags(event.target.value)}
-                placeholder={t("Tags separated by commas")}
-                value={investigationTags}
-              />
-            </label>
-            <div>
-              <button
-                className="button button--secondary"
-                disabled={(history?.entries.length ?? 0) === 0}
-                onClick={() =>
-                  setPinnedConnectionIds(
-                    (history?.entries ?? []).map(
-                      ({ connection }) => connection.id,
-                    ),
-                  )
-                }
-                type="button"
-              >
-                {t("Pin visible evidence")}
-              </button>
-              <button
-                className="button button--secondary"
-                disabled={pinnedConnectionIds.length === 0}
-                onClick={() => setPinnedConnectionIds([])}
-                type="button"
-              >
-                {t("Clear pins")}
-              </button>
-              <button
-                className="button button--primary"
-                disabled={!investigationName.trim()}
-                onClick={() => void saveInvestigation()}
-                type="button"
-              >
-                {activeInvestigation ? t("Save now") : t("Save investigation")}
-              </button>
-              <button
-                className="button button--secondary"
-                onClick={() => {
-                  setActiveInvestigation(null);
-                  setInvestigationName("");
-                  setInvestigationNotes("");
-                  setInvestigationTags("");
-                  setPinnedConnectionIds([]);
-                }}
-                type="button"
-              >
-                {t("New workspace")}
-              </button>
+          <details className="investigation-editor">
+            <summary>
+              {activeInvestigation
+                ? t("Edit investigation")
+                : t("New investigation")}
+            </summary>
+            <div className="investigation-panel__editor">
+              <label>
+                <span>{t("Investigation name")}</span>
+                <input
+                  aria-label={t("Investigation name")}
+                  onChange={(event) => setInvestigationName(event.target.value)}
+                  placeholder={t("Investigation name")}
+                  value={investigationName}
+                />
+              </label>
+              <label>
+                <span>{t("Local notes")}</span>
+                <textarea
+                  aria-label={t("Local notes")}
+                  onChange={(event) =>
+                    setInvestigationNotes(event.target.value)
+                  }
+                  placeholder={t("Local notes")}
+                  rows={2}
+                  value={investigationNotes}
+                />
+              </label>
+              <label>
+                <span>{t("Investigation tags")}</span>
+                <input
+                  aria-label={t("Investigation tags")}
+                  onChange={(event) => setInvestigationTags(event.target.value)}
+                  placeholder={t("Tags separated by commas")}
+                  value={investigationTags}
+                />
+              </label>
+              <div>
+                <button
+                  className="button button--secondary"
+                  disabled={(history?.entries.length ?? 0) === 0}
+                  onClick={() =>
+                    setPinnedConnectionIds(
+                      (history?.entries ?? []).map(
+                        ({ connection }) => connection.id,
+                      ),
+                    )
+                  }
+                  type="button"
+                >
+                  {t("Pin visible evidence")}
+                </button>
+                <button
+                  className="button button--secondary"
+                  disabled={pinnedConnectionIds.length === 0}
+                  onClick={() => setPinnedConnectionIds([])}
+                  type="button"
+                >
+                  {t("Clear pins")}
+                </button>
+                <button
+                  className="button button--primary"
+                  disabled={!investigationName.trim()}
+                  onClick={() => void saveInvestigation()}
+                  type="button"
+                >
+                  {activeInvestigation
+                    ? t("Save now")
+                    : t("Save investigation")}
+                </button>
+                <button
+                  className="button button--secondary"
+                  onClick={() => {
+                    saveRequest.current.invalidate();
+                    setActiveInvestigation(null);
+                    setInvestigationName("");
+                    setInvestigationNotes("");
+                    setInvestigationTags("");
+                    setPinnedConnectionIds([]);
+                  }}
+                  type="button"
+                >
+                  {t("New workspace")}
+                </button>
+              </div>
+              <small>
+                {t("{count} pinned connections", {
+                  count: pinnedConnectionIds.length,
+                })}
+              </small>
             </div>
-            <small>
-              {t("{count} pinned connections", {
-                count: pinnedConnectionIds.length,
-              })}
-            </small>
-          </div>
+          </details>
           <div className="investigation-list">
             {investigations.map((investigation) => (
               <article key={investigation.id}>
@@ -1048,6 +1064,7 @@ export function HistoryView({
               aria-pressed={selectedSession === null}
               className={`history-session${selectedSession === null ? " is-selected" : ""}`}
               onClick={() => {
+                saveRequest.current.invalidate();
                 setSelectedSession(null);
                 setInvestigationWindow(null);
               }}
@@ -1069,6 +1086,7 @@ export function HistoryView({
                 className={`history-session${selectedSession === session.id ? " is-selected" : ""}`}
                 key={session.id}
                 onClick={() => {
+                  saveRequest.current.invalidate();
                   setSelectedSession(session.id);
                   setInvestigationWindow(null);
                   setReenrichmentJob(null);

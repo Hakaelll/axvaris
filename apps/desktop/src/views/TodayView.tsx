@@ -16,6 +16,7 @@ import type {
   TrafficTrendPoint,
 } from "../types";
 import { Icon } from "../components/Icon";
+import { formatDateTime } from "../lib/format";
 import { TodaySessionStrip } from "../components/TodaySessionStrip";
 import { TodayComparison } from "../components/TodayComparison";
 import { UnlocatedTargets } from "../components/UnlocatedTargets";
@@ -41,6 +42,8 @@ interface DecisionCard {
   category: string;
   scope: "device" | "application" | "profile" | "health";
   title: string;
+  secondary: string | null;
+  observedAtMs: number;
   detail: string;
   connectionId: string | null;
   query: string;
@@ -164,10 +167,7 @@ function detailFor(
         return t("First observed opening a network connection on this device.");
       case "application_destination":
         return t(
-          "New for {process}; open the retained evidence to inspect source and quality.",
-          {
-            process: example.secondary ?? t("this application"),
-          },
+          "Open the retained evidence to inspect the destination's source and quality.",
         );
       case "domain":
         return t(
@@ -198,10 +198,7 @@ function detailFor(
       case "listener_widened":
         return t("A listener changed to a broader bind scope.");
       case "provider_degradation":
-        return (
-          example.secondary ??
-          t("A capture or enrichment capability is degraded.")
-        );
+        return t("A capture or enrichment capability is degraded.");
     }
   })();
   return count > 1
@@ -268,6 +265,8 @@ export function TodayView({
           category: t(categoryLabels[example.kind]),
           scope: scopeFor(example.kind),
           title: example.primary,
+          secondary: example.secondary,
+          observedAtMs: example.observed_at_ms,
           detail: detailFor(t, example, group.count),
           connectionId: example.connection_id,
           query: example.query ?? "",
@@ -445,8 +444,11 @@ export function TodayView({
             </span>
           </header>
           <div className="today-card-grid">
-            {visibleCards.map((card) => {
+            {visibleCards.map((card, index) => {
               const state = cardStateFor(states, card.id);
+              const showCategoryExplanation =
+                visibleCards.findIndex((item) => item.kind === card.kind) ===
+                index;
               return (
                 <article
                   className={`today-card${state.pinned ? " is-pinned" : ""}`}
@@ -463,6 +465,22 @@ export function TodayView({
                         ? display(card.sensitiveKind, card.title)
                         : card.title}
                     </h3>
+                    <div className="today-card__evidence">
+                      {card.secondary && (
+                        <span className="today-card__secondary">
+                          {card.kind === "application_destination" ||
+                          card.kind === "domain" ||
+                          card.kind === "executable_revision"
+                            ? display("process", card.secondary)
+                            : displayText(card.secondary)}
+                        </span>
+                      )}
+                      <time className="today-card__observed">
+                        {t("Observed {time}", {
+                          time: formatDateTime(card.observedAtMs),
+                        })}
+                      </time>
+                    </div>
                     <header>
                       <span>{card.category}</span>
                       <small>
@@ -476,10 +494,12 @@ export function TodayView({
                         )}
                       </small>
                     </header>
-                    <details className="observation-details">
-                      <summary>{t("Evidence details")}</summary>
-                      <p>{displayText(card.detail)}</p>
-                    </details>
+                    {showCategoryExplanation && (
+                      <details className="observation-details">
+                        <summary>{t("Evidence details")}</summary>
+                        <p>{displayText(card.detail)}</p>
+                      </details>
+                    )}
                   </div>
                   {(card.kind === "listener_added" ||
                     card.kind === "listener_removed") && (

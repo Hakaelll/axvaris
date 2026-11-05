@@ -78,7 +78,15 @@ const searchable = tracked
 const assets = tracked.filter((filename) =>
   /apps\/desktop\/(?:public|src-tauri\/icons)\//.test(filename),
 );
+const brandGenerator = fs.readFileSync(path.join(repository, "scripts/generate-brand.ps1"), "utf8");
+const iconSizes = brandGenerator.match(/\$axSizes\s*=\s*@\(([\d,\s]+)\)/)?.[1];
+if (!iconSizes) throw new Error("Could not read the ICO input sizes from generate-brand.ps1");
+const generatedIconInputs = new Set(
+  iconSizes.split(",").map((size) => size.trim())
+    .map((size) => `apps/desktop/src-tauri/icons/${size}x${size}.png`),
+);
 const unreferencedAssets = assets.filter((asset) => {
+  if (generatedIconInputs.has(asset)) return false;
   const basename = path.posix.basename(asset);
   return !searchable.some(
     ({ filename, content }) => filename !== asset && content.includes(basename),

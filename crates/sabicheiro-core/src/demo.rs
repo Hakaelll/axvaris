@@ -108,7 +108,7 @@ impl DemoGenerator {
 
     pub fn next_batch(&mut self, timestamp_ms: i64) -> Vec<NormalizedNetworkEvent> {
         self.tick = self.tick.saturating_add(1);
-        if self.tick % 7 == 0 && !self.active.is_empty() {
+        if self.tick.is_multiple_of(7) && !self.active.is_empty() {
             let active_index = self.random.range(self.active.len() as u64) as usize;
             if let Some((&destination_index, key)) = self.active.iter().nth(active_index) {
                 let destination = &DESTINATIONS[destination_index];

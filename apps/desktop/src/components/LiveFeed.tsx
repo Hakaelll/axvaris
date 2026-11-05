@@ -254,7 +254,6 @@ export function LiveFeed({
                   <span className="connection-row__body">
                     <span className="connection-row__title">
                       <strong>{representative.process.name}</strong>
-                      <time>{formatTime(group.lastSeenMs)}</time>
                     </span>
                     <span
                       className="connection-row__destination"
@@ -264,29 +263,10 @@ export function LiveFeed({
                       <em>:{endpoint.port}</em>
                       {observations > 1 && <b>× {observations}</b>}
                     </span>
-                    {destination !== endpoint.address && (
-                      <span className="connection-row__endpoint">
-                        {endpoint.address}
-                      </span>
-                    )}
                     <span className="connection-row__meta">
                       <span className="connection-row__protocol">
                         {representative.protocol.toUpperCase()}
                       </span>
-                      <span>{place}</span>
-                      <span>
-                        {formatDuration(group.lastSeenMs - group.firstSeenMs)}
-                      </span>
-                    </span>
-                    <span className="connection-row__traffic">
-                      {hasFlowTraffic ? (
-                        <>
-                          <Icon name="arrow-down" /> {formatBytes(bytesDown)}
-                          <i /> <Icon name="arrow-up" /> {formatBytes(bytesUp)}
-                        </>
-                      ) : (
-                        t("Socket metadata only")
-                      )}
                     </span>
                   </span>
                   <span className="connection-row__rate">
@@ -329,20 +309,46 @@ export function LiveFeed({
                   type="button"
                 >
                   {isExpanded ? t("Hide details") : t("Expand group")}
-                  <span>
-                    {t(
-                      group.items.length === 1
-                        ? "{count} socket / {seconds}s window"
-                        : "{count} sockets / {seconds}s window",
-                      {
-                        count: group.items.length,
-                        seconds: groupWindowSeconds,
-                      },
-                    )}
-                  </span>
                 </button>
                 {isExpanded && (
                   <div className="feed-group__details">
+                    <p className="feed-group__context">
+                      {t(
+                        group.items.length === 1
+                          ? "{count} socket / {seconds}s window"
+                          : "{count} sockets / {seconds}s window",
+                        {
+                          count: group.items.length,
+                          seconds: groupWindowSeconds,
+                        },
+                      )}
+                    </p>
+                    <div>
+                      <span>{t("Endpoint")}</span>
+                      <strong>
+                        {endpointLabel(endpoint.address, endpoint.port)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>{t("Location")}</span>
+                      <strong>{place}</strong>
+                    </div>
+                    <div>
+                      <span>{t("Duration")}</span>
+                      <strong>
+                        {formatDuration(group.lastSeenMs - group.firstSeenMs)}
+                      </strong>
+                    </div>
+                    <p className="connection-row__traffic">
+                      {hasFlowTraffic ? (
+                        <>
+                          <Icon name="arrow-down" /> {formatBytes(bytesDown)}
+                          <i /> <Icon name="arrow-up" /> {formatBytes(bytesUp)}
+                        </>
+                      ) : (
+                        t("Socket metadata only")
+                      )}
+                    </p>
                     <div>
                       <span>{t("First")}</span>
                       <strong>{formatDateTime(group.firstSeenMs)}</strong>

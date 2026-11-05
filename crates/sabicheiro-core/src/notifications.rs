@@ -1,5 +1,6 @@
 use crate::RuleMatch;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +52,7 @@ impl QuietHours {
 
 pub struct NotificationCenterEngine {
     notifications: VecDeque<LocalNotificationRecord>,
-    last_emitted_by_group: BTreeMap<String, i64>,
+    last_emitted_by_group: BTreeMap<(String, Option<String>, String), i64>,
     capacity: usize,
 }
 
@@ -75,7 +76,18 @@ impl NotificationCenterEngine {
         notifications.truncate(capacity);
         let last_emitted_by_group = notifications
             .iter()
-            .map(|notification| (notification.group_key.clone(), notification.last_at_ms))
+            .flat_map(|notification| {
+                notification.evidence_ids.iter().map(|connection_id| {
+                    (
+                        (
+                            notification.rule_id.clone(),
+                            notification.network_profile_id.clone(),
+                            connection_id.clone(),
+                        ),
+                        notification.last_at_ms,
+                    )
+                })
+            })
             .collect();
         Self {
             notifications: notifications.into(),
@@ -105,12 +117,18 @@ impl NotificationCenterEngine {
             network_profile_id.as_deref().unwrap_or("unknown-profile"),
             rule_match.connection_id
         );
+        let group_identity = (
+            rule_match.rule_id.clone(),
+            network_profile_id.clone(),
+            rule_match.connection_id.clone(),
+        );
         if let Some(existing) = self.notifications.iter_mut().find(|notification| {
-            notification.group_key == group_key
-                && notification.state != NotificationState::Resolved
+            notification.rule_id == rule_match.rule_id
+                && notification.network_profile_id == network_profile_id
                 && notification
-                    .snoozed_until_ms
-                    .is_none_or(|until| until <= occurred_at_ms)
+                    .evidence_ids
+                    .contains(&rule_match.connection_id)
+                && notification.state != NotificationState::Resolved
         }) {
             existing.count = existing.count.saturating_add(1);
             existing.last_at_ms = occurred_at_ms;
@@ -120,18 +138,27 @@ impl NotificationCenterEngine {
         let cooldown_ms = i64::from(cooldown_seconds).saturating_mul(1_000);
         if self
             .last_emitted_by_group
-            .get(&group_key)
+            .get(&group_identity)
             .is_some_and(|last| occurred_at_ms.saturating_sub(*last) < cooldown_ms)
         {
             return None;
         }
         self.last_emitted_by_group
-            .insert(group_key.clone(), occurred_at_ms);
+            .insert(group_identity, occurred_at_ms);
+        let mut identity = Sha256::new();
+        for value in [
+            rule_match.rule_id.as_str(),
+            rule_match.connection_id.as_str(),
+            network_profile_id.as_deref().unwrap_or_default(),
+        ] {
+            identity.update((value.len() as u64).to_le_bytes());
+            identity.update(value.as_bytes());
+        }
+        identity.update([u8::from(network_profile_id.is_some())]);
+        identity.update(rule_match.rule_version.to_le_bytes());
+        identity.update(occurred_at_ms.to_le_bytes());
         let notification = LocalNotificationRecord {
-            id: format!(
-                "notification:{}:{}:{}",
-                rule_match.rule_id, rule_match.rule_version, occurred_at_ms
-            ),
+            id: format!("notification:{:x}", identity.finalize()),
             rule_id: rule_match.rule_id.clone(),
             rule_version: rule_match.rule_version,
             evidence_ids: vec![rule_match.connection_id.clone()],
@@ -245,5 +272,159 @@ mod tests {
                 .ingest(&matched("a"), None, "x", "x", 1, 60, quiet, 60)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn simultaneous_connections_and_profiles_have_distinct_ids() {
+        let mut center = NotificationCenterEngine::default();
+        let mut ids = BTreeSet::new();
+        for (connection, profile) in [
+            ("first", Some("home")),
+            ("second", Some("home")),
+            ("first", Some("work")),
+            ("first", None),
+            ("first", Some("unknown-profile")),
+        ] {
+            let notification = center
+                .ingest(
+                    &matched(connection),
+                    profile.map(str::to_owned),
+                    "Review",
+                    "Evidence",
+                    10_000,
+                    60,
+                    QuietHours::default(),
+                    600,
+                )
+                .unwrap();
+            ids.insert(notification.id);
+        }
+        assert_eq!(ids.len(), 5);
+        assert_eq!(center.items().count(), 5);
+    }
+
+    #[test]
+    fn snoozed_group_keeps_evidence_and_identity_until_and_after_expiry() {
+        let mut center = NotificationCenterEngine::default();
+        let mut first = center
+            .ingest(
+                &matched("a"),
+                None,
+                "Review",
+                "first",
+                1_000,
+                0,
+                QuietHours::default(),
+                600,
+            )
+            .unwrap();
+        assert!(center.snooze(&first.id, 5_000));
+        // Legacy stored IDs and grouping keys must survive an update unchanged.
+        first.id = "notification:rule:1:1000".into();
+        let mut records = center.items().cloned().collect::<Vec<_>>();
+        records[0].id = first.id.clone();
+        let mut center = NotificationCenterEngine::from_records(10, records);
+        for (at, detail, count) in [
+            (4_999, "during snooze", 2),
+            (5_000, "at expiry", 3),
+            (5_001, "after expiry", 4),
+        ] {
+            let updated = center
+                .ingest(
+                    &matched("a"),
+                    None,
+                    "Review",
+                    detail,
+                    at,
+                    0,
+                    QuietHours::default(),
+                    600,
+                )
+                .expect("group updates remain available for persistence");
+            assert_eq!(updated.id, first.id);
+            assert_eq!(updated.group_key, first.group_key);
+            assert_eq!(updated.count, count);
+            assert_eq!(updated.detail, detail);
+            assert_eq!(updated.last_at_ms, at);
+            assert_eq!(updated.snoozed_until_ms, Some(5_000));
+            assert_eq!(updated.evidence_ids, ["a"]);
+            assert_eq!(center.items().count(), 1);
+        }
+    }
+
+    #[test]
+    fn quiet_hours_use_start_inclusive_end_exclusive_local_minutes() {
+        let mut quiet = QuietHours {
+            enabled: true,
+            start_minute_local: 540,
+            end_minute_local: 1_020,
+        };
+        for (minute, expected) in [(539, false), (540, true), (1_019, true), (1_020, false)] {
+            assert_eq!(quiet.contains(minute), expected);
+        }
+        quiet.start_minute_local = 1_320;
+        quiet.end_minute_local = 420;
+        for (minute, expected) in [
+            (1_319, false),
+            (1_320, true),
+            (1_439, true),
+            (0, true),
+            (419, true),
+            (420, false),
+        ] {
+            assert_eq!(quiet.contains(minute), expected);
+        }
+        quiet.enabled = false;
+        assert!(!quiet.contains(0));
+        quiet.enabled = true;
+        quiet.end_minute_local = quiet.start_minute_local;
+        assert!(!quiet.contains(1_320));
+        quiet.end_minute_local = 1_440;
+        assert!(!quiet.contains(1_320));
+    }
+
+    #[test]
+    fn resolved_group_keeps_existing_cooldown() {
+        let mut center = NotificationCenterEngine::default();
+        let first = center
+            .ingest(
+                &matched("a"),
+                None,
+                "x",
+                "x",
+                1_000,
+                5,
+                QuietHours::default(),
+                600,
+            )
+            .unwrap();
+        center.set_state(&first.id, NotificationState::Resolved);
+        assert!(
+            center
+                .ingest(
+                    &matched("a"),
+                    None,
+                    "x",
+                    "x",
+                    5_999,
+                    5,
+                    QuietHours::default(),
+                    600
+                )
+                .is_none()
+        );
+        let next = center
+            .ingest(
+                &matched("a"),
+                None,
+                "x",
+                "x",
+                6_000,
+                5,
+                QuietHours::default(),
+                600,
+            )
+            .unwrap();
+        assert_ne!(next.id, first.id);
     }
 }

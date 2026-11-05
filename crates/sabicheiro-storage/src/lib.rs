@@ -16,7 +16,8 @@ use sabicheiro_core::{
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs, io,
+    fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 use thiserror::Error;
@@ -289,6 +290,19 @@ fn comparison_rows(
 }
 
 impl Storage {
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, StorageError> {
+        let path = path.as_ref();
+        let connection = SqliteConnection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        connection.busy_timeout(std::time::Duration::from_millis(3000))?;
+        Ok(Self {
+            connection,
+            path: Some(path.to_path_buf()),
+        })
+    }
+
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -2938,36 +2952,94 @@ impl Storage {
 
     pub fn export(&self, request: &ExportRequest) -> Result<ExportResult, StorageError> {
         let path = validate_export_path(&request.path, request.format)?;
-        let query = HistoryQuery {
+        let mut query = HistoryQuery {
             from_ms: request.from_ms,
             to_ms: request.to_ms,
             session_id: request.session_id.clone(),
             query: request.query.clone(),
-            limit: MAX_QUERY_LIMIT,
+            limit: 5_000,
             cursor: None,
         };
-        let mut entries = self.query_history(&query)?;
-        if let Some(process_key) = &request.process_key {
-            let process_key = process_key.to_lowercase();
-            entries.retain(|entry| {
-                entry.connection.process.name.to_lowercase() == process_key
-                    || entry.connection.process.pid.is_some_and(|pid| {
-                        format!("{}:{pid}", entry.connection.process.name).to_lowercase()
-                            == process_key
-                    })
-            });
-        }
-        apply_export_redaction(&mut entries, &request.redaction);
-        let data = match request.format {
-            ExportFormat::Json => serde_json::to_vec_pretty(&entries)?,
-            ExportFormat::Csv => export_csv(&entries).into_bytes(),
+        static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let (temp_path, file) = loop {
+            let mut name = path.file_name().unwrap().to_os_string();
+            name.push(format!(
+                ".{}.{}.tmp",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            let candidate = path.with_file_name(name);
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => break (candidate, file),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
         };
-        fs::write(&path, &data)?;
-        Ok(ExportResult {
-            path: path.to_string_lossy().into_owned(),
-            records: entries.len(),
-            bytes_written: data.len() as u64,
-        })
+        let result = (|| -> Result<ExportResult, StorageError> {
+            let transaction = self.connection.unchecked_transaction()?;
+            let mut output = io::BufWriter::new(file);
+            match request.format {
+                ExportFormat::Json => output.write_all(b"[")?,
+                ExportFormat::Csv => output.write_all(export_csv(&[]).as_bytes())?,
+            }
+            let process_key = request.process_key.as_ref().map(|key| key.to_lowercase());
+            let mut records = 0;
+            loop {
+                let page = self.query_history_page(&query)?;
+                let mut entries = page.entries;
+                if let Some(process_key) = &process_key {
+                    entries.retain(|entry| {
+                        entry.connection.process.name.to_lowercase() == *process_key
+                            || entry.connection.process.pid.is_some_and(|pid| {
+                                format!("{}:{pid}", entry.connection.process.name).to_lowercase()
+                                    == *process_key
+                            })
+                    });
+                }
+                apply_export_redaction(&mut entries, &request.redaction);
+                match request.format {
+                    ExportFormat::Json => {
+                        for entry in &entries {
+                            if records > 0 {
+                                output.write_all(b",")?;
+                            }
+                            serde_json::to_writer(&mut output, entry)?;
+                            records += 1;
+                        }
+                    }
+                    ExportFormat::Csv => {
+                        let csv = export_csv(&entries);
+                        output.write_all(csv.split_once('\n').unwrap().1.as_bytes())?;
+                        records += entries.len();
+                    }
+                }
+                if !page.has_more {
+                    break;
+                }
+                query.cursor = page.next_cursor;
+            }
+            if matches!(request.format, ExportFormat::Json) {
+                output.write_all(b"]")?;
+            }
+            output.flush()?;
+            let bytes_written = output.get_ref().metadata()?.len();
+            drop(output);
+            transaction.commit()?;
+            fs::rename(&temp_path, &path)?;
+            Ok(ExportResult {
+                path: path.to_string_lossy().into_owned(),
+                records,
+                bytes_written,
+            })
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temp_path);
+        }
+        result
     }
 
     pub fn backup_to(&self, destination: impl AsRef<Path>) -> Result<PathBuf, StorageError> {
@@ -5157,6 +5229,146 @@ mod tests {
                 .geo
                 .is_none()
         );
+    }
+
+    #[test]
+    fn read_only_open_does_not_create_or_upgrade() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing").join("database.sqlite3");
+        assert!(Storage::open_read_only(&missing).is_err());
+        assert!(!missing.parent().unwrap().exists());
+        let legacy = directory.path().join("legacy.sqlite3");
+        create_legacy_database(&legacy, 3);
+        let storage = Storage::open_read_only(&legacy).unwrap();
+        assert!(
+            storage
+                .connection
+                .execute("CREATE TABLE unwanted(id INTEGER)", [])
+                .is_err()
+        );
+        assert_eq!(
+            storage
+                .connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            3
+        );
+        drop(storage);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        let current = directory.path().join("current.sqlite3");
+        let mut writer = Storage::open(&current).unwrap();
+        writer.start_session("s1", 0).unwrap();
+        writer
+            .save_connections("s1", &[sample_connection()])
+            .unwrap();
+        let reader = Storage::open_read_only(&current).unwrap();
+        assert_eq!(
+            reader
+                .query_history(&HistoryQuery::default())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn export_pages_all_rows_and_finds_old_process() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut storage = Storage::in_memory().unwrap();
+        storage.start_session("s1", 0).unwrap();
+        let mut old = sample_connection();
+        old.process.name = "old-only".into();
+        old.key.local = sabicheiro_core::Endpoint::new("192.168.1.44".parse().unwrap(), 50_000);
+        old.last_seen_ms = 1;
+        storage.save_connections("s1", &[old]).unwrap();
+        for batch in 0..21 {
+            let rows: Vec<_> = (0..5_000)
+                .map(|i| {
+                    let mut row = sample_connection();
+                    row.id = format!("row-{}", batch * 5_000 + i);
+                    row.last_seen_ms = 2;
+                    row
+                })
+                .collect();
+            storage.save_connections("s1", &rows).unwrap();
+        }
+        for format in [ExportFormat::Json, ExportFormat::Csv] {
+            let extension = match format {
+                ExportFormat::Json => "json",
+                ExportFormat::Csv => "csv",
+            };
+            let path = directory.path().join(format!("all.{extension}"));
+            let mut request = ExportRequest {
+                format,
+                path: path.to_string_lossy().into_owned(),
+                session_id: None,
+                process_key: None,
+                from_ms: None,
+                to_ms: None,
+                query: None,
+                redaction: ExportRedaction {
+                    local_ip: true,
+                    ..Default::default()
+                },
+            };
+            assert_eq!(storage.export(&request).unwrap().records, 105_001);
+            let output = fs::read_to_string(&path).unwrap();
+            assert!(!output.contains("192.168.1.44"));
+            match format {
+                ExportFormat::Json => assert_eq!(
+                    serde_json::from_str::<Vec<HistoryEntry>>(&output)
+                        .unwrap()
+                        .len(),
+                    105_001
+                ),
+                ExportFormat::Csv => assert_eq!(output.lines().count(), 105_002),
+            }
+            request.process_key = Some("old-only".into());
+            assert_eq!(storage.export(&request).unwrap().records, 1);
+            let output = fs::read_to_string(&path).unwrap();
+            assert!(output.contains("old-only"));
+            assert!(!output.contains("192.168.1.44"));
+        }
+    }
+
+    #[test]
+    fn export_failure_preserves_existing_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut storage = Storage::in_memory().unwrap();
+        storage.start_session("s1", 0).unwrap();
+        let rows: Vec<_> = (0..5_001)
+            .map(|i| {
+                let mut row = sample_connection();
+                row.id = format!("row-{i}");
+                row.last_seen_ms = i;
+                row
+            })
+            .collect();
+        storage.save_connections("s1", &rows).unwrap();
+        storage
+            .connection
+            .execute(
+                "UPDATE connections SET connection_json = 'invalid' WHERE id = 'row-0'",
+                [],
+            )
+            .unwrap();
+        let path = directory.path().join("export.json");
+        fs::write(&path, "keep me").unwrap();
+        let request = ExportRequest {
+            format: ExportFormat::Json,
+            path: path.to_string_lossy().into_owned(),
+            session_id: None,
+            process_key: None,
+            from_ms: None,
+            to_ms: None,
+            query: None,
+            redaction: ExportRedaction::default(),
+        };
+        assert!(storage.export(&request).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), "keep me");
     }
 
     #[test]

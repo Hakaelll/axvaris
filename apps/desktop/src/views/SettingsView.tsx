@@ -154,7 +154,7 @@ export function SettingsView({
   const [localDataResult, setLocalDataResult] =
     useState<LocalDataRemovalResult | null>(null);
   const [settingsSearch, setSettingsSearch] = useState("");
-  const [activeSection, setActiveSection] = useState("external-dns");
+  const [activeSection, setActiveSection] = useState("capture");
   const settingsViewRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const view = settingsViewRef.current;
@@ -162,7 +162,7 @@ export function SettingsView({
     if (!view || !scroller) return;
     const updateVisibleSection = () => {
       const top = scroller.getBoundingClientRect().top;
-      let current = "external-dns";
+      let current = "capture";
       for (const section of view.querySelectorAll<HTMLElement>(
         ".settings-content > section[id]",
       )) {
@@ -172,7 +172,9 @@ export function SettingsView({
       setActiveSection(current);
     };
     updateVisibleSection();
-    scroller.addEventListener("scroll", updateVisibleSection, { passive: true });
+    scroller.addEventListener("scroll", updateVisibleSection, {
+      passive: true,
+    });
     return () => scroller.removeEventListener("scroll", updateVisibleSection);
   }, []);
   const requestGates = useRef({
@@ -273,14 +275,11 @@ export function SettingsView({
     }
   };
   return (
-    <section
-      className="data-view settings-view"
-      ref={settingsViewRef}
-    >
+    <section className="data-view settings-view" ref={settingsViewRef}>
       <header className="view-heading">
         <div>
           <span className="eyebrow">{t("LOCAL CONTROL")}</span>
-          <h1>{t("Settings")}</h1>
+          <h1>{t("Data & Health")}</h1>
           <p>
             {t(
               "Capture, storage and display preferences. Nothing is synced to a cloud service.",
@@ -323,9 +322,9 @@ export function SettingsView({
         <nav aria-label={t("Settings sections")}>
           {[
             { id: "capture", label: t("Capture") },
-            { id: "privacy", label: t("Privacy & storage") },
             { id: "focus", label: t("Focus rules") },
             { id: "notifications", label: t("Notifications") },
+            { id: "privacy", label: t("Privacy & storage") },
             { id: "geo", label: t("GeoIP data") },
             { id: "display", label: t("Display") },
             { id: "diagnostics", label: t("Diagnostics") },
@@ -345,7 +344,6 @@ export function SettingsView({
           ))}
         </nav>
         <div className="settings-content">
-          <ExternalDns />
           <section id="capture">
             <header>
               <Icon name="activity" />
@@ -1622,6 +1620,7 @@ export function SettingsView({
               )}
             </div>
           </section>
+          <ExternalDns />
         </div>
       </div>
     </section>

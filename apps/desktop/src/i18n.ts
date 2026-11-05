@@ -4,6 +4,11 @@ export type Language = "en" | "es";
 export type TranslationValues = Record<string, string | number>;
 
 const spanish: Record<string, string> = {
+  "Observed {time}": "Observado a las {time}",
+  "Open the retained evidence to inspect the destination's source and quality.":
+    "Abre la evidencia guardada para consultar el origen y la calidad del destino.",
+  "New investigation": "Nueva investigación",
+  "Edit investigation": "Editar investigación",
   Time: "Hora",
   Type: "Tipo",
   Result: "Resultado",
@@ -1277,8 +1282,6 @@ const spanish: Record<string, string> = {
   "New country": "País nuevo",
   "New destination for application": "Destino nuevo para la aplicación",
   "New executable revision": "Revisión nueva del ejecutable",
-  "New for {process}; open the retained evidence to inspect source and quality.":
-    "Nuevo para {process}; abre la evidencia conservada para comprobar su fuente y calidad.",
   "No matching settings.": "Ningún ajuste coincide.",
   "No previous valid session": "No hay una sesión anterior válida",
   "No structural differences from the previous session.":
@@ -1307,7 +1310,6 @@ const spanish: Record<string, string> = {
   "Sent difference": "Diferencia enviada",
   "The pseudonymous local network profile changed during this session.":
     "El perfil de red local seudónimo cambió durante esta sesión.",
-  "this application": "esta aplicación",
   "This application revision was not present in retained network evidence.":
     "Esta revisión de la aplicación no estaba presente en la evidencia de red conservada.",
   "Traffic totals are not comparable because counter sources differ or are unavailable. Structural changes remain valid.":

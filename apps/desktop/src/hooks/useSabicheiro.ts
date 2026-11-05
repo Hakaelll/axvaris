@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { desktopApi } from "#backend";
 import {
+  processNotificationConnections,
+  type LocalNotification,
+} from "../lib/notifications";
+import {
   isListenerOnly,
   isLocalAddress,
   matchesQuery,
@@ -117,12 +121,7 @@ const defaultSettings: AppSettings = {
 
 const emptyFocusRules: FocusRules = { bookmarks: [], ignore_rules: [] };
 
-export interface LocalNotification {
-  id: string;
-  title: string;
-  detail: string;
-  created_at_ms: number;
-}
+export type { LocalNotification } from "../lib/notifications";
 
 function normalizeError(error: unknown): CommandFailure {
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -506,65 +505,17 @@ export function useSabicheiro() {
           );
           notificationReady.current = next.capture.mode !== "off";
         } else {
-          const now = Date.now();
-          const created: LocalNotification[] = [];
-          for (const connection of active) {
-            if (seenConnectionIds.current.has(connection.id)) continue;
-            const processKey = `${connection.process.name}:${connection.process.pid ?? "?"}`;
-            const isNewProcess = !seenProcesses.current.has(processKey);
-            const country = connection.geo?.country_code ?? null;
-            const isNewCountry = Boolean(
-              country && !seenCountries.current.has(country),
-            );
-            for (const rule of settingsRef.current.notification_rules) {
-              if (!rule.enabled) continue;
-              const value = rule.value?.trim().toLowerCase() ?? "";
-              const matches =
-                (rule.kind === "new_process" && isNewProcess) ||
-                (rule.kind === "new_country" && isNewCountry) ||
-                (rule.kind === "port" &&
-                  String(connection.key.remote.port) === value) ||
-                (rule.kind === "asn" &&
-                  Boolean(
-                    connection.asn &&
-                      (String(connection.asn.number) === value ||
-                        (connection.asn.organization ?? "")
-                          .toLowerCase()
-                          .includes(value)),
-                  ));
-              const previous = notificationCooldowns.current.get(rule.id) ?? 0;
-              if (
-                !matches ||
-                now - previous < Math.max(5, rule.cooldown_seconds) * 1_000
-              )
-                continue;
-              notificationCooldowns.current.set(rule.id, now);
-              const title =
-                rule.kind === "new_process"
-                  ? "New network process"
-                  : rule.kind === "new_country"
-                    ? "New destination country"
-                    : rule.kind === "asn"
-                      ? "ASN rule matched"
-                      : "Port rule matched";
-              const detail = `${connection.process.name} → ${connection.domain ?? connection.hostname ?? connection.key.remote.address}:${connection.key.remote.port}`;
-              created.push({
-                id: `${rule.id}-${connection.id}-${now}`,
-                title,
-                detail,
-                created_at_ms: now,
-              });
-              if (
-                typeof Notification !== "undefined" &&
-                Notification.permission === "granted"
-              ) {
-                new Notification(`Axvaris / ${title}`, { body: detail });
-              }
-            }
-            seenConnectionIds.current.add(connection.id);
-            seenProcesses.current.add(processKey);
-            if (country) seenCountries.current.add(country);
-          }
+          const created = processNotificationConnections(
+            active,
+            settingsRef.current,
+            {
+              seenConnectionIds: seenConnectionIds.current,
+              seenProcesses: seenProcesses.current,
+              seenCountries: seenCountries.current,
+              cooldowns: notificationCooldowns.current,
+            },
+            Date.now(),
+          );
           if (created.length > 0) {
             setNotifications((current) =>
               [...created, ...current].slice(0, 20),

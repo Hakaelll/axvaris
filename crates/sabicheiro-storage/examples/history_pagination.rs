@@ -66,10 +66,10 @@ fn connection(index: usize) -> Connection {
             ((index >> 8) & 0xff) as u8,
             index as u8,
         )),
-        if index % 7 == 0 { 53 } else { 443 },
+        if index.is_multiple_of(7) { 53 } else { 443 },
     );
     connection.key.remote.scope = AddressScope::Benchmark;
-    connection.protocol = if index % 7 == 0 {
+    connection.protocol = if index.is_multiple_of(7) {
         NetworkProtocol::Udp
     } else {
         NetworkProtocol::Tcp
@@ -85,7 +85,7 @@ fn connection(index: usize) -> Connection {
         ..ProcessInfo::default()
     };
     connection.domain = Some(format!("host-{}.invalid", index % 512));
-    connection.active = index % 3 == 0;
+    connection.active = index.is_multiple_of(3);
     connection.traffic.bytes_received = index as u64 * 97;
     connection.traffic.bytes_sent = index as u64 * 31;
     connection

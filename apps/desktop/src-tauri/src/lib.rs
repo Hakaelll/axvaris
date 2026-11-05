@@ -3355,12 +3355,18 @@ fn set_view_paused(paused: bool, state: State<'_, AppState>) -> Result<(), Comma
 }
 
 #[tauri::command]
-fn query_history(
+async fn query_history(
     query: HistoryQuery,
     state: State<'_, AppState>,
 ) -> Result<HistoryResponse, CommandError> {
-    let engine = state
-        .0
+    let runtime = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || load_history(&runtime, query))
+        .await
+        .map_err(|error| CommandError::recoverable("history_unavailable", error))?
+}
+
+fn load_history(runtime: &Runtime, query: HistoryQuery) -> Result<HistoryResponse, CommandError> {
+    let engine = runtime
         .engine
         .lock()
         .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
@@ -3429,16 +3435,27 @@ fn query_history(
             has_more,
         });
     }
-    let page = engine
-        .storage
-        .query_history_page(&query)
+    let Some(path) = engine.storage.database_path().map(Path::to_path_buf) else {
+        // Emergency in-memory storage has no independent SQLite reader.
+        return retained_history(&engine.storage, &query);
+    };
+    drop(engine);
+    let storage = Storage::open_read_only(path)
         .map_err(|error| CommandError::recoverable("history_unavailable", error))?;
-    let sessions = engine
-        .storage
+    retained_history(&storage, &query)
+}
+
+fn retained_history(
+    storage: &Storage,
+    query: &HistoryQuery,
+) -> Result<HistoryResponse, CommandError> {
+    let page = storage
+        .query_history_page(query)
+        .map_err(|error| CommandError::recoverable("history_unavailable", error))?;
+    let sessions = storage
         .list_sessions(100)
         .map_err(|error| CommandError::recoverable("history_unavailable", error))?;
-    let recordings = engine
-        .storage
+    let recordings = storage
         .list_recordings(query.session_id.as_deref(), 1_000)
         .map_err(|error| CommandError::recoverable("history_unavailable", error))?;
     Ok(HistoryResponse {
@@ -5400,21 +5417,32 @@ async fn remove_geo_database(
 }
 
 #[tauri::command]
-fn export_view(
+async fn export_view(
     mut request: ExportRequest,
     state: State<'_, AppState>,
 ) -> Result<ExportResult, CommandError> {
     let runtime = state.0.clone();
-    request.path = prepare_output_path(&runtime.data_directory, &request.path)?
-        .to_string_lossy()
-        .into_owned();
-    runtime
-        .engine
-        .lock()
-        .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?
-        .storage
-        .export(&request)
-        .map_err(|error| CommandError::recoverable("export_failed", error))
+    tauri::async_runtime::spawn_blocking(move || {
+        request.path = prepare_output_path(&runtime.data_directory, &request.path)?
+            .to_string_lossy()
+            .into_owned();
+        let engine = runtime
+            .engine
+            .lock()
+            .map_err(|_| CommandError::fatal("state_poisoned", "runtime state is unavailable"))?;
+        let Some(path) = engine.storage.database_path().map(Path::to_path_buf) else {
+            return engine
+                .storage
+                .export(&request)
+                .map_err(|error| CommandError::recoverable("export_failed", error));
+        };
+        drop(engine);
+        Storage::open_read_only(path)
+            .and_then(|storage| storage.export(&request))
+            .map_err(|error| CommandError::recoverable("export_failed", error))
+    })
+    .await
+    .map_err(|error| CommandError::recoverable("export_failed", error))?
 }
 
 #[tauri::command]
@@ -6504,6 +6532,74 @@ mod command_tests {
         assert_eq!(rates.down_bytes_per_second, 2_048.0);
         assert_eq!(rates.up_bytes_per_second, 1_024.0);
         assert_eq!(rates.packets_per_second, 60.0);
+    }
+
+    #[test]
+    fn history_reader_does_not_need_the_capture_state_lock() {
+        let (runtime, directory) = isolated_runtime("history-reader");
+        let now = sabicheiro_core::now_ms();
+        let mut connection = Connection::placeholder(now);
+        connection.id = "retained-history".into();
+        connection.process.name = "history-fixture".into();
+        {
+            let mut engine = runtime.engine.lock().unwrap();
+            engine
+                .storage
+                .start_session("history-session", now)
+                .unwrap();
+            engine
+                .storage
+                .save_connections("history-session", std::slice::from_ref(&connection))
+                .unwrap();
+        }
+        let query = HistoryQuery {
+            query: Some("process:history-fixture".into()),
+            session_id: Some("history-session".into()),
+            limit: 1,
+            ..HistoryQuery::default()
+        };
+        let storage = Storage::open_read_only(directory.join("sabicheiro.sqlite3")).unwrap();
+        let capture_guard = runtime.engine.lock().expect("capture state stays locked");
+        let result = retained_history(&storage, &query).expect("independent history reader");
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].connection.id, "retained-history");
+        let exported = storage
+            .export(&ExportRequest {
+                format: ExportFormat::Json,
+                path: directory
+                    .join("history.json")
+                    .to_string_lossy()
+                    .into_owned(),
+                session_id: Some("history-session".into()),
+                process_key: None,
+                from_ms: None,
+                to_ms: None,
+                query: None,
+                redaction: Default::default(),
+            })
+            .expect("read-only export while capture state is locked");
+        assert_eq!(exported.records, 1);
+        drop(capture_guard);
+        drop(storage);
+        assert_eq!(
+            load_history(&runtime, query.clone()).unwrap().entries.len(),
+            1
+        );
+        {
+            let mut engine = runtime.engine.lock().unwrap();
+            engine.storage = Storage::in_memory().unwrap();
+            engine
+                .storage
+                .start_session("history-session", now)
+                .unwrap();
+            engine
+                .storage
+                .save_connections("history-session", &[connection])
+                .unwrap();
+        }
+        assert_eq!(load_history(&runtime, query).unwrap().entries.len(), 1);
+        drop(runtime);
+        fs::remove_dir_all(directory).expect("remove history fixture");
     }
 
     #[test]

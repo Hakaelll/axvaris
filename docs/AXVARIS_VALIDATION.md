@@ -1,5 +1,15 @@
 # Axvaris implementation evidence
 
+## Evidence and workspace corrections, 2026-11-05
+
+- `pnpm check`, `pnpm lint` and `cargo fmt --all -- --check` passed. The complete Rust run passed 164 tests; one elevated ETW test remains explicitly ignored.
+- Export regressions cover 105,001 rows in CSV and JSON, an older process beyond the former 100,000-row cap, per-page redaction, and preservation of an existing destination after a later-page error.
+- Notification regressions cover simultaneous connections/profiles, legacy record identities, snooze retention, local quiet-hour boundaries and cooldowns.
+- Client tests cover requested investigation windows, frozen metadata autosaves, unloaded pin scopes, rejection of stale save responses, and keyboard control guards. They test helpers and server-rendered markup, rather than browser interaction.
+- An independent read-only history/export test succeeds while the capture-state mutex is held. The emergency in-memory storage path retains its existing connection. No prolonged capture-performance claim follows from these checks.
+- The final independent code review found no remaining blocking issue after investigation persistence corrections. Native Windows checks ran outside the managed sandbox because its OS socket and pipe access was restricted.
+- Fresh screenshots, before/after layout comparison, and computed text scaling at 200% were not verified. CUA access to the local Helium browser was not approved. Earlier screenshots do not establish the appearance of this revision.
+
 ## Baseline
 
 - Source: `7b0539a`, Windows x86_64, 12 October 2026.

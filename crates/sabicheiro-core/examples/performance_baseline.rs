@@ -78,7 +78,7 @@ fn connection(index: usize) -> Connection {
     );
     connection.key.remote = Endpoint::new(IpAddr::V4(octets.into()), 443);
     connection.key.remote.scope = AddressScope::Global;
-    connection.key.protocol = if index % 7 == 0 {
+    connection.key.protocol = if index.is_multiple_of(7) {
         NetworkProtocol::Udp
     } else {
         NetworkProtocol::Tcp

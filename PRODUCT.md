@@ -18,7 +18,7 @@ The product is for people who need to understand which applications communicate,
 
 Windows uses IP Helper TCP/UDP socket snapshots with owner PID and optional ETW network and DNS events. Elevated event capture needs permission. Polling can miss short-lived sockets.
 
-Linux currently uses Netlink INET_DIAG TCP/UDP IPv4/IPv6 snapshots and socket-inode ownership through /proc/<pid>/fd. PID attribution depends on process and namespace visibility. An Aya event-capture implementation is not yet complete and is not a shipped capability.
+Linux uses Netlink INET_DIAG TCP/UDP IPv4/IPv6 snapshots and socket-inode ownership through /proc/<pid>/fd. PID attribution depends on process and namespace visibility. An optional Aya helper adds TCP lifecycle events and UDP datagrams when installed separately with the documented permissions. The desktop packages retain INET_DIAG fallback; they do not install or enable the helper.
 
 Process attribution includes creation time when available. Unresolved identities, missing locations, provider timestamps and capture loss remain explicit. Local GeoIP databases provide approximate destination context; the application does not invent geographical coordinates.
 

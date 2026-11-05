@@ -3129,7 +3129,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "sabicheiro-capture"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "aya",
  "ferrisetw",
@@ -3146,7 +3146,7 @@ dependencies = [
 
 [[package]]
 name = "sabicheiro-core"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chrono",
  "serde",
@@ -3158,7 +3158,7 @@ dependencies = [
 
 [[package]]
 name = "sabicheiro-desktop"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chrono",
  "sabicheiro-capture",
@@ -3175,7 +3175,7 @@ dependencies = [
 
 [[package]]
 name = "sabicheiro-geo"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chrono",
  "dns-lookup",
@@ -3192,7 +3192,7 @@ dependencies = [
 
 [[package]]
 name = "sabicheiro-storage"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chrono",
  "rusqlite",

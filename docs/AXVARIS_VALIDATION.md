@@ -90,8 +90,9 @@ compact summary values. Fixtures are explicitly browser demonstration data.
 Native capture and installer acceptance were outside this interface update.
 The independent final finish review inspected all 13 selected references and all
 20 final captures, confirmed current design persistence and returned `ship`
-without remaining material fixes. Its report is in
-`.impeccable/review/finish-review.md`.
+without remaining material fixes. The historical review packet is available in
+Git history. New runs write generated captures and their verification report to
+ignored `target/ui-review/` by default.
 
 ## Remaining acceptance work
 

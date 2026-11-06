@@ -1,5 +1,9 @@
 # Sabicheiro validation record
 
+This is the historical validation record. See [AXVARIS_VALIDATION.md](AXVARIS_VALIDATION.md) for current acceptance status.
+Older release notes, SBOMs, checksum manifests and the retired maintenance plan are available in Git history.
+Paths and hashes in the historical tables describe the artifacts at the time of validation.
+
 `PASS` means the command or bounded native check completed on the stated host. `REVIEW`
 means implementation or partial evidence exists but the full acceptance environment
 was unavailable. `BLOCKED` identifies an external host/tool prerequisite. No `REVIEW`
@@ -266,7 +270,7 @@ designed. No Sabicheiro process or active installation remained after the cycle.
 | Visual/Narrator/NVDA/HiDPI | REVIEW | Run the native five-flow keyboard and screen-reader matrix at all required sizes/scales. |
 | Stable release gate | BLOCKED | Close every P0 row above, regenerate platform artifacts/SBOM/hashes and reconcile release notes. |
 
-`NEXT_TODOS.md` remains the authoritative per-item status ledger. Sabicheiro 0.4.1 is a
+The current acceptance status is recorded in [AXVARIS_VALIDATION.md](AXVARIS_VALIDATION.md). Sabicheiro 0.4.1 is a
 complete maintenance release package for the requested fixes, while the broader P0
 acceptance gates remain explicitly open.
 
@@ -426,7 +430,7 @@ installation was present before the test.
 | Visual/Narrator/NVDA/HiDPI | REVIEW | Native five-flow keyboard and screen-reader matrix at all required sizes/scales. |
 | Stable release gate | BLOCKED | Close every P0 row above, regenerate platform artifacts/SBOM/hashes and reconcile release notes. |
 
-`NEXT_TODOS.md` is the authoritative per-item status ledger. This record deliberately
+The current acceptance status is recorded in [AXVARIS_VALIDATION.md](AXVARIS_VALIDATION.md). This record deliberately
 preserves unresolved gates rather than manufacturing release evidence.
 
 ---
@@ -674,6 +678,6 @@ it contains generated binaries.
 | OS screen reader | REVIEW | Semantic tree and keyboard shortcuts passed; run NVDA/Narrator and a Linux screen reader before claiming platform screen-reader certification. |
 | NSIS install/uninstall UX | REVIEW | Bundle generation and portable executable smoke passed; exercise Start-menu entry, installed launch and uninstaller in a disposable account/VM. |
 
-These `REVIEW` items remain visible in `NEXT_TODOS.md`. The application degrades
+See [AXVARIS_VALIDATION.md](AXVARIS_VALIDATION.md) for current acceptance work. The application degrades
 explicitly when optional evidence is unavailable: no fallback invents an endpoint,
 domain, coordinate, process identity, counter or security verdict.

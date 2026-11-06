@@ -2,7 +2,7 @@
 
 Este conjunto contiene 13 propuestas de pantalla generadas con la herramienta integrada de imágenes. Conserva la identidad oscura de Axvaris y explora una composición más visual, inspirada en herramientas de análisis como Gotham.
 
-Abre [la galería](index.html) para ampliar cada imagen y consultar su original. Los PNG de esta carpeta son las referencias seleccionadas. `originales/` conserva las 13 capturas de entrada. `variantes/` conserva las primeras propuestas que se corrigieron. Los prompts completos están en [prompts.json](prompts.json).
+Los PNG de esta carpeta son las referencias seleccionadas. El sistema visual vigente está documentado en [DESIGN.md](../../DESIGN.md).
 
 ## Pantallas
 
@@ -24,7 +24,7 @@ Abre [la galería](index.html) para ampliar cada imagen y consultar su original.
 
 ## Criterios para la implementación
 
-Usa las imágenes como referencia de composición, jerarquía y materiales. Comprueba textos, valores, estados y acciones con las capturas originales y el producto antes de implementarlos. La tipografía rasterizada y la geometría de un mapa generado no son fuentes de datos.
+Usa las imágenes como referencia de composición, jerarquía y materiales. Comprueba textos, valores, estados y acciones con el producto antes de implementarlos. La tipografía rasterizada y la geometría de un mapa generado no son fuentes de datos.
 
 - Conserva el wordmark y la X originales. Usa Geist para la interfaz y Geist Mono para direcciones, puertos, fechas y medidas.
 - Mantén las cinco áreas de navegación y permite reorganizar su contenido según la tarea.

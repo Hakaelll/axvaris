@@ -80,4 +80,4 @@ when already installed; they are not linked into or redistributed with Sabicheir
 The lockfiles are the release bill of materials. Before release, run the dependency
 license audit described in `BUILD.md` and reconcile any new transitive license here.
 The versioned SPDX 2.3 machine-readable bill of materials is generated at
-`docs/sbom-0.4.2.spdx.json`; its checksum ships beside release artifacts.
+`docs/sbom-0.4.3.spdx.json`; its checksum ships beside release artifacts.

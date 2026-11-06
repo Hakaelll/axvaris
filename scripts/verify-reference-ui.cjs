@@ -4,7 +4,7 @@ const path = require('node:path');
 const { chromium } = require(process.env.AXVARIS_PLAYWRIGHT_MODULE || 'playwright');
 
 (async () => {
-  const output = path.resolve(process.env.AXVARIS_REVIEW_DIR || '.impeccable/review');
+  const output = path.resolve(process.env.AXVARIS_REVIEW_DIR || 'target/ui-review');
   fs.mkdirSync(output, { recursive: true });
   const browser = await chromium.launch({ headless: true, channel: 'msedge' });
   try {
